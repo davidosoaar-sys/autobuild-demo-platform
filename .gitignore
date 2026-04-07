@@ -1,0 +1,20 @@
+# ── Existing Next.js ignores (keep these) ──────────────────────────────────
+.next/
+node_modules/
+.env.local
+.env*.local
+
+# ── Python backend ───────────────────────────────────────────────────────────
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+backend/results/
+backend/checkpoints/
+backend/tb_logs/
+
+# DO NOT ignore model.zip — Railway needs it
+# backend/model.zip  ← keep this commented out
+
+# ── General ──────────────────────────────────────────────────────────────────
+.DS_Store
+*.log
