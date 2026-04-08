@@ -39,7 +39,6 @@ export default function LiveMonitoring() {
         : '0%',
       alerts:         s.alerts,
       printerName:    activeProject.printer.name,
-      printerModel:   activeProject.printer.model,
       structureType:  activeProject.structureType,
     };
 

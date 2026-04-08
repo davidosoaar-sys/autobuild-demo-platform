@@ -18,8 +18,12 @@ export interface ProjectReport {
   totalLayers:    number;
   layersPrinted:  number;
   errorsDetected: number;
+  errorRate:      string;
   duration:       string;
   alerts:         ReportAlert[];
+  printerName?:   string;
+  printerModel?:  string;
+  structureType?: string;
 }
 
 export interface Project {
