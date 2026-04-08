@@ -7,7 +7,19 @@ import { supabase, DBProject } from './supabase';
 
 // ── Project type (what components use) ───────────────────────────────────────
 
-export interface Project {
+export interface ReportAlert {
+  time:    string;
+  layer:   number;
+  message: string;
+}
+
+export interface ProjectReport {
+  totalLayers:    number;
+  layersPrinted:  number;
+  errorsDetected: number;
+  duration:       string;
+  alerts:         ReportAlert[];
+}
   id:            string;
   name:          string;
   description:   string;
