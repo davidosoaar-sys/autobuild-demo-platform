@@ -36,15 +36,15 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["http://localhost:3000", "https://*.vercel.app"],
-    allow_credentials = True,
+    allow_origins     = ["*"],
+    allow_credentials = False,
     allow_methods     = ["*"],
     allow_headers     = ["*"],
 )
 
 MODEL_PATH  = os.getenv("MODEL_PATH",  "model.zip")
 RESULTS_DIR = "results"
-OW_KEY      = os.getenv("OPENWEATHER_API_KEY", "b3c56e66236ef0a54e1d8aee8f399533")
+OW_KEY      = "b3c56e66236ef0a54e1d8aee8f399533"
 OW_BASE     = "http://api.openweathermap.org/data/2.5"
 OW_GEO_BASE = "http://api.openweathermap.org/geo/1.0"
 os.makedirs(RESULTS_DIR, exist_ok=True)
