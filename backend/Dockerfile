@@ -9,10 +9,13 @@ RUN apt-get update && apt-get install -y \
 
 COPY backend/requirements.txt .
 
-# Install CPU-only torch matching local version
-RUN pip install --no-cache-dir torch==2.11.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+# Install numpy first at 1.26.4 (stable, compatible with trimesh + sb3)
+RUN pip install --no-cache-dir "numpy==1.26.4"
 
-# Install all other dependencies
+# Install CPU-only torch
+RUN pip install --no-cache-dir torch==2.3.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Install all other dependencies (numpy already installed, will be skipped)
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
