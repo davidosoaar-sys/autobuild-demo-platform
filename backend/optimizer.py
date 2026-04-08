@@ -90,11 +90,16 @@ _cached_model = None
 _cached_model_path = None
 
 def _load_model(model_path: str):
-    """Load PPO model once and cache it in memory."""
+    """Load PPO model once and cache it. Returns None if loading fails."""
     global _cached_model, _cached_model_path
     if _cached_model is None or _cached_model_path != model_path:
-        _cached_model      = PPO.load(model_path)
-        _cached_model_path = model_path
+        try:
+            _cached_model      = PPO.load(model_path)
+            _cached_model_path = model_path
+        except Exception as e:
+            print(f"Warning: Could not load RL model: {e}. Using nearest-neighbour fallback.")
+            _cached_model      = None
+            _cached_model_path = model_path
     return _cached_model
 
 
@@ -126,9 +131,9 @@ def optimize(
     printer = printer or {}
     printer = {**DEFAULT_PRINTER, **printer}
 
-    # Load model once — cached after first call
+    # Load model once — cached after first call, None if unavailable
     model = _load_model(model_path)
-    env   = AdaptiveSlicerEnv()
+    env   = AdaptiveSlicerEnv() if model else None
 
     layers_to_process = geometry[:max_layers] if max_layers else geometry
     layer_metas_use   = layer_metas[:len(layers_to_process)]
@@ -218,7 +223,7 @@ def optimize(
             segs    = layer_segs[:MAX_SEGMENTS]
             naive_l = _naive_travel_mm(segs)
 
-            use_rl  = (layer_idx % RL_SAMPLE_RATE == 0)
+            use_rl  = (layer_idx % RL_SAMPLE_RATE == 0) and model is not None
 
             if use_rl:
                 # Full RL ordering
