@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y \
 
 COPY backend/requirements.txt .
 
-# Install CPU-only torch first
-RUN pip install --no-cache-dir torch==2.3.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+# Install CPU-only torch matching local version
+RUN pip install --no-cache-dir torch==2.11.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Install all other dependencies
 RUN pip install --no-cache-dir -r requirements.txt
