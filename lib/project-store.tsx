@@ -53,14 +53,15 @@ export interface Project {
 }
 
 interface ProjectContextValue {
-  projects:       Project[];
-  activeProject:  Project | null;
-  loading:        boolean;
-  createProject:  (data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>) => Promise<Project>;
-  updateProject:  (id: string, updates: Partial<Project>) => Promise<void>;
-  setActive:      (id: string) => void;
-  deleteProject:  (id: string) => Promise<void>;
-  refreshProjects: () => Promise<void>;
+  projects:          Project[];
+  activeProject:     Project | null;
+  loading:           boolean;
+  createProject:     (data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>) => Promise<Project>;
+  updateProject:     (id: string, updates: Partial<Project>) => Promise<void>;
+  setActive:         (id: string) => void;
+  setActiveProject:  (id: string) => void;
+  deleteProject:     (id: string) => Promise<void>;
+  refreshProjects:   () => Promise<void>;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -201,6 +202,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     <ProjectContext.Provider value={{
       projects, activeProject, loading,
       createProject, updateProject, setActive,
+      setActiveProject: setActiveId,
       deleteProject, refreshProjects,
     }}>
       {children}
