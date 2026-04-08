@@ -518,7 +518,7 @@ export default function PrinterSetupPage() {
         status: 'pre-print',
         printer: {
           name:     printer.name,
-          type:     printer.type,
+          type:     printer.type as string,
           nozzle:   printer.nozzle,
           maxSpeed: printer.maxSpeed,
         },
