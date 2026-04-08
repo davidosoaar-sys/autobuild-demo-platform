@@ -20,6 +20,8 @@ export interface ProjectReport {
   duration:       string;
   alerts:         ReportAlert[];
 }
+
+export interface Project {
   id:            string;
   name:          string;
   description:   string;
