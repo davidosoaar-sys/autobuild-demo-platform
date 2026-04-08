@@ -38,7 +38,7 @@ export default function ReportPage() {
     errorRate:      '0%',
     alerts:         [],
     printerName:    activeProject?.printer.name  ?? '—',
-    printerModel:   activeProject?.printer.model ?? '—',
+    printerModel:   activeProject?.printer.type  ?? '—',
     structureType:  activeProject?.structureType ?? '—',
   };
 
