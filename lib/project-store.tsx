@@ -1,112 +1,189 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import {
+  createContext, useContext, useEffect, useState, useCallback, ReactNode,
+} from 'react';
+import { supabase, DBProject } from './supabase';
 
-export interface Printer {
-  name: string;
-  model: string;
-  ip: string;
-  status: 'connected' | 'connecting' | 'failed' | 'idle';
-}
+// ── Project type (what components use) ───────────────────────────────────────
 
 export interface Project {
-  id: string;
-  name: string;
-  description: string;
-  createdAt: string;
-  status: 'setup' | 'pre-print' | 'printing' | 'complete';
-  printer: Printer;
-  totalLayers: number;
-  printSpeed: number;
+  id:            string;
+  name:          string;
+  description:   string;
+  createdAt:     string;
+  status:        'setup' | 'pre-print' | 'printing' | 'complete';
+  address:       string;
   structureType: string;
-  report?: ProjectReport;
+  totalLayers:   number;
+  printSpeed:    number;
+  printer: {
+    name:          string;
+    type?:         string;
+    nozzle:        string;
+    maxSpeed:      string;
+    manualConfig?: Record<string, any>;
+  };
+  report?: {
+    totalLayers:    number;
+    layersPrinted:  number;
+    errorsDetected: number;
+    duration:       string;
+    alerts:         { time: string; layer: number; message: string }[];
+  };
 }
 
-export interface ReportAlert {
-  id: string;
-  time: string;
-  cameraLabel: string;
-  type: 'caution' | 'warning';
-  angle: number;
-  layer: number;
+interface ProjectContextValue {
+  projects:       Project[];
+  activeProject:  Project | null;
+  loading:        boolean;
+  createProject:  (data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>) => Promise<Project>;
+  updateProject:  (id: string, updates: Partial<Project>) => Promise<void>;
+  setActive:      (id: string) => void;
+  deleteProject:  (id: string) => Promise<void>;
+  refreshProjects: () => Promise<void>;
 }
 
-export interface ProjectReport {
-  generatedAt: string;
-  duration: string;
-  totalLayers: number;
-  layersPrinted: number;
-  errorsDetected: number;
-  errorRate: string;
-  alerts: ReportAlert[];
-  printerName: string;
-  printerModel: string;
-  structureType: string;
+const ProjectContext = createContext<ProjectContextValue | null>(null);
+
+// ── Map DB row → Project ──────────────────────────────────────────────────────
+
+function dbToProject(row: DBProject, printer?: any): Project {
+  return {
+    id:            row.id,
+    name:          row.name,
+    description:   row.description ?? '',
+    createdAt:     row.created_at,
+    status:        row.status,
+    address:       row.address ?? '',
+    structureType: row.structure_type,
+    totalLayers:   row.total_layers,
+    printSpeed:    row.print_speed,
+    printer:       printer ?? { name: '', type: '', nozzle: '', maxSpeed: '' },
+  };
 }
 
-interface ProjectContextType {
-  projects: Project[];
-  activeProject: Project | null;
-  setActiveProject: (p: Project | null) => void;
-  createProject: (p: Omit<Project, 'id' | 'createdAt' | 'status'>) => Project;
-  updateProject: (id: string, updates: Partial<Project>) => void;
-  deleteProject: (id: string) => void;
-}
-
-const ProjectContext = createContext<ProjectContextType | null>(null);
-
-const SEED_PROJECTS: Project[] = [
-  {
-    id: 'proj-001',
-    name: 'Wall Section A',
-    description: 'North perimeter wall, 3m height target',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-    status: 'complete',
-    printer: { name: 'COBOD BOD2 #1', model: 'COBOD BOD2', ip: '192.168.1.101', status: 'idle' },
-    totalLayers: 120,
-    printSpeed: 60,
-    structureType: 'Load-bearing wall',
-  },
-  {
-    id: 'proj-002',
-    name: 'Foundation Slab B',
-    description: 'Reinforced base layer for module B',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
-    status: 'printing',
-    printer: { name: 'Printerra P1', model: 'Printerra P1', ip: '192.168.1.102', status: 'connected' },
-    totalLayers: 80,
-    printSpeed: 55,
-    structureType: 'Foundation slab',
-  },
-];
+// ── Provider ──────────────────────────────────────────────────────────────────
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [projects, setProjects] = useState<Project[]>(SEED_PROJECTS);
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [projects,      setProjects]      = useState<Project[]>([]);
+  const [activeId,      setActiveId]      = useState<string | null>(null);
+  const [loading,       setLoading]       = useState(true);
 
-  const createProject = (data: Omit<Project, 'id' | 'createdAt' | 'status'>): Project => {
-    const newProject: Project = {
-      ...data,
-      id: `proj-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      status: 'setup',
-    };
-    setProjects(prev => [newProject, ...prev]);
-    return newProject;
-  };
+  const refreshProjects = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch projects
+      const { data: rows, error } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-  const updateProject = (id: string, updates: Partial<Project>) => {
-    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
-    setActiveProject(prev => prev?.id === id ? { ...prev, ...updates } : prev);
-  };
+      if (error) throw error;
 
-  const deleteProject = (id: string) => {
+      // Fetch printer configs for all projects
+      const { data: printers } = await supabase
+        .from('printer_configs')
+        .select('*');
+
+      const printerMap: Record<string, any> = {};
+      (printers ?? []).forEach(p => { printerMap[p.project_id] = p; });
+
+      const mapped: Project[] = (rows ?? []).map(row => {
+        const pc = printerMap[row.id];
+        const printer = pc ? {
+          name:         pc.printer_name,
+          type:         pc.printer_type ?? '',
+          nozzle:       pc.nozzle ?? '',
+          maxSpeed:     pc.max_speed ?? '',
+          manualConfig: pc.manual_config ?? undefined,
+        } : { name:'', type:'', nozzle:'', maxSpeed:'' };
+        return dbToProject(row, printer);
+      });
+
+      setProjects(mapped);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refreshProjects(); }, [refreshProjects]);
+
+  const createProject = useCallback(async (
+    data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>,
+  ): Promise<Project> => {
+    const { data: row, error } = await supabase
+      .from('projects')
+      .insert({
+        name:           data.name,
+        description:    data.description,
+        address:        data.address,
+        structure_type: data.structureType,
+        status:         'setup',
+        total_layers:   data.totalLayers ?? 100,
+        print_speed:    data.printSpeed  ?? 60,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const project = dbToProject(row);
+    setProjects(prev => [project, ...prev]);
+    setActiveId(project.id);
+    return project;
+  }, []);
+
+  const updateProject = useCallback(async (id: string, updates: Partial<Project>) => {
+    // Update projects table fields
+    const dbUpdates: Partial<DBProject> = {};
+    if (updates.status        !== undefined) dbUpdates.status         = updates.status;
+    if (updates.totalLayers   !== undefined) dbUpdates.total_layers   = updates.totalLayers;
+    if (updates.printSpeed    !== undefined) dbUpdates.print_speed    = updates.printSpeed;
+    if (updates.structureType !== undefined) dbUpdates.structure_type = updates.structureType;
+    if (updates.name          !== undefined) dbUpdates.name           = updates.name;
+    if (updates.description   !== undefined) dbUpdates.description    = updates.description;
+
+    if (Object.keys(dbUpdates).length > 0) {
+      await supabase.from('projects').update(dbUpdates).eq('id', id);
+    }
+
+    // Update printer config if provided
+    if (updates.printer) {
+      const p = updates.printer;
+      // Upsert printer config
+      await supabase.from('printer_configs').upsert({
+        project_id:   id,
+        printer_name: p.name,
+        printer_type: p.type,
+        nozzle:       p.nozzle,
+        max_speed:    p.maxSpeed,
+        manual_config: p.manualConfig ?? null,
+      }, { onConflict: 'project_id' });
+    }
+
+    // Update local state optimistically
+    setProjects(prev => prev.map(p =>
+      p.id === id ? { ...p, ...updates } : p
+    ));
+  }, []);
+
+  const deleteProject = useCallback(async (id: string) => {
+    await supabase.from('projects').delete().eq('id', id);
     setProjects(prev => prev.filter(p => p.id !== id));
-    if (activeProject?.id === id) setActiveProject(null);
-  };
+    if (activeId === id) setActiveId(null);
+  }, [activeId]);
+
+  const setActive = useCallback((id: string) => setActiveId(id), []);
+
+  const activeProject = projects.find(p => p.id === activeId) ?? null;
 
   return (
-    <ProjectContext.Provider value={{ projects, activeProject, setActiveProject, createProject, updateProject, deleteProject }}>
+    <ProjectContext.Provider value={{
+      projects, activeProject, loading,
+      createProject, updateProject, setActive,
+      deleteProject, refreshProjects,
+    }}>
       {children}
     </ProjectContext.Provider>
   );
@@ -114,6 +191,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
 export function useProjects() {
   const ctx = useContext(ProjectContext);
-  if (!ctx) throw new Error('useProjects must be used within ProjectProvider');
+  if (!ctx) throw new Error('useProjects must be inside ProjectProvider');
   return ctx;
 }
