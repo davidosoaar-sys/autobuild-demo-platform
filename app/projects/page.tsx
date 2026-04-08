@@ -255,23 +255,23 @@ export default function ProjectsPage() {
 
   const activelyPrinting = projects.find(p => p.status === 'printing');
 
-  const handleCreate = (name: string, desc: string, structure: string, address: string) => {
-    const p = createProject({
+  const handleCreate = async (name: string, desc: string, structure: string, address: string) => {
+    const p = await createProject({
       name,
       description: desc,
       structureType: structure,
-      printer: { name: '', model: '', ip: '', status: 'idle' },
+      printer: { name: '', nozzle: '', maxSpeed: '' },
       totalLayers: 0,
       printSpeed: 60,
       ...(address ? { address } : {}),
     } as any);
-    setActiveProject(p);
+    setActiveProject(p.id);
     setShowCreate(false);
     router.push('/printer-setup');
   };
 
   const handleOpen = (project: Project) => {
-    setActiveProject(project);
+    setActiveProject(project.id);
     if (project.status === 'setup')          router.push('/printer-setup');
     else if (project.status === 'pre-print') router.push('/pre-print-optimizer');
     else if (project.status === 'printing')  router.push('/live-monitoring');
