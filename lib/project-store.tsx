@@ -14,6 +14,7 @@ export interface ReportAlert {
 }
 
 export interface ProjectReport {
+  generatedAt:    string;
   totalLayers:    number;
   layersPrinted:  number;
   errorsDetected: number;
