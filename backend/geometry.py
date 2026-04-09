@@ -1,40 +1,37 @@
 """
 geometry.py — 3DCP Adaptive Slicer
 
-Strategy:
-  1. Load mesh. For OBJ files apply Y-up → Z-up rotation.
-  2. Build a wall-only submesh (|nz| < 0.55).
-  3. At each layer Z, call trimesh.intersections.mesh_plane → raw 3D segments.
-  4. Project to 2D XY. These ARE the wall cross-section edges — no ring tracing
-     needed. We sort them into a continuous print path using nearest-neighbour
-     chaining. Gaps > GAP_THRESHOLD (window/door openings) are left as-is;
-     main.py's serialiser detects them and inserts {"gap": true} markers.
-
-OBJ Y-up fix:
-  OBJ format uses Y-up. We rotate the mesh -90° around X before slicing
-  so Z becomes the height axis.
+How it works:
+  1. Load mesh. OBJ files get Y-up → Z-up rotation applied.
+  2. At each layer Z, slice the FULL mesh (not wall-filtered) using
+     trimesh.intersections.mesh_plane → raw 3D line segments.
+  3. Polygonize those segments using Shapely → clean closed polygons
+     representing the actual cross-section of the building.
+  4. Inward-offset each polygon by nozzle_width/2 → print centreline.
+  5. Walk polygon.exterior.coords → ordered print segments.
+     Interior rings (holes = rooms) are also walked → inner wall passes.
+  6. Gaps between consecutive exterior coord pairs that are larger than
+     the nozzle width signal window/door openings — these are left as
+     coordinate jumps. main.py's serialiser detects them and inserts
+     {"gap": true} so the 3D viewer and G-code both handle them correctly.
 """
 
+import io
 import numpy as np
 import trimesh
-from typing import List, Tuple, Optional
-import io
+from shapely.geometry import MultiLineString, MultiPolygon, Polygon
+from shapely.ops import polygonize, unary_union
+from typing import List, Optional, Tuple
 
 from sika733 import (
-    LAYER_HEIGHT_MIN_M,
-    LAYER_HEIGHT_MAX_M,
     LAYER_HEIGHT_DEF_M,
+    LAYER_HEIGHT_MAX_M,
+    LAYER_HEIGHT_MIN_M,
 )
 
 Segment  = Tuple[Tuple[float, float], Tuple[float, float]]
 Layer    = List[Segment]
 Geometry = List[Layer]
-
-# Gaps larger than this between chained segments = window/door opening.
-# Main.py serialiser inserts {"gap": true} markers at these points.
-# In metres — 50mm is generous enough to catch real openings but not
-# treat close-but-disconnected wall segments as gaps.
-GAP_CHAIN_THRESHOLD_M = 0.05   # 50 mm
 
 
 def parse_and_slice(
@@ -43,10 +40,12 @@ def parse_and_slice(
     layer_height: float = LAYER_HEIGHT_DEF_M,
     nozzle_width: float = 0.025,
     max_layers:   Optional[int] = None,
+    print_scale:  float = 1.0,
 ) -> Tuple[Geometry, List[dict], dict]:
 
     ext = filename.lower().split(".")[-1]
 
+    # ── Load ──────────────────────────────────────────────────────────────────
     try:
         if ext == "stl":
             mesh = trimesh.load(io.BytesIO(file_bytes), file_type="stl", force="mesh")
@@ -57,27 +56,26 @@ def parse_and_slice(
     except Exception as e:
         raise ValueError(f"Could not load mesh: {e}")
 
-    # Merge scene into single mesh if needed
     if not isinstance(mesh, trimesh.Trimesh):
         try:
             mesh = trimesh.util.concatenate(list(mesh.geometry.values()))
         except Exception as e:
             raise ValueError(f"Could not merge mesh: {e}")
 
-    # ── OBJ Y-up → Z-up rotation ──────────────────────────────────────────────
-    # OBJ files store Y as vertical. Rotate -90° around X so Y becomes Z.
+    # ── OBJ: Y-up → Z-up ─────────────────────────────────────────────────────
     if ext == "obj":
-        rot = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
-        mesh.apply_transform(rot)
+        mesh.apply_transform(
+            trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+        )
 
-    # Fix mesh normals/winding
+    # ── Repair ────────────────────────────────────────────────────────────────
     try:
         trimesh.repair.fix_normals(mesh)
         trimesh.repair.fix_winding(mesh)
     except Exception:
         pass
 
-    # Centre: sit on Z=0, centre X/Y
+    # ── Centre on origin, sit on Z=0 ─────────────────────────────────────────
     b = mesh.bounds
     mesh.apply_translation([
         -(b[0][0] + b[1][0]) / 2.0,
@@ -85,31 +83,20 @@ def parse_and_slice(
         -b[0][2],
     ])
 
+    # Apply uniform print scale — all geometry, segments, perimeter, and
+    # estimated time scale correctly because the mesh itself is transformed.
+    if abs(print_scale - 1.0) > 1e-6:
+        mesh.apply_scale(float(print_scale))
+
     bounds       = mesh.bounds
     total_height = float(bounds[1][2])
     layer_height = float(np.clip(layer_height, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M))
 
     if total_height < layer_height:
         raise ValueError(
-            f"Model height {total_height:.4f}m is less than layer height {layer_height:.4f}m"
+            f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm"
         )
 
-    # ── Wall-only submesh ─────────────────────────────────────────────────────
-    # Keep faces whose normal is mostly horizontal (|nz| < 0.55).
-    # This removes roofs and floors which would add garbage cross-section segs.
-    try:
-        normals    = mesh.face_normals
-        wall_mask  = np.abs(normals[:, 2]) < 0.55
-        wall_faces = mesh.faces[wall_mask]
-        wall_mesh  = (
-            trimesh.Trimesh(vertices=mesh.vertices.copy(), faces=wall_faces, process=False)
-            if len(wall_faces) >= 10
-            else mesh
-        )
-    except Exception:
-        wall_mesh = mesh
-
-    # ── Layer count ───────────────────────────────────────────────────────────
     num_layers = max(1, int(total_height / layer_height))
     if max_layers:
         num_layers = min(num_layers, max_layers)
@@ -120,22 +107,28 @@ def parse_and_slice(
 
     for i in range(num_layers):
         z        = (i + 0.5) * layer_height
-        segments = _slice_layer(wall_mesh, z, nozzle_width)
+        segments = _slice_layer(mesh, z, nozzle_width)
         geometry.append(segments)
 
-        if segments:
-            perim, area, wall_t = _layer_geometry(segments, nozzle_width)
-            max_segs = max(max_segs, len(segments))
+        n = len(segments)
+        max_segs = max(max_segs, n)
+
+        perim = sum(_seg_len(s[0], s[1]) for s in segments) if segments else 0.0
+        all_pts = [p for s in segments for p in s]
+        if all_pts:
+            xs = [p[0] for p in all_pts]
+            ys = [p[1] for p in all_pts]
+            area = (max(xs) - min(xs)) * (max(ys) - min(ys))
         else:
-            perim, area, wall_t = 0.0, 0.0, nozzle_width
+            area = 0.0
 
         layer_metas.append({
             "index":            i,
             "z_height_m":       round(z, 4),
-            "segment_count":    len(segments),
+            "segment_count":    n,
             "perimeter_m":      round(perim, 4),
             "area_m2":          round(area, 6),
-            "wall_thickness_m": round(wall_t, 4),
+            "wall_thickness_m": round(nozzle_width, 4),
             "complexity":       0.0,
         })
 
@@ -159,18 +152,15 @@ def parse_and_slice(
     return geometry, layer_metas, meta
 
 
-def _slice_layer(
-    mesh:         trimesh.Trimesh,
-    z:            float,
-    nozzle_width: float,
-) -> Layer:
+def _slice_layer(mesh: trimesh.Trimesh, z: float, nozzle_width: float) -> Layer:
     """
-    Slice the wall mesh at height z.
+    Slice the mesh at height z and return ordered print segments.
 
-    Returns segments sorted into a continuous print path using
-    nearest-neighbour chaining. Large gaps between chained segments
-    are door/window openings — left in place for main.py to mark.
+    Pipeline:
+      mesh_plane() → 2D line segments → polygonize → inward offset →
+      walk exterior + interiors → ordered segments with implicit gap markers
     """
+    # Step 1: get raw 3D cross-section segments from trimesh
     try:
         lines = trimesh.intersections.mesh_plane(
             mesh,
@@ -183,72 +173,106 @@ def _slice_layer(
     if lines is None or len(lines) == 0:
         return []
 
-    # Project to 2D, filter micro-segments
-    min_len = nozzle_width * 0.02   # ~0.5mm for 25mm nozzle
-    raw: List[Segment] = []
+    # Step 2: build 2D MultiLineString from the segments
+    line_list = []
     for seg in lines:
-        p0 = (float(seg[0][0]), float(seg[0][1]))
-        p1 = (float(seg[1][0]), float(seg[1][1]))
-        if _seg_len(p0, p1) > min_len:
-            raw.append((p0, p1))
+        x0, y0 = float(seg[0][0]), float(seg[0][1])
+        x1, y1 = float(seg[1][0]), float(seg[1][1])
+        if abs(x1 - x0) > 1e-9 or abs(y1 - y0) > 1e-9:
+            line_list.append(((x0, y0), (x1, y1)))
 
-    if not raw:
+    if not line_list:
         return []
 
-    # Sort segments into a continuous print path (nearest-neighbour chain).
-    # This is O(n²) but n is typically < 500 segments per layer — fast enough.
-    ordered  = [raw[0]]
-    used     = {0}
-    cur_end  = raw[0][1]
+    mls = MultiLineString(line_list)
 
-    for _ in range(len(raw) - 1):
-        best_i    = -1
-        best_dist = float('inf')
-        best_flip = False
+    # Step 3: polygonize — Shapely finds all closed rings in the line soup
+    polys = list(polygonize(mls))
 
-        for j, seg in enumerate(raw):
-            if j in used:
-                continue
-            d_fwd = _dist(cur_end, seg[0])
-            d_rev = _dist(cur_end, seg[1])
-            if d_fwd < best_dist:
-                best_dist = d_fwd
-                best_i    = j
-                best_flip = False
-            if d_rev < best_dist:
-                best_dist = d_rev
-                best_i    = j
-                best_flip = True
+    # If polygonize finds nothing, try buffering the lines slightly to close gaps
+    if not polys:
+        try:
+            buffered = mls.buffer(nozzle_width * 0.1)
+            if buffered.geom_type == "Polygon":
+                polys = [buffered]
+            elif hasattr(buffered, "geoms"):
+                polys = [g for g in buffered.geoms if g.geom_type == "Polygon"]
+        except Exception:
+            pass
 
-        if best_i == -1:
-            break
+    if not polys:
+        return []
 
-        seg = raw[best_i]
-        if best_flip:
-            seg = (seg[1], seg[0])
+    # Step 4: merge overlapping polygons, keep only significant ones
+    try:
+        merged = unary_union(polys)
+    except Exception:
+        merged = polys[0] if polys else None
 
-        ordered.append(seg)
-        used.add(best_i)
-        cur_end = seg[1]
+    if merged is None or merged.is_empty:
+        return []
 
-    return ordered
+    poly_list: List[Polygon] = (
+        [g for g in merged.geoms if g.geom_type == "Polygon"]
+        if hasattr(merged, "geoms")
+        else [merged] if merged.geom_type == "Polygon"
+        else []
+    )
 
+    # Filter tiny noise polygons (< 4× nozzle area)
+    min_area = (nozzle_width * 2) ** 2
+    poly_list = [p for p in poly_list if p.area > min_area]
 
-def _dist(a: Tuple[float, float], b: Tuple[float, float]) -> float:
-    return float(np.hypot(b[0] - a[0], b[1] - a[1]))
+    if not poly_list:
+        return []
+
+    # Step 5: inward offset by nozzle_width/2 → print centreline
+    # Use join_style=2 (flat) to avoid artefacts at corners
+    offset_polys: List[Polygon] = []
+    for poly in poly_list:
+        try:
+            shrunk = poly.buffer(-nozzle_width / 2, join_style=2)
+            if shrunk.is_empty:
+                # Wall is thinner than nozzle — use original perimeter
+                shrunk = poly
+            if shrunk.geom_type == "Polygon":
+                offset_polys.append(shrunk)
+            elif hasattr(shrunk, "geoms"):
+                offset_polys.extend(g for g in shrunk.geoms if g.geom_type == "Polygon")
+        except Exception:
+            offset_polys.append(poly)
+
+    if not offset_polys:
+        return []
+
+    # Step 6: walk each polygon's exterior (and interiors for thick walls)
+    # producing ordered (p0, p1) segments.
+    # Coordinate jumps > nozzle_width between consecutive coords = gap
+    # (window/door opening). We leave those jumps in place — main.py
+    # serialiser detects gap > GAP_THRESHOLD_M and inserts {"gap": true}.
+    segments: Layer = []
+
+    def walk_ring(coords) -> List[Segment]:
+        pts = list(coords)
+        out = []
+        for j in range(len(pts) - 1):
+            p0 = (float(pts[j][0]),   float(pts[j][1]))
+            p1 = (float(pts[j+1][0]), float(pts[j+1][1]))
+            # Only skip true zero-length duplicates
+            if _seg_len(p0, p1) > 1e-9:
+                out.append((p0, p1))
+        return out
+
+    # Sort polygons largest-first so outer wall prints before inner passes
+    offset_polys.sort(key=lambda p: p.area, reverse=True)
+
+    for poly in offset_polys:
+        segments.extend(walk_ring(poly.exterior.coords))
+        for interior in poly.interiors:
+            segments.extend(walk_ring(interior.coords))
+
+    return segments
 
 
 def _seg_len(p0: Tuple[float, float], p1: Tuple[float, float]) -> float:
     return float(np.hypot(p1[0] - p0[0], p1[1] - p0[1]))
-
-
-def _layer_geometry(segments: Layer, nozzle_width: float) -> Tuple[float, float, float]:
-    if not segments:
-        return 0.0, 0.0, nozzle_width
-    total_len = sum(_seg_len(s[0], s[1]) for s in segments)
-    all_pts   = [p for seg in segments for p in seg]
-    xs = [p[0] for p in all_pts]
-    ys = [p[1] for p in all_pts]
-    area   = (max(xs) - min(xs)) * (max(ys) - min(ys))
-    wall_t = max(nozzle_width, min(nozzle_width * 4, total_len / max(len(segments), 1) * 0.3))
-    return total_len, area, wall_t

@@ -216,6 +216,8 @@ async def optimize_endpoint(
     # Deprecated — kept for backwards compat
     cement_mix_name:   Optional[str] = Form(None),
     print_speed:       Optional[float] = Form(None),
+    # Uniform scale factor applied to mesh before slicing
+    print_scale:       float         = Form(1.0),
 ):
     fname = file.filename or ""
     if not fname.lower().endswith((".stl", ".obj")):
@@ -282,6 +284,7 @@ async def optimize_endpoint(
             layer_height = layer_height_m,
             nozzle_width = nozzle_diameter_mm / 1000.0,
             max_layers   = max_layers,
+            print_scale  = print_scale,
         )
     except Exception as e:
         raise HTTPException(422, f"Failed to parse 3D file: {e}")

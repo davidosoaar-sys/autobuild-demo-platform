@@ -222,6 +222,7 @@ export default function PrePrintOptimizer() {
   const [showSidebar,   setShowSidebar]   = useState(true);
   const [viewMode,      setViewMode]      = useState<ViewMode>('environment');
   const [modelScale,    setModelScale]    = useState(1.0);
+  const [printScale,    setPrintScale]    = useState(1.0);
   const [file,          setFile]          = useState<File | null>(null);
   const [sitePlanData,  setSitePlanData]  = useState<import('./components/SitePlanReader').SitePlanData | null>(null);
   const [site,          setSite]          = useState<SiteDimensions>({ width:12, length:10, slope:0 });
@@ -280,6 +281,7 @@ export default function PrePrintOptimizer() {
       form.append('ground_slope',     String(parameters.groundSlope));
       form.append('print_speed',      String(printSpeed));
       form.append('print_start_hour', String(weatherStart));
+      form.append('print_scale',      String(printScale));
       // No max_layers cap — use full geometry height
       if (city) form.append('city', city);
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
@@ -727,7 +729,11 @@ export default function PrePrintOptimizer() {
           <div className="max-w-7xl mx-auto px-6 py-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-4">
-                <FileUpload file={file} onFileChange={setFile} onSiteChange={setSite} onSitePlanParsed={setSitePlanData}/>
+                <FileUpload
+                  file={file} onFileChange={setFile}
+                  onSiteChange={setSite} onSitePlanParsed={setSitePlanData}
+                  printScale={printScale} onScaleChange={setPrintScale}
+                />
                 <ParameterInputs parameters={parameters} onChange={handleParamsChange}
                   onWeatherChange={(b,h)=>{setWeatherBlocks(b);setWeatherStart(h);}}
                   onCementChange={(c:string)=>setParameters(p=>({...p,cementMix:c}))}

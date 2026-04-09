@@ -15,10 +15,18 @@ interface FileUploadProps {
   onFileChange:         (file: File | null) => void;
   onSiteChange?:        (site: SiteDimensions) => void;
   onSitePlanParsed?:    (data: SitePlanData) => void;
+  onScaleChange?:       (scale: number) => void;
+  printScale?:          number;
 }
 
-export default function FileUpload({ file, onFileChange, onSiteChange, onSitePlanParsed }: FileUploadProps) {
-  const [site, setSite] = React.useState<SiteDimensions>({ width: 0, length: 0, slope: 0 });
+const PRESET_SCALES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
+export default function FileUpload({
+  file, onFileChange, onSiteChange, onSitePlanParsed, onScaleChange, printScale = 1.0,
+}: FileUploadProps) {
+  const [site,        setSite]        = React.useState<SiteDimensions>({ width: 0, length: 0, slope: 0 });
+  const [customScale, setCustomScale] = React.useState('');
+  const [useCustom,   setUseCustom]   = React.useState(false);
 
   const updateSite = (key: keyof SiteDimensions, raw: string) => {
     const val     = parseFloat(raw) || 0;
@@ -27,7 +35,6 @@ export default function FileUpload({ file, onFileChange, onSiteChange, onSitePla
     onSiteChange?.(updated);
   };
 
-  // When AI reads site plan, auto-populate dimensions
   const handleSitePlanParsed = (data: SitePlanData) => {
     const updated: SiteDimensions = {
       width:  data.width,
@@ -39,6 +46,20 @@ export default function FileUpload({ file, onFileChange, onSiteChange, onSitePla
     onSitePlanParsed?.(data);
   };
 
+  const handlePresetScale = (s: number) => {
+    setUseCustom(false);
+    setCustomScale('');
+    onScaleChange?.(s);
+  };
+
+  const handleCustomScale = (raw: string) => {
+    setCustomScale(raw);
+    const v = parseFloat(raw);
+    if (v > 0 && v <= 10) {
+      onScaleChange?.(parseFloat(v.toFixed(3)));
+    }
+  };
+
   const onDropModel = useCallback((f: File[]) => { if (f.length) onFileChange(f[0]); }, [onFileChange]);
 
   const { getRootProps: getModelProps, getInputProps: getModelInput, isDragActive: isDragModel } = useDropzone({
@@ -46,6 +67,10 @@ export default function FileUpload({ file, onFileChange, onSiteChange, onSitePla
     accept: { 'model/stl': ['.stl'], 'model/obj': ['.obj'], 'application/octet-stream': ['.stl', '.obj'] },
     maxFiles: 1,
   });
+
+  // Derived scaled dimensions for display
+  const scaledW = site.width  > 0 ? (site.width  * printScale).toFixed(2) : null;
+  const scaledL = site.length > 0 ? (site.length * printScale).toFixed(2) : null;
 
   return (
     <div className="space-y-4">
@@ -78,30 +103,108 @@ export default function FileUpload({ file, onFileChange, onSiteChange, onSitePla
             </div>
           </div>
         ) : (
-          <>
-            {/* File info */}
-            <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center flex-shrink-0">
-                  <span className="text-[9px] font-bold text-white uppercase">
-                    {file.name.split('.').pop()}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-black truncate max-w-[160px]">{file.name}</p>
-                  <p className="text-[10px] text-black/40">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                </div>
+          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center flex-shrink-0">
+                <span className="text-[9px] font-bold text-white uppercase">
+                  {file.name.split('.').pop()}
+                </span>
               </div>
-              <button
-                {...(getModelProps() as any)}
-                onClick={() => onFileChange(null)}
-                className="text-xs text-black/30 hover:text-black border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
-              >
-                Replace
-              </button>
-              <input {...getModelInput()} />
+              <div>
+                <p className="text-xs font-medium text-black truncate max-w-[160px]">{file.name}</p>
+                <p className="text-[10px] text-black/40">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+              </div>
             </div>
-          </>
+            <button
+              {...(getModelProps() as any)}
+              onClick={() => onFileChange(null)}
+              className="text-xs text-black/30 hover:text-black border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
+            >
+              Replace
+            </button>
+            <input {...getModelInput()} />
+          </div>
+        )}
+
+        {/* ── Print Scale ── */}
+        {file && (
+          <div className="px-5 pb-5 border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-black">
+                Print Scale
+                <span className="ml-1.5 text-[10px] text-black/30 font-normal">
+                  — scales the actual geometry, not just the view
+                </span>
+              </label>
+              <span className="text-xs font-bold text-black font-mono">{printScale.toFixed(2)}×</span>
+            </div>
+
+            {/* Preset buttons */}
+            <div className="flex items-center gap-1.5 mb-2">
+              {PRESET_SCALES.map(s => (
+                <button
+                  key={s}
+                  onClick={() => handlePresetScale(s)}
+                  className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${
+                    !useCustom && printScale === s
+                      ? 'bg-black text-white border-black'
+                      : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
+                  }`}
+                >
+                  {s}×
+                </button>
+              ))}
+              <button
+                onClick={() => setUseCustom(true)}
+                className={`px-2 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${
+                  useCustom
+                    ? 'bg-black text-white border-black'
+                    : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+
+            {/* Custom input */}
+            {useCustom && (
+              <div className="flex items-center gap-2 mb-2">
+                <input
+                  type="number"
+                  min={0.1} max={10} step={0.05}
+                  placeholder="e.g. 1.75"
+                  value={customScale}
+                  onChange={e => handleCustomScale(e.target.value)}
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl outline-none focus:border-black text-black placeholder:text-black/20"
+                  autoFocus
+                />
+                <span className="text-xs text-black/40">×</span>
+              </div>
+            )}
+
+            {/* Impact summary */}
+            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+              {printScale === 1.0 ? (
+                <p className="text-[10px] text-black/40">
+                  Original size — all dimensions as modelled
+                </p>
+              ) : (
+                <div className="space-y-0.5">
+                  <p className="text-[10px] text-black/60 font-medium">
+                    Scaled {printScale}× — all geometry, segments, and time estimates adjust
+                  </p>
+                  {(scaledW || scaledL) && (
+                    <p className="text-[10px] text-black/40">
+                      Site footprint: {scaledW ?? '—'}m × {scaledL ?? '—'}m
+                    </p>
+                  )}
+                  <p className="text-[10px] text-black/40">
+                    Print time scales by {printScale.toFixed(2)}× · Material volume scales by {(printScale ** 3).toFixed(2)}×
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -111,7 +214,6 @@ export default function FileUpload({ file, onFileChange, onSiteChange, onSitePla
           Site Details
         </h2>
 
-        {/* Dimensions — Width + Length only, slope from env parameters */}
         <div className="mb-5">
           <label className="text-xs font-medium text-black mb-2 block">
             Site Dimensions
@@ -144,7 +246,6 @@ export default function FileUpload({ file, onFileChange, onSiteChange, onSitePla
           )}
         </div>
 
-        {/* Site Plan — AI reader */}
         <div>
           <label className="text-xs font-medium text-black mb-2 block">
             Site Plan
