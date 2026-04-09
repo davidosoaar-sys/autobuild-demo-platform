@@ -268,7 +268,7 @@ def _slice_layer(
     if not raw_polys:
         try:
             from shapely.geometry import MultiLineString
-            from shapely.ops import polygonize, unary_union
+            from shapely.ops import polygonize
             ml = MultiLineString([[list(s[0]), list(s[1])] for s in segs_2d])
             raw_polys = [p for p in polygonize(ml)
                          if p.area > (nozzle_width * 2) ** 2]
