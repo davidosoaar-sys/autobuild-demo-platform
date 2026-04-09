@@ -74,14 +74,154 @@ function CameraView({
   onRename: (id: string, label: string) => void;
   onRemove: (id: string) => void;
 }) {
-  const videoRef    = useRef<HTMLVideoElement>(null);
-  const canvasRef   = useRef<HTMLCanvasElement>(null);
-  const [streaming, setStreaming] = useState(false);
-  const [error,     setError]     = useState('');
-  const [editing,   setEditing]   = useState(false);
-  const [label,     setLabel]     = useState(camera.label);
-  const [showPlumb, setShowPlumb] = useState(false);
+  const videoRef   = useRef<HTMLVideoElement>(null);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
+  const timerRef   = useRef<number | null>(null);
+
+  const [streaming,   setStreaming]   = useState(false);
+  const [error,       setError]       = useState('');
+  const [editing,     setEditing]     = useState(false);
+  const [label,       setLabel]       = useState(camera.label);
+  const [showPlumb,   setShowPlumb]   = useState(false);
+  const [plumbStatus, setPlumbStatus] = useState<{straight: boolean; deviation: number; confidence: number} | null>(null);
+
   const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
+
+  // ── CV: Sobel edge detection to find horizontal bead lines ────────────────
+  const analyseFrame = () => {
+    const video   = videoRef.current;
+    const canvas  = canvasRef.current;
+    const overlay = overlayRef.current;
+    if (!video || !canvas || !overlay || video.readyState < 2) return;
+
+    const w = video.videoWidth  || 640;
+    const h = video.videoHeight || 360;
+    canvas.width = w; canvas.height = h;
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(video, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+
+    // Greyscale
+    const grey = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
+    }
+
+    // Sobel Y — finds horizontal edges (layer lines)
+    const xS = Math.floor(w * 0.15);
+    const xE = Math.floor(w * 0.85);
+    const edgeRows: number[] = [];
+
+    for (let y = 2; y < h-2; y++) {
+      let sum = 0;
+      for (let x = xS; x < xE; x++) {
+        const gy = Math.abs(
+          -grey[(y-1)*w+x-1] - 2*grey[(y-1)*w+x] - grey[(y-1)*w+x+1]
+          +grey[(y+1)*w+x-1] + 2*grey[(y+1)*w+x] + grey[(y+1)*w+x+1]
+        );
+        sum += gy;
+      }
+      if (sum / (xE - xS) > 0.07) edgeRows.push(y);
+    }
+
+    // Cluster edge rows into layer lines
+    const clusters: number[][] = [];
+    let cur: number[] = [];
+    for (let i = 0; i < edgeRows.length; i++) {
+      if (cur.length === 0 || edgeRows[i] - cur[cur.length-1] < 10) {
+        cur.push(edgeRows[i]);
+      } else {
+        if (cur.length > 1) clusters.push(cur);
+        cur = [edgeRows[i]];
+      }
+    }
+    if (cur.length > 1) clusters.push(cur);
+
+    let straight = false, deviation = 0, confidence = 0;
+
+    if (clusters.length >= 2) {
+      const centres = clusters.map(c => c.reduce((a,b)=>a+b,0)/c.length);
+      const gaps    = centres.slice(1).map((c,i) => c - centres[i]);
+      const avgGap  = gaps.reduce((a,b)=>a+b,0) / gaps.length;
+      const std     = Math.sqrt(gaps.reduce((a,b)=>a+Math.pow(b-avgGap,2),0) / gaps.length);
+      deviation  = Math.round((std / Math.max(avgGap, 1)) * 100);
+      confidence = Math.min(100, clusters.length * 15);
+      // Width consistency check
+      const widths    = clusters.map(c => Math.max(...c) - Math.min(...c));
+      const avgWidth  = widths.reduce((a,b)=>a+b,0)/widths.length;
+      straight   = deviation < 20 && avgWidth < 8;
+    }
+
+    setPlumbStatus({ straight, deviation, confidence });
+
+    // Draw overlay
+    const ow = overlay.offsetWidth;
+    const oh = overlay.offsetHeight;
+    overlay.width = ow; overlay.height = oh;
+    const octx = overlay.getContext('2d')!;
+    octx.clearRect(0, 0, ow, oh);
+
+    // Grid
+    octx.strokeStyle = 'rgba(255,255,255,0.12)';
+    octx.lineWidth = 0.5;
+    [1/3,2/3].forEach(f => {
+      octx.beginPath(); octx.moveTo(ow*f,0); octx.lineTo(ow*f,oh); octx.stroke();
+      octx.beginPath(); octx.moveTo(0,oh*f); octx.lineTo(ow,oh*f); octx.stroke();
+    });
+
+    // Centre lines
+    octx.strokeStyle = 'rgba(59,130,246,0.7)';
+    octx.lineWidth = 1;
+    octx.beginPath(); octx.moveTo(ow/2,0); octx.lineTo(ow/2,oh); octx.stroke();
+    octx.beginPath(); octx.moveTo(0,oh/2); octx.lineTo(ow,oh/2); octx.stroke();
+    octx.beginPath(); octx.arc(ow/2,oh/2,20,0,Math.PI*2); octx.stroke();
+
+    // Detected layer lines
+    const lineColor = straight ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)';
+    octx.strokeStyle = lineColor;
+    octx.lineWidth = 1.5;
+    edgeRows.forEach(y => {
+      const py = (y/h)*oh;
+      octx.beginPath();
+      octx.moveTo(ow*0.1, py);
+      octx.lineTo(ow*0.9, py);
+      octx.stroke();
+    });
+
+    // Status badge
+    const badge = clusters.length < 2 ? 'SCANNING...' : straight ? '✓ STRAIGHT BEADS' : '✗ DEVIATION';
+    const badgeBg = clusters.length < 2 ? 'rgba(100,100,100,0.85)' : straight ? 'rgba(22,163,74,0.9)' : 'rgba(220,38,38,0.9)';
+    octx.fillStyle = badgeBg;
+    const bw = octx.measureText(badge).width + 20;
+    octx.beginPath();
+    octx.roundRect(8, 8, bw, 22, 4);
+    octx.fill();
+    octx.fillStyle = 'white';
+    octx.font = 'bold 10px monospace';
+    octx.fillText(badge, 14, 23);
+
+    if (clusters.length >= 2) {
+      octx.fillStyle = 'rgba(0,0,0,0.65)';
+      octx.beginPath(); octx.roundRect(8, 34, 140, 18, 4); octx.fill();
+      octx.fillStyle = 'rgba(255,255,255,0.8)';
+      octx.font = '9px monospace';
+      octx.fillText(`${clusters.length} layers · DEV ${deviation}% · CONF ${confidence}%`, 12, 46);
+    }
+  };
+
+  // Run at 4fps when plumb active
+  useEffect(() => {
+    if (streaming && showPlumb) {
+      const loop = () => {
+        analyseFrame();
+        timerRef.current = window.setTimeout(loop, 250) as unknown as number;
+      };
+      timerRef.current = window.setTimeout(loop, 250) as unknown as number;
+    }
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [streaming, showPlumb]);
 
   const startCamera = async () => {
     setError('');
@@ -95,93 +235,68 @@ function CameraView({
         await videoRef.current.play();
         setStreaming(true);
       }
-    } catch (e: any) {
-      setError(e.message || 'Camera access denied');
-    }
+    } catch (e: any) { setError(e.message || 'Camera access denied'); }
   };
 
   const stopCamera = () => {
     if (videoRef.current?.srcObject) {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
       videoRef.current.srcObject = null;
-      setStreaming(false);
     }
+    setStreaming(false);
+    setPlumbStatus(null);
   };
 
-  const saveLabel = () => {
-    onRename(camera.id, label);
-    setEditing(false);
-  };
+  const saveLabel = () => { onRename(camera.id, label); setEditing(false); };
 
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-      {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
         <div className="flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full ${streaming ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}/>
           {editing ? (
-            <input autoFocus value={label}
-              onChange={e => setLabel(e.target.value)}
-              onBlur={saveLabel}
-              onKeyDown={e => e.key === 'Enter' && saveLabel()}
+            <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
+              onBlur={saveLabel} onKeyDown={e=>e.key==='Enter'&&saveLabel()}
               className="text-xs font-semibold text-black border-b border-black outline-none bg-transparent w-32"/>
           ) : (
-            <button onClick={() => setEditing(true)}
-              className="text-xs font-semibold text-black hover:text-black/60 transition-colors">
+            <button onClick={()=>setEditing(true)} className="text-xs font-semibold text-black hover:text-black/60">
               {camera.label}
             </button>
           )}
           {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">● LIVE</span>}
+          {plumbStatus && showPlumb && (
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg ${
+              plumbStatus.straight ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+            }`}>{plumbStatus.straight ? '✓ Straight' : '✗ Deviation'}</span>
+          )}
         </div>
         <div className="flex items-center gap-1">
-          {angles.map(a => (
-            <button key={a} onClick={() => onAngleChange(camera.id, a)}
+          {angles.map(a=>(
+            <button key={a} onClick={()=>onAngleChange(camera.id,a)}
               className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${
-                camera.angle === a ? 'bg-black text-white' : 'text-black/30 hover:text-black'
+                camera.angle===a?'bg-black text-white':'text-black/30 hover:text-black'
               }`}>{a}</button>
           ))}
-          <button onClick={() => setShowPlumb(v => !v)}
-            title="Toggle plumb line"
+          <button onClick={()=>setShowPlumb(v=>!v)}
             className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${
-              showPlumb ? 'bg-blue-500 text-white' : 'text-black/30 hover:text-black border border-gray-200'
-            }`}>⊕</button>
+              showPlumb?'bg-blue-500 text-white':'text-black/30 hover:text-black border border-gray-200'
+            }`}>⊕ Plumb</button>
         </div>
       </div>
 
-      {/* Video */}
       <div className="relative bg-black aspect-video flex items-center justify-center">
         <video ref={videoRef} autoPlay playsInline muted
-          className={`absolute inset-0 w-full h-full object-cover ${streaming ? 'block' : 'hidden'}`}/>
+          className={`absolute inset-0 w-full h-full object-cover ${streaming?'block':'hidden'}`}/>
+        <canvas ref={canvasRef} className="hidden"/>
+        <canvas ref={overlayRef}
+          className={`absolute inset-0 w-full h-full z-10 pointer-events-none ${streaming&&showPlumb?'block':'hidden'}`}/>
 
-        {/* Plumb line + level overlay */}
-        {streaming && showPlumb && (
-          <div className="absolute inset-0 z-10 pointer-events-none">
-            {/* Vertical centre line */}
-            <div className="absolute top-0 bottom-0 left-1/2 w-px bg-blue-400/70"/>
-            {/* Horizontal centre line */}
-            <div className="absolute left-0 right-0 top-1/2 h-px bg-blue-400/70"/>
-            {/* Rule of thirds */}
-            <div className="absolute top-0 bottom-0 left-1/3 w-px bg-white/20"/>
-            <div className="absolute top-0 bottom-0 right-1/3 w-px bg-white/20"/>
-            <div className="absolute left-0 right-0 top-1/3 h-px bg-white/20"/>
-            <div className="absolute left-0 right-0 bottom-1/3 h-px bg-white/20"/>
-            {/* Centre crosshair */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 border border-blue-400/80 rounded-full"/>
-            {/* Labels */}
-            <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-blue-500/80 rounded text-[9px] text-white font-mono">
-              PLUMB VIEW — {camera.angle.toUpperCase()}
-            </div>
-          </div>
-        )}
-
-        {/* Angle label */}
         {streaming && !showPlumb && (
           <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg z-10">
             <span className="text-[9px] text-white/70 font-mono uppercase">{camera.angle} view</span>
           </div>
         )}
 
-        {/* Placeholder */}
         {!streaming && (
           <div className="text-center z-10">
             <svg className="w-8 h-8 text-white/20 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -194,10 +309,9 @@ function CameraView({
             </button>
           </div>
         )}
-
         {streaming && (
           <button onClick={stopCamera}
-            className="absolute bottom-2 right-2 z-10 text-[10px] text-white/60 border border-white/20 rounded-lg px-2 py-1 hover:bg-white/10">
+            className="absolute bottom-2 right-2 z-20 text-[10px] text-white/60 border border-white/20 rounded-lg px-2 py-1 hover:bg-white/10">
             Stop
           </button>
         )}
@@ -205,6 +319,7 @@ function CameraView({
     </div>
   );
 }
+
 
 // ── Defect Detection ───────────────────────────────────────────────────────────
 const DEFECT_CLASSES = ['Cracking', 'Delamination', 'Over-extrusion', 'Under-extrusion', 'Layer Shift', 'Void'];
