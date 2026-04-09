@@ -279,7 +279,7 @@ export default function PrePrintOptimizer() {
       form.append('ground_slope',     String(parameters.groundSlope));
       form.append('print_speed',      String(printSpeed));
       form.append('print_start_hour', String(weatherStart));
-      form.append('max_layers',       '150');
+      // No max_layers cap — use full geometry height
       if (city) form.append('city', city);
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
 

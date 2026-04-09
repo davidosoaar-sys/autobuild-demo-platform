@@ -3,7 +3,12 @@ geometry.py — 3DCP Adaptive Slicer
 
 Uses trimesh.intersections.mesh_plane to get world-space 3D line segments,
 then builds clean wall polygons using graph-based ring tracing.
-This avoids the to_planar() offset bug and handles messy meshes robustly.
+
+Gap handling:
+  Segments longer than MAX_BEAD_MULTIPLIER × nozzle_width are travel moves
+  (they cross a window/door opening). These are split: the slicer emits the
+  segment up to the gap, marks a gap, then the segment after the gap restarts.
+  The gap marker {"gap": true} tells the 3D viewer to skip drawing a bead.
 """
 
 import numpy as np
@@ -26,6 +31,11 @@ Geometry = List[Layer]
 
 # Snap tolerance — segments within this distance share a vertex
 SNAP_TOL = 1e-4
+
+# Any traced perimeter segment longer than this multiple of the nozzle width
+# is a travel move across a void (window/door), NOT a print bead.
+# Real print beads are typically 0.8–2× nozzle width long per step.
+MAX_BEAD_MULTIPLIER = 8.0   # tune: larger = more permissive
 
 
 def parse_and_slice(
@@ -75,11 +85,10 @@ def parse_and_slice(
 
     # ── Build wall-only mesh (filter out roofs/floors) ────────────────────────
     # Faces whose normal is mostly horizontal (|nz| < 0.55) = walls
-    # Faces whose normal is mostly vertical (|nz| >= 0.55) = roofs/floors
     try:
-        normals         = mesh.face_normals
-        wall_mask       = np.abs(normals[:, 2]) < 0.55
-        wall_faces      = mesh.faces[wall_mask]
+        normals    = mesh.face_normals
+        wall_mask  = np.abs(normals[:, 2]) < 0.55
+        wall_faces = mesh.faces[wall_mask]
         if len(wall_faces) >= 10:
             wall_mesh = trimesh.Trimesh(
                 vertices=mesh.vertices.copy(),
@@ -91,6 +100,8 @@ def parse_and_slice(
     except Exception:
         wall_mesh = mesh
 
+    # ── Compute actual layer count from geometry ──────────────────────────────
+    # Always use the real height — never hard-cap unless caller passes max_layers
     num_layers = max(1, int(total_height / layer_height))
     if max_layers:
         num_layers = min(num_layers, max_layers)
@@ -102,7 +113,9 @@ def parse_and_slice(
 
     for i in range(num_layers):
         z = (i + 0.5) * layer_height
-        segments, layer_poly = _slice_layer(wall_mesh, z, nozzle_width, prev_poly, i == 0)
+        segments, layer_poly = _slice_layer(
+            wall_mesh, z, nozzle_width, prev_poly, i == 0
+        )
 
         if layer_poly is not None and not layer_poly.is_empty:
             prev_poly = layer_poly
@@ -153,9 +166,8 @@ def _snap(v: np.ndarray, tol: float = SNAP_TOL) -> Tuple[float, float]:
 def _build_rings(segments_2d: List[Tuple[np.ndarray, np.ndarray]]) -> List[List[Tuple[float, float]]]:
     """
     Build closed rings from unordered line segments using graph traversal.
-    This is the robust alternative to polygonize — handles gaps and T-junctions.
+    Robust against gaps and T-junctions.
     """
-    # Build adjacency graph: vertex -> list of connected vertices
     graph: Dict[Tuple[float,float], List[Tuple[float,float]]] = defaultdict(list)
 
     for p0, p1 in segments_2d:
@@ -170,7 +182,7 @@ def _build_rings(segments_2d: List[Tuple[np.ndarray, np.ndarray]]) -> List[List[
     rings = []
 
     for start in list(graph.keys()):
-        if len(graph[start]) == 0:
+        if not graph[start]:
             continue
 
         for next_v in graph[start]:
@@ -178,26 +190,22 @@ def _build_rings(segments_2d: List[Tuple[np.ndarray, np.ndarray]]) -> List[List[
             if edge in visited_edges:
                 continue
 
-            # Trace a ring starting from this edge
             ring = [start, next_v]
             visited_edges.add(edge)
 
-            for _ in range(10000):  # max ring length
+            for _ in range(10000):
                 current = ring[-1]
                 prev    = ring[-2]
 
-                # Find next unvisited neighbour
                 candidates = [v for v in graph[current]
-                              if (min(current,v), max(current,v)) not in visited_edges]
+                              if (min(current, v), max(current, v)) not in visited_edges]
 
                 if not candidates:
                     break
 
-                # Prefer the neighbour that continues most smoothly (smallest turn)
                 if len(candidates) == 1:
                     nxt = candidates[0]
                 else:
-                    # Pick candidate with smallest angle change
                     dx_in  = current[0] - prev[0]
                     dy_in  = current[1] - prev[1]
                     best   = None
@@ -205,8 +213,7 @@ def _build_rings(segments_2d: List[Tuple[np.ndarray, np.ndarray]]) -> List[List[
                     for c in candidates:
                         dx_out = c[0] - current[0]
                         dy_out = c[1] - current[1]
-                        # Cross product (want minimal turn)
-                        cross = abs(dx_in * dy_out - dy_in * dx_out)
+                        cross  = abs(dx_in * dy_out - dy_in * dx_out)
                         if cross < best_d:
                             best_d = cross
                             best   = c
@@ -216,18 +223,37 @@ def _build_rings(segments_2d: List[Tuple[np.ndarray, np.ndarray]]) -> List[List[
                 visited_edges.add(edge)
 
                 if nxt == ring[0]:
-                    # Closed ring
                     break
 
                 ring.append(nxt)
 
             if len(ring) >= 3 and ring[-1] == ring[0]:
-                rings.append(ring[:-1])  # drop duplicate end point
+                rings.append(ring[:-1])
             elif len(ring) >= 3:
-                # Not closed but long enough — try to use it anyway
                 rings.append(ring)
 
     return rings
+
+
+def _split_on_gaps(segments: Layer, nozzle_width: float) -> Layer:
+    """
+    Post-process a layer's segments: any segment longer than
+    MAX_BEAD_MULTIPLIER × nozzle_width is a travel move across a void
+    (window/door). We keep both halves as separate segments — the gap
+    between them will be detected by main.py's serialiser and marked
+    with {"gap": true}.
+
+    We do NOT actually split the geometry here; instead we remove the
+    long diagonal segment entirely. The serialiser in main.py will see
+    the coordinate jump between consecutive segments and insert the gap
+    marker automatically (gap > GAP_THRESHOLD_M).
+
+    So: just REMOVE segments that are travel moves. The endpoint of the
+    previous segment and startpoint of the next real segment will have a
+    large gap, which the serialiser catches.
+    """
+    max_bead_len = nozzle_width * MAX_BEAD_MULTIPLIER
+    return [s for s in segments if _seg_len(s[0], s[1]) <= max_bead_len]
 
 
 def _slice_layer(
@@ -239,7 +265,9 @@ def _slice_layer(
 ) -> Tuple[Layer, object]:
     """
     Slice mesh at height z.
-    Returns (segments, wall_polygon) where segments follow the wall perimeter.
+    Returns (segments, wall_polygon).
+    Long diagonal segments across voids are removed — the gap between
+    consecutive short segments is what signals window/door openings.
     """
     try:
         lines = trimesh.intersections.mesh_plane(
@@ -253,8 +281,6 @@ def _slice_layer(
     if lines is None or len(lines) == 0:
         return [], None
 
-    # lines: (N, 2, 3) — N segments each with 2 3D endpoints
-    # Project to 2D XY (world coords, no offset)
     segs_2d = []
     for seg in lines:
         p0 = np.array([seg[0][0], seg[0][1]])
@@ -265,10 +291,8 @@ def _slice_layer(
     if not segs_2d:
         return [], None
 
-    # Build closed rings from segments
     rings = _build_rings(segs_2d)
 
-    # Convert rings to Shapely polygons
     raw_polys = []
     for ring in rings:
         try:
@@ -276,13 +300,12 @@ def _slice_layer(
                 continue
             poly = Polygon(ring)
             if not poly.is_valid:
-                poly = poly.buffer(0)  # fix self-intersections
+                poly = poly.buffer(0)
             if poly.is_valid and not poly.is_empty and poly.area > (nozzle_width * 2) ** 2:
                 raw_polys.append(poly)
         except Exception:
             continue
 
-    # Fallback: if ring tracing failed, try direct polygonize
     if not raw_polys:
         try:
             from shapely.geometry import MultiLineString
@@ -293,7 +316,6 @@ def _slice_layer(
         except Exception:
             pass
 
-    # Last resort: convex hull of all points
     if not raw_polys:
         try:
             from shapely.geometry import MultiPoint
@@ -305,10 +327,12 @@ def _slice_layer(
             pass
 
     if not raw_polys:
-        # Return raw segments as fallback so something shows
-        result_segs = [((float(s[0][0]), float(s[0][1])), (float(s[1][0]), float(s[1][1])))
-                       for s in segs_2d]
-        return result_segs, None
+        # Raw fallback — filter long segments before returning
+        result_segs = [
+            ((float(s[0][0]), float(s[0][1])), (float(s[1][0]), float(s[1][1])))
+            for s in segs_2d
+        ]
+        return _split_on_gaps(result_segs, nozzle_width), None
 
     # ── Island detection ──────────────────────────────────────────────────────
     if not is_first and prev_poly is not None:
@@ -320,22 +344,19 @@ def _slice_layer(
         except Exception:
             pass
 
-    # Keep outer shell: largest + those >= 10% of largest
     raw_polys.sort(key=lambda p: p.area, reverse=True)
     max_area   = raw_polys[0].area
     wall_polys = [p for p in raw_polys if p.area >= max_area * 0.10]
 
     try:
         wall_union = unary_union(wall_polys)
-        if hasattr(wall_union, 'geoms'):
-            # Fix nested polygons: if one contains another, subtract (wall not solid)
-            sorted_polys = sorted(wall_union.geoms, key=lambda p: p.area, reverse=True)
-        else:
-            sorted_polys = [wall_union]
+        sorted_polys = (
+            sorted(wall_union.geoms, key=lambda p: p.area, reverse=True)
+            if hasattr(wall_union, 'geoms') else [wall_union]
+        )
     except Exception:
         sorted_polys = wall_polys[:1]
 
-    # Trace perimeter of each polygon → print segments
     final_segs: Layer = []
 
     def trace_ring(coords):
@@ -343,7 +364,9 @@ def _slice_layer(
         for j in range(len(coords) - 1):
             p0 = (float(coords[j][0]),   float(coords[j][1]))
             p1 = (float(coords[j+1][0]), float(coords[j+1][1]))
-            if _seg_len(p0, p1) > nozzle_width * 0.05:
+            seg_length = _seg_len(p0, p1)
+            # Skip micro-segments AND long travel diagonals across voids
+            if nozzle_width * 0.05 < seg_length <= nozzle_width * MAX_BEAD_MULTIPLIER:
                 out.append((p0, p1))
         return out
 
