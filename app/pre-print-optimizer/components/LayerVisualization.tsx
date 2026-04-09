@@ -385,9 +385,17 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
     return geo;
   }, [allSegs, beadW, beadH]);
 
-  // Update draw range based on animation progress — no reallocation
+  // Draw range:
+  // - progress = 0 (not started): show ALL beads so user can see the full toolpath
+  // - progress > 0 and < 1 (animating): show only printed segments
+  // - progress = 1 (complete): show ALL beads
+  const totalTriangles = allSegs.length * 36;
   if (fullGeo) {
-    fullGeo.setDrawRange(0, Math.max(segIdx, 0) * 36);
+    if (progress <= 0 || progress >= 1) {
+      fullGeo.setDrawRange(0, totalTriangles); // show everything
+    } else {
+      fullGeo.setDrawRange(0, Math.max(segIdx, 0) * 36); // animate
+    }
   }
 
   return (
