@@ -309,6 +309,19 @@ async def optimize_endpoint(
         "toolpath":        toolpath_json,
         "gcode_lines":     len(gcode_str.splitlines()),
         "gcode_preview":   "\n".join(gcode_str.splitlines()[:40]),
+        "layer_stats":     [
+            {
+                "layer":          lm["index"],
+                "z_height_mm":    round(lm["z_height_m"] * 1000, 1),
+                "segments":       lm["segment_count"],
+                "perimeter_mm":   round(lm["perimeter_m"] * 1000, 1),
+                "area_cm2":       round(lm["area_m2"] * 10000, 2),
+                "complexity":     lm["complexity"],
+                "print_speed_mm_s": layer_params[lm["index"]].print_speed_mm_s if lm["index"] < len(layer_params) else 0,
+                "risk_score":     layer_params[lm["index"]].risk_score if lm["index"] < len(layer_params) else 0,
+            }
+            for lm in layer_metas[:max_layers or len(layer_metas)]
+        ],
     }
 
 

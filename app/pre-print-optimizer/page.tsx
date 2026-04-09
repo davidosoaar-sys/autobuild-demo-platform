@@ -13,14 +13,20 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 type Phase        = 'idle' | 'optimizing' | 'done' | 'error';
 type ActiveTab    = 'setup' | 'results';
-type SidebarPanel = 'results' | 'changes';
+type SidebarPanel = 'results' | 'changes' | 'layers';
 type ViewMode     = 'environment' | 'void-dark' | 'void-light';
 
 interface CementInfo   { display_name: string; open_time_min: number; risk_score: number; }
-interface PrinterInfo  { name: string; nozzle_mm: number; effective_speed: number; mix_compatible: boolean; }
+interface PrinterInfo  { name: string; nozzle_mm: number; layer_height_mm: number; effective_speed: number; mix_compatible: boolean; }
 interface WeatherInfo  { blocks_used: number; avg_conditions: Record<string,number>; worst_block: Record<string,number>; }
 interface OptInfo      { time_saved_pct: number; env_risk_score: number; total_travel_mm: number; naive_travel_mm: number; total_segments: number; }
 interface GeoInfo      { num_layers: number; layer_height: number; total_segments: number; file_name: string; }
+
+interface LayerStat {
+  layer: number; z_height_mm: number; segments: number;
+  perimeter_mm: number; area_cm2: number; complexity: number;
+  print_speed_mm_s: number; risk_score: number;
+}
 
 interface OptimizeResult {
   result_id: string; elapsed_seconds: number;
@@ -31,6 +37,8 @@ interface OptimizeResult {
   optimization: OptInfo;
   toolpath: { x0: number; y0: number; x1: number; y1: number }[][];
   gcode_lines: number; gcode_preview: string;
+  layer_stats?: LayerStat[];
+  estimated_print_time?: string;
 }
 
 interface WeatherBlock { id: string; start_hour: number; end_hour: number; temperature: number; humidity: number; wind_speed: number; ground_slope: number; notes: string; }
@@ -434,14 +442,18 @@ export default function PrePrintOptimizer() {
 
               {/* Panel tabs */}
               <div className="flex items-center p-1.5 gap-1 border-b border-white/8 flex-shrink-0">
-                {(['results','changes'] as SidebarPanel[]).map(panel=>(
-                  <button key={panel} onClick={()=>setSidebarPanel(panel)}
+                {([
+                  {id:'results' as SidebarPanel, label:'Results'},
+                  {id:'layers'  as SidebarPanel, label:'Layers'},
+                  {id:'changes' as SidebarPanel, label:'Changes'},
+                ]).map(panel=>(
+                  <button key={panel.id} onClick={()=>setSidebarPanel(panel.id)}
                     className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all ${
-                      sidebarPanel===panel
+                      sidebarPanel===panel.id
                         ?'bg-white/12 text-white border border-white/10'
                         :'text-white/35 hover:text-white/70'
                     }`}>
-                    {panel==='results'?'Optimisation Results':'Changes Made'}
+                    {panel.label}
                   </button>
                 ))}
               </div>
@@ -452,18 +464,19 @@ export default function PrePrintOptimizer() {
 
                   {sidebarPanel==='results' && (
                     <motion.div key="res" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-1.5">
-                      <StatRow label="Est. Print Time"   value={estTime??'—'}                                    highlight delay={0.00}/>
+                      <StatRow label="Est. Print Time"   value={result.estimated_print_time??estTime??'—'}        highlight delay={0.00}/>
                       <StatRow label="Layers"            value={String(result.geometry.num_layers)}              delay={0.03}/>
-                      <StatRow label="Total Segments"    value={String(result.optimization.total_segments)}      delay={0.06}/>
-                      <StatRow label="Travel Saved"      value={`${result.optimization.time_saved_pct}%`}       delay={0.09}/>
-                      <StatRow label="Env Risk"          value={`${result.optimization.env_risk_score}/100`}    delay={0.12}/>
-                      <StatRow label="Print Speed"       value={`${result.printer?.effective_speed??printSpeed} mm/s`} delay={0.15}/>
-                      <StatRow label="Cement Open Time"  value={`${result.cement?.open_time_min??'—'} min`}    delay={0.18}/>
-                      <StatRow label="G-code Lines"      value={String(result.gcode_lines)}                     delay={0.21}/>
-                      <StatRow label="Computed In"       value={`${result.elapsed_seconds}s`}                   delay={0.24}/>
+                      <StatRow label="Layer Height"      value={`${result.printer?.layer_height_mm??'—'} mm`}   delay={0.06}/>
+                      <StatRow label="Nozzle"            value={`${result.printer?.nozzle_mm??'—'} mm`}         delay={0.09}/>
+                      <StatRow label="Total Segments"    value={String(result.optimization.total_segments)}      delay={0.12}/>
+                      <StatRow label="Travel Saved"      value={`${result.optimization.time_saved_pct}%`}       delay={0.15}/>
+                      <StatRow label="Env Risk"          value={`${result.optimization.env_risk_score}/100`}    delay={0.18}/>
+                      <StatRow label="Print Speed"       value={`${result.printer?.effective_speed??printSpeed} mm/s`} delay={0.21}/>
+                      <StatRow label="G-code Lines"      value={String(result.gcode_lines)}                     delay={0.24}/>
+                      <StatRow label="Computed In"       value={`${result.elapsed_seconds}s`}                   delay={0.27}/>
 
                       {/* Model scale slider */}
-                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.28}}
+                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.30}}
                         className="rounded-xl p-3 border border-white/8 mt-2"
                         style={{background:'rgba(255,255,255,0.04)'}}>
                         <div className="flex items-center justify-between mb-2">
@@ -483,12 +496,55 @@ export default function PrePrintOptimizer() {
                       </motion.div>
 
                       {/* G-code preview */}
-                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.32}}
+                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.34}}
                         className="rounded-xl p-3 border border-white/6"
                         style={{background:'rgba(255,255,255,0.04)'}}>
                         <p className="text-[9px] text-white/25 uppercase tracking-wider mb-1.5">G-code preview</p>
                         <pre className="text-[9px] text-white/40 font-mono leading-relaxed overflow-x-auto max-h-20">{result.gcode_preview}</pre>
                       </motion.div>
+                    </motion.div>
+                  )}
+
+                  {sidebarPanel==='layers' && (
+                    <motion.div key="layers" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-1.5">
+                      <p className="text-[9px] text-white/25 uppercase tracking-wider mb-2">Per-Layer Statistics</p>
+                      {(result.layer_stats ?? []).map((ls, i) => (
+                        <motion.div key={i}
+                          initial={{opacity:0, x:8}} animate={{opacity:1, x:0}}
+                          transition={{delay: i * 0.01}}
+                          className="rounded-xl p-2.5 border border-white/5 bg-white/4 hover:bg-white/6 transition-colors">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] font-bold text-white">Layer {ls.layer + 1}</span>
+                            <span className="text-[9px] font-mono text-white/30">{ls.z_height_mm} mm</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                            {[
+                              ['Segments',  String(ls.segments)],
+                              ['Perimeter', `${ls.perimeter_mm} mm`],
+                              ['Area',      `${ls.area_cm2} cm²`],
+                              ['Speed',     `${ls.print_speed_mm_s} mm/s`],
+                              ['Risk',      `${ls.risk_score}/100`],
+                              ['Complexity',`${Math.round(ls.complexity * 100)}%`],
+                            ].map(([label, value]) => (
+                              <div key={label} className="flex justify-between">
+                                <span className="text-[9px] text-white/25">{label}</span>
+                                <span className="text-[9px] font-mono text-white/60">{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Risk bar */}
+                          <div className="mt-1.5 h-0.5 bg-white/5 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${ls.risk_score}%`,
+                                background: ls.risk_score < 20 ? '#22c55e' : ls.risk_score < 50 ? '#f59e0b' : '#ef4444'
+                              }}/>
+                          </div>
+                        </motion.div>
+                      ))}
+                      {(!result.layer_stats || result.layer_stats.length === 0) && (
+                        <p className="text-[11px] text-white/30 text-center py-8">No layer data available</p>
+                      )}
                     </motion.div>
                   )}
 
