@@ -40,33 +40,123 @@ function Sparkline({ data, color = '#fff', width = 60, height = 24 }: {
   );
 }
 
-// ── Control Slider — always black, never red ──────────────────────────────────
-function ControlSlider({ label, value, min, max, step, unit, onChange, warning }: {
-  label: string; value: number; min: number; max: number;
-  step: number; unit: string; onChange: (v: number) => void; warning?: boolean;
-}) {
-  const pct = ((value - min) / (max - min)) * 100;
+// ── AngleMeter ────────────────────────────────────────────────────────────────
+// Carpenter-level style horizontal bar with zone lines and sliding dot.
+// Zones: |angle| < 1° = green, 1–5° = yellow, 5–15° = red, > 15° = clamp
+// VAR lines at: 0°, ±1°, ±5°, ±9°, ±15°
+function AngleMeter({ angle }: { angle: number }) {
+  // Map angle (-15° to +15°) → 0–100% position
+  const RANGE = 15;
+  const clampedAngle = Math.max(-RANGE, Math.min(RANGE, angle));
+  const pct = ((clampedAngle + RANGE) / (RANGE * 2)) * 100;
+
+  const isGreen  = Math.abs(angle) < 1;
+  const isYellow = Math.abs(angle) >= 1 && Math.abs(angle) < 5;
+  const dotColor = isGreen ? '#22c55e' : isYellow ? '#fbbf24' : '#ef4444';
+  const label    = isGreen ? 'Plumb' : isYellow ? 'Slight tilt' : 'Off plumb';
+
+  // VAR line positions — degree → pct
+  const degToPct = (d: number) => ((d + RANGE) / (RANGE * 2)) * 100;
+
+  const varLines = [
+    { deg: -15, label: '-15°', major: true },
+    { deg: -9,  label: '-9°',  major: false },
+    { deg: -5,  label: '-5°',  major: false },
+    { deg: -1,  label: '-1°',  major: false },
+    { deg:  0,  label:  '0°',  major: true  },
+    { deg:  1,  label: '+1°',  major: false },
+    { deg:  5,  label: '+5°',  major: false },
+    { deg:  9,  label: '+9°',  major: false },
+    { deg: 15,  label: '+15°', major: true  },
+  ];
+
   return (
-    <div className="space-y-1.5">
-      <div className="flex justify-between">
-        <span className="text-xs font-medium text-black/60">{label}</span>
-        <span className="text-xs font-bold font-mono text-black">{value}{unit}</span>
+    <div className="bg-black px-3 py-2.5 rounded-b-xl border-t border-white/8">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[9px] font-semibold uppercase tracking-widest text-white/30">Plumb</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] text-white/30">{label}</span>
+          <span
+            className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded-lg"
+            style={{ background: `${dotColor}22`, color: dotColor }}
+          >
+            {angle >= 0 ? '+' : ''}{angle.toFixed(1)}°
+          </span>
+        </div>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value}
-        onChange={e => onChange(Number(e.target.value))}
-        className="w-full h-1 rounded-full appearance-none cursor-pointer"
-        style={{ background: `linear-gradient(to right, #000 ${pct}%, #e5e7eb ${pct}%)` }}/>
-      <div className="flex justify-between text-[9px] text-black/25">
-        <span>{min}{unit}</span>
-        {warning && <span className="text-amber-500 font-semibold">⚠ High</span>}
-        <span>{max}{unit}</span>
+
+      {/* Track */}
+      <div className="relative h-6 select-none">
+
+        {/* Colour zones */}
+        <div className="absolute inset-y-1 rounded-full overflow-hidden" style={{ left: 0, right: 0 }}>
+          {/* red left */}
+          <div className="absolute inset-y-0 bg-red-500/20"    style={{ left: '0%',               width: `${degToPct(-5)}%` }}/>
+          {/* yellow left */}
+          <div className="absolute inset-y-0 bg-amber-400/20"  style={{ left: `${degToPct(-5)}%`,  width: `${degToPct(-1)-degToPct(-5)}%` }}/>
+          {/* green centre */}
+          <div className="absolute inset-y-0 bg-emerald-500/25" style={{ left: `${degToPct(-1)}%`, width: `${degToPct(1)-degToPct(-1)}%` }}/>
+          {/* yellow right */}
+          <div className="absolute inset-y-0 bg-amber-400/20"  style={{ left: `${degToPct(1)}%`,   width: `${degToPct(5)-degToPct(1)}%` }}/>
+          {/* red right */}
+          <div className="absolute inset-y-0 bg-red-500/20"    style={{ left: `${degToPct(5)}%`,   right: 0 }}/>
+        </div>
+
+        {/* Track baseline */}
+        <div className="absolute left-0 right-0 top-1/2 -translate-y-px h-px bg-white/10"/>
+
+        {/* VAR lines */}
+        {varLines.map(v => (
+          <div
+            key={v.deg}
+            className="absolute top-0 flex flex-col items-center"
+            style={{ left: `${degToPct(v.deg)}%`, transform: 'translateX(-50%)' }}
+          >
+            {/* Tick */}
+            <div
+              className={`w-px ${v.major ? 'h-4 bg-white/50' : 'h-2.5 bg-white/20'}`}
+              style={{ marginTop: v.major ? 1 : 4 }}
+            />
+            {/* Label below track — only for major lines */}
+            {v.major && (
+              <span className="text-[7px] font-mono text-white/25 mt-0.5 whitespace-nowrap">{v.label}</span>
+            )}
+          </div>
+        ))}
+
+        {/* Centre 0° indicator — black vertical bar */}
+        <div
+          className="absolute top-0 bottom-0 w-0.5 bg-white/60 rounded-full"
+          style={{ left: `${degToPct(0)}%`, transform: 'translateX(-50%)' }}
+        />
+
+        {/* Moving dot */}
+        <motion.div
+          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-lg border-2 border-black"
+          style={{ background: dotColor, left: `${pct}%`, transform: 'translate(-50%, -50%)' }}
+          animate={{ left: `${pct}%` }}
+          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        />
+      </div>
+
+      {/* Degree labels row */}
+      <div className="relative h-3 mt-0.5">
+        {varLines.filter(v => !v.major).map(v => (
+          <span
+            key={v.deg}
+            className="absolute text-[7px] font-mono text-white/15 -translate-x-1/2"
+            style={{ left: `${degToPct(v.deg)}%` }}
+          >
+            {v.label}
+          </span>
+        ))}
       </div>
     </div>
   );
 }
 
 // ── Camera View with plumb line + rename ──────────────────────────────────────
-// ── CameraView: auto-detect + tap-to-lock object straightness analysis ───────
 function CameraView({
   camera, onAngleChange, onRename, onRemove,
 }: {
@@ -76,15 +166,12 @@ function CameraView({
   onRemove: (id: string) => void;
 }) {
   const videoRef   = useRef<HTMLVideoElement>(null);
-  const canvasRef  = useRef<HTMLCanvasElement>(null);  // hidden CV canvas
-  const overlayRef = useRef<HTMLCanvasElement>(null);  // visible overlay
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const timerRef   = useRef<number | null>(null);
 
-  // Locked region: user tapped to lock onto a specific object
   const lockedBox  = useRef<{x:number;y:number;w:number;h:number} | null>(null);
-  // Auto-detected region this frame
   const autoBox    = useRef<{x:number;y:number;w:number;h:number} | null>(null);
-  // Device tilt angle from DeviceMotion API
   const tiltAngle  = useRef<number>(0);
 
   const [streaming,  setStreaming]  = useState(false);
@@ -93,28 +180,24 @@ function CameraView({
   const [label,      setLabel]      = useState(camera.label);
   const [showPlumb,  setShowPlumb]  = useState(false);
   const [isLocked,   setIsLocked]   = useState(false);
+  const [liveAngle,  setLiveAngle]  = useState(0);
   const [result,     setResult]     = useState<{straight:boolean; angle:number; label:string} | null>(null);
 
   const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
 
-  // ── DeviceMotion: real tilt from phone gyroscope ──────────────────────────
   useEffect(() => {
     const handler = (e: DeviceOrientationEvent) => {
-      // gamma = left/right tilt (-90 to 90), beta = front/back
       const g = e.gamma ?? 0;
       const b = e.beta  ?? 0;
-      // Use gamma for landscape, beta for portrait — pick whichever is smaller
       tiltAngle.current = Math.abs(g) < Math.abs(b) ? g : (b - 90);
     };
     window.addEventListener('deviceorientation', handler);
     return () => window.removeEventListener('deviceorientation', handler);
   }, []);
 
-  // ── CV: auto-detect dominant vertical/horizontal structure ────────────────
   const detectDominantObject = (
     grey: Float32Array, w: number, h: number
   ): {x:number;y:number;w:number;h:number} | null => {
-    // Sobel X+Y — find strong edges anywhere in frame
     const edges = new Float32Array(w * h);
     let maxE = 0;
     for (let y = 1; y < h-1; y++) {
@@ -133,55 +216,37 @@ function CameraView({
         if (edges[i] > maxE) maxE = edges[i];
       }
     }
-
-    // Divide frame into a 4x4 grid, find cell with most edge energy
     const gridX = 4, gridY = 4;
     const cellW = Math.floor(w / gridX);
     const cellH = Math.floor(h / gridY);
     let bestCell = 0, bestEnergy = 0;
     const threshold = maxE * 0.3;
-
     for (let gy = 0; gy < gridY; gy++) {
       for (let gx = 0; gx < gridX; gx++) {
         let energy = 0;
-        for (let py = gy*cellH; py < (gy+1)*cellH; py++) {
-          for (let px = gx*cellW; px < (gx+1)*cellW; px++) {
+        for (let py = gy*cellH; py < (gy+1)*cellH; py++)
+          for (let px = gx*cellW; px < (gx+1)*cellW; px++)
             if (edges[py*w+px] > threshold) energy++;
-          }
-        }
-        if (energy > bestEnergy) {
-          bestEnergy = energy;
-          bestCell   = gy * gridX + gx;
-        }
+        if (energy > bestEnergy) { bestEnergy = energy; bestCell = gy * gridX + gx; }
       }
     }
-
     if (bestEnergy === 0) return null;
-
-    // Expand best cell into a detection box (center 60% of frame)
     const bx = (bestCell % gridX) * cellW;
     const by = Math.floor(bestCell / gridX) * cellH;
-    // Expand 1.5x around best cell, clamped to frame
     const padX = cellW * 0.5, padY = cellH * 0.5;
     const rx = Math.max(0, bx - padX);
     const ry = Math.max(0, by - padY);
     const rw = Math.min(w - rx, cellW * 2 + padX);
     const rh = Math.min(h - ry, cellH * 2 + padY);
-
     return { x: rx, y: ry, w: rw, h: rh };
   };
 
-  // ── CV: analyse straightness within a box region ──────────────────────────
   const analyseBoxStraightness = (
     grey: Float32Array, w: number,
     box: {x:number;y:number;w:number;h:number}
   ): {straight:boolean; score:number} => {
-    const xS = Math.floor(box.x);
-    const xE = Math.floor(box.x + box.w);
-    const yS = Math.floor(box.y);
-    const yE = Math.floor(box.y + box.h);
-
-    // Sobel Y (horizontal edges) within box — detect layer lines
+    const xS = Math.floor(box.x), xE = Math.floor(box.x + box.w);
+    const yS = Math.floor(box.y), yE = Math.floor(box.y + box.h);
     const edgeRows: number[] = [];
     for (let y = yS+1; y < yE-1; y++) {
       let sum = 0;
@@ -193,8 +258,6 @@ function CameraView({
       }
       if (sum / (xE - xS) > 0.06) edgeRows.push(y);
     }
-
-    // Cluster into layer lines
     const clusters: number[][] = [];
     let cur: number[] = [];
     for (const r of edgeRows) {
@@ -202,19 +265,16 @@ function CameraView({
       else { if (cur.length > 1) clusters.push(cur); cur = [r]; }
     }
     if (cur.length > 1) clusters.push(cur);
-
     if (clusters.length < 2) return { straight: true, score: 100 };
-
     const centres = clusters.map(c => c.reduce((a,b)=>a+b,0)/c.length);
     const gaps    = centres.slice(1).map((c,i)=>c-centres[i]);
     const avgGap  = gaps.reduce((a,b)=>a+b,0)/gaps.length;
     const std     = Math.sqrt(gaps.reduce((a,b)=>a+Math.pow(b-avgGap,2),0)/gaps.length);
-    const cv      = std / Math.max(avgGap, 1); // coefficient of variation
+    const cv      = std / Math.max(avgGap, 1);
     const score   = Math.round(Math.max(0, 100 - cv * 200));
     return { straight: score > 70, score };
   };
 
-  // ── Main frame analysis loop ──────────────────────────────────────────────
   const analyseFrame = () => {
     const video   = videoRef.current;
     const canvas  = canvasRef.current;
@@ -229,35 +289,25 @@ function CameraView({
     ctx.drawImage(video, 0, 0, vw, vh);
     const { data } = ctx.getImageData(0, 0, vw, vh);
 
-    // Greyscale
     const grey = new Float32Array(vw * vh);
-    for (let i = 0; i < vw * vh; i++) {
+    for (let i = 0; i < vw * vh; i++)
       grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
-    }
 
-    // Get active region — locked takes priority, else auto-detect
     const activeBox = lockedBox.current ?? detectDominantObject(grey, vw, vh);
     autoBox.current = lockedBox.current ? null : activeBox;
 
     let cvResult: {straight:boolean; score:number} | null = null;
-    if (activeBox) {
-      cvResult = analyseBoxStraightness(grey, vw, activeBox);
-    }
+    if (activeBox) cvResult = analyseBoxStraightness(grey, vw, activeBox);
 
-    // Real device tilt
-    const tilt   = tiltAngle.current;
+    const tilt = tiltAngle.current;
     const isLevelByTilt = Math.abs(tilt) < 2.5;
-
-    // Combined result
     const straight = (cvResult?.straight ?? true) && isLevelByTilt;
     const angleStr = `${tilt >= 0 ? '+' : ''}${tilt.toFixed(1)}°`;
-
-    const objectLabel = lockedBox.current ? 'LOCKED OBJECT' :
-                        activeBox         ? 'AUTO-DETECTED' : 'SCANNING...';
+    const objectLabel = lockedBox.current ? 'LOCKED OBJECT' : activeBox ? 'AUTO-DETECTED' : 'SCANNING...';
 
     setResult({ straight, angle: tilt, label: objectLabel });
+    setLiveAngle(tilt);
 
-    // ── Draw overlay ──────────────────────────────────────────────────────
     const ow = overlay.offsetWidth;
     const oh = overlay.offsetHeight;
     overlay.width = ow; overlay.height = oh;
@@ -290,24 +340,74 @@ function CameraView({
     octx.beginPath(); octx.arc(ow/2, oh/2, 20, 0, Math.PI*2);
     octx.lineWidth = 1.5; octx.stroke();
 
-    // VAR scale lines (left side)
-    const numLines = 8;
-    for (let i = 1; i < numLines; i++) {
-      const y    = (oh / numLines) * i;
-      const deg  = Math.round(((i - numLines/2) / (numLines/2)) * 15);
-      const lw   = i === numLines/2 ? ow*0.18 : ow*0.08;
-      const isZero = i === numLines/2;
-      octx.strokeStyle = isZero ? 'rgba(59,130,246,0.8)' : 'rgba(255,255,255,0.2)';
-      octx.lineWidth   = isZero ? 1.5 : 0.8;
-      octx.beginPath(); octx.moveTo(8, y); octx.lineTo(8+lw, y); octx.stroke();
-      // right side mirror
-      octx.beginPath(); octx.moveTo(ow-8, y); octx.lineTo(ow-8-lw, y); octx.stroke();
-      if (!isZero) {
-        octx.fillStyle = 'rgba(255,255,255,0.3)';
-        octx.font = '7px monospace';
-        octx.fillText(`${deg>0?'+':''}${deg}°`, 12+lw, y+3);
+    // VAR scale lines on both sides of frame
+    const varDefs = [
+      { deg: 0,   major: true  },
+      { deg: 1,   major: false },
+      { deg: -1,  major: false },
+      { deg: 5,   major: false },
+      { deg: -5,  major: false },
+      { deg: 9,   major: false },
+      { deg: -9,  major: false },
+      { deg: 15,  major: true  },
+      { deg: -15, major: true  },
+    ];
+    const RANGE = 15;
+    varDefs.forEach(({ deg, major }) => {
+      const yFrac = 0.5 - deg / (RANGE * 2); // map deg to vertical position
+      const y     = oh * yFrac;
+      const lw    = major ? ow * 0.12 : ow * 0.07;
+      const isZero = deg === 0;
+
+      octx.strokeStyle = isZero
+        ? 'rgba(59,130,246,0.9)'
+        : major
+        ? 'rgba(255,255,255,0.4)'
+        : 'rgba(255,255,255,0.2)';
+      octx.lineWidth = isZero ? 2 : major ? 1.2 : 0.8;
+
+      // Left side
+      octx.beginPath(); octx.moveTo(0, y); octx.lineTo(lw, y); octx.stroke();
+      // Right side (mirror)
+      octx.beginPath(); octx.moveTo(ow, y); octx.lineTo(ow - lw, y); octx.stroke();
+
+      // Degree label
+      if (major || Math.abs(deg) === 5 || Math.abs(deg) === 9) {
+        octx.fillStyle = 'rgba(255,255,255,0.35)';
+        octx.font = `${major ? 8 : 7}px monospace`;
+        const txt = deg === 0 ? '0°' : `${deg > 0 ? '+' : ''}${deg}°`;
+        octx.fillText(txt, lw + 3, y + 3);
+        octx.fillText(txt, ow - lw - octx.measureText(txt).width - 3, y + 3);
       }
-    }
+    });
+
+    // Zone colour bands on left edge
+    const bandW = 4;
+    [
+      { from: -15, to: -5,  color: 'rgba(239,68,68,0.5)'   },
+      { from: -5,  to: -1,  color: 'rgba(251,191,36,0.5)'  },
+      { from: -1,  to:  1,  color: 'rgba(34,197,94,0.6)'   },
+      { from:  1,  to:  5,  color: 'rgba(251,191,36,0.5)'  },
+      { from:  5,  to:  15, color: 'rgba(239,68,68,0.5)'   },
+    ].forEach(({ from, to, color }) => {
+      const y1 = oh * (0.5 - from / (RANGE * 2));
+      const y2 = oh * (0.5 - to   / (RANGE * 2));
+      octx.fillStyle = color;
+      octx.fillRect(0, Math.min(y1,y2), bandW, Math.abs(y2-y1));
+      octx.fillRect(ow - bandW, Math.min(y1,y2), bandW, Math.abs(y2-y1));
+    });
+
+    // Current tilt marker line (moves with angle)
+    const tiltY = oh * (0.5 - tilt / (RANGE * 2));
+    const tiltColor2 = Math.abs(tilt) < 1 ? 'rgba(34,197,94,0.9)'
+                     : Math.abs(tilt) < 5 ? 'rgba(251,191,36,0.9)'
+                     : 'rgba(239,68,68,0.9)';
+    octx.strokeStyle = tiltColor2;
+    octx.lineWidth = 2;
+    octx.setLineDash([3,3]);
+    octx.beginPath(); octx.moveTo(0, tiltY); octx.lineTo(ow * 0.22, tiltY); octx.stroke();
+    octx.beginPath(); octx.moveTo(ow, tiltY); octx.lineTo(ow * 0.78, tiltY); octx.stroke();
+    octx.setLineDash([]);
 
     // Detected object bounding box
     if (activeBox) {
@@ -315,19 +415,14 @@ function CameraView({
       const by = activeBox.y * scaleY;
       const bw = activeBox.w * scaleX;
       const bh = activeBox.h * scaleY;
-
       const boxColor = lockedBox.current
         ? (straight ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)')
-        : 'rgba(251,191,36,0.8)'; // yellow = auto, not locked
-
-      // Box outline
+        : 'rgba(251,191,36,0.8)';
       octx.strokeStyle = boxColor;
-      octx.lineWidth   = lockedBox.current ? 2 : 1.5;
+      octx.lineWidth = lockedBox.current ? 2 : 1.5;
       octx.setLineDash(lockedBox.current ? [] : [4,3]);
       octx.strokeRect(bx, by, bw, bh);
       octx.setLineDash([]);
-
-      // Corner brackets for locked
       if (lockedBox.current) {
         const cs = 12;
         octx.lineWidth = 2.5;
@@ -338,18 +433,12 @@ function CameraView({
           octx.stroke();
         });
       }
-
-      // Object label above box
-      octx.fillStyle = boxColor.replace('0.9','0.85').replace('0.8','0.85');
-      const lText = lockedBox.current
-        ? (straight ? '✓ STRAIGHT' : '✗ DEVIATION')
-        : '⊙ AUTO-DETECT';
+      const lText = lockedBox.current ? (straight ? '✓ STRAIGHT' : '✗ DEVIATION') : '⊙ AUTO-DETECT';
       const lw2 = octx.measureText(lText).width + 12;
+      octx.fillStyle = boxColor.replace('0.9','0.85').replace('0.8','0.85');
       octx.beginPath(); octx.roundRect(bx, by-20, lw2, 16, 3); octx.fill();
       octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
       octx.fillText(lText, bx+6, by-8);
-
-      // Straightness score inside box (if locked)
       if (lockedBox.current && cvResult) {
         octx.fillStyle = 'rgba(0,0,0,0.65)';
         octx.beginPath(); octx.roundRect(bx+4, by+4, 90, 14, 3); octx.fill();
@@ -358,20 +447,21 @@ function CameraView({
       }
     }
 
-    // Angle indicator next to centre crosshair
-    const tiltColor = Math.abs(tilt) < 1 ? 'rgba(34,197,94,0.9)' :
-                      Math.abs(tilt) < 5 ? 'rgba(251,191,36,0.9)' : 'rgba(239,68,68,0.9)';
+    // Angle readout next to crosshair
+    const tiltColor = Math.abs(tilt) < 1 ? 'rgba(34,197,94,0.9)'
+                    : Math.abs(tilt) < 5 ? 'rgba(251,191,36,0.9)'
+                    : 'rgba(239,68,68,0.9)';
     octx.fillStyle = tiltColor;
     octx.beginPath(); octx.roundRect(ow/2+26, oh/2-10, 52, 17, 4); octx.fill();
     octx.fillStyle = 'white'; octx.font = 'bold 10px monospace';
     octx.fillText(angleStr, ow/2+30, oh/2+3);
 
     // Status badge top-left
-    const badgeBg = !activeBox ? 'rgba(80,80,80,0.9)' :
-                    straight   ? 'rgba(22,163,74,0.9)' : 'rgba(220,38,38,0.9)';
-    const badge = !activeBox        ? '⟳ SCANNING...' :
-                  !lockedBox.current? '⊙ TAP TO LOCK' :
-                  straight          ? '✓ STRAIGHT'    : '✗ DEVIATION';
+    const badgeBg = !activeBox ? 'rgba(80,80,80,0.9)'
+                  : straight   ? 'rgba(22,163,74,0.9)' : 'rgba(220,38,38,0.9)';
+    const badge = !activeBox         ? '⟳ SCANNING...'
+                : !lockedBox.current ? '⊙ TAP TO LOCK'
+                : straight           ? '✓ STRAIGHT' : '✗ DEVIATION';
     octx.fillStyle = badgeBg;
     const badgeW = octx.measureText(badge).width + 16;
     octx.beginPath(); octx.roundRect(8, 8, badgeW, 20, 4); octx.fill();
@@ -390,7 +480,6 @@ function CameraView({
     octx.fillStyle = 'rgba(255,255,255,0.7)'; octx.font = '8px monospace';
     octx.fillText(`${camera.angle.toUpperCase()} VIEW`, 12, oh-12);
 
-    // Unlock hint bottom-right (if locked)
     if (lockedBox.current) {
       octx.fillStyle = 'rgba(0,0,0,0.55)';
       octx.beginPath(); octx.roundRect(ow-90, oh-24, 82, 16, 4); octx.fill();
@@ -399,58 +488,37 @@ function CameraView({
     }
   };
 
-  // ── Tap handler: lock/unlock on click ────────────────────────────────────
   const handleOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!showPlumb || !streaming) return;
     const overlay = overlayRef.current;
     const video   = videoRef.current;
     if (!overlay || !video) return;
-
     const rect   = overlay.getBoundingClientRect();
     const clickX = (e.clientX - rect.left) / rect.width;
     const clickY = (e.clientY - rect.top)  / rect.height;
-
-    // If already locked, any tap unlocks
-    if (lockedBox.current) {
-      lockedBox.current = null;
-      setIsLocked(false);
-      return;
-    }
-
-    // If auto-detected box exists and click is near it, lock to it
+    if (lockedBox.current) { lockedBox.current = null; setIsLocked(false); return; }
     if (autoBox.current) {
       const vw = video.videoWidth || 640;
       const vh = video.videoHeight || 360;
       const b  = autoBox.current;
       const bx = b.x/vw, by = b.y/vh, bw = b.w/vw, bh = b.h/vh;
-      if (clickX >= bx-0.05 && clickX <= bx+bw+0.05 &&
-          clickY >= by-0.05 && clickY <= by+bh+0.05) {
-        lockedBox.current = autoBox.current;
-        setIsLocked(true);
-        return;
+      if (clickX >= bx-0.05 && clickX <= bx+bw+0.05 && clickY >= by-0.05 && clickY <= by+bh+0.05) {
+        lockedBox.current = autoBox.current; setIsLocked(true); return;
       }
     }
-
-    // Tap anywhere else = create a lock box centred on tap point
     const vw = video.videoWidth || 640;
     const vh = video.videoHeight || 360;
     const bw = vw * 0.35, bh = vh * 0.45;
     lockedBox.current = {
-      x: Math.max(0, clickX*vw - bw/2),
-      y: Math.max(0, clickY*vh - bh/2),
-      w: Math.min(vw, bw),
-      h: Math.min(vh, bh),
+      x: Math.max(0, clickX*vw - bw/2), y: Math.max(0, clickY*vh - bh/2),
+      w: Math.min(vw, bw), h: Math.min(vh, bh),
     };
     setIsLocked(true);
   };
 
-  // Run at 8fps when plumb active
   useEffect(() => {
     if (streaming && showPlumb) {
-      const loop = () => {
-        analyseFrame();
-        timerRef.current = window.setTimeout(loop, 125) as unknown as number;
-      };
+      const loop = () => { analyseFrame(); timerRef.current = window.setTimeout(loop, 125) as unknown as number; };
       timerRef.current = window.setTimeout(loop, 125) as unknown as number;
     } else {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -462,8 +530,7 @@ function CameraView({
     setError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -474,14 +541,10 @@ function CameraView({
   };
 
   const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
+    if (videoRef.current?.srcObject)
       (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-      videoRef.current.srcObject = null;
-    }
-    lockedBox.current = null;
-    setIsLocked(false);
-    setStreaming(false);
-    setResult(null);
+    if (videoRef.current) videoRef.current.srcObject = null;
+    lockedBox.current = null; setIsLocked(false); setStreaming(false); setResult(null);
   };
 
   const saveLabel = () => { onRename(camera.id, label); setEditing(false); };
@@ -536,15 +599,11 @@ function CameraView({
           className={`absolute inset-0 w-full h-full z-10 ${
             streaming&&showPlumb ? 'block' : 'hidden'
           } ${showPlumb ? 'cursor-crosshair' : 'pointer-events-none'}`}/>
-
-        {/* Angle label when plumb off */}
         {streaming && !showPlumb && (
           <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg z-10">
             <span className="text-[9px] text-white/70 font-mono uppercase">{camera.angle} view</span>
           </div>
         )}
-
-        {/* Placeholder */}
         {!streaming && (
           <div className="text-center z-10">
             <svg className="w-8 h-8 text-white/20 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -564,27 +623,27 @@ function CameraView({
           </button>
         )}
       </div>
+
+      {/* ── Angle Meter — shown when plumb is active ── */}
+      {showPlumb && <AngleMeter angle={liveAngle} />}
     </div>
   );
 }
 
-// ── Defect Detection ───────────────────────────────────────────────────────────
+// ── Defect Detection ──────────────────────────────────────────────────────────
 const DEFECT_CLASSES = ['Cracking', 'Delamination', 'Over-extrusion', 'Under-extrusion', 'Layer Shift', 'Void'];
 
 function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info'|'warn'|'error') => void }) {
-  const [image,     setImage]     = useState<string | null>(null);
-  const [running,   setRunning]   = useState(false);
-  const [results,   setResults]   = useState<{label: string; confidence: number; detected: boolean}[] | null>(null);
+  const [image,   setImage]   = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState<{label: string; confidence: number; detected: boolean}[] | null>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
-    setImage(url);
-    setResults(null);
-    setRunning(true);
+    setImage(url); setResults(null); setRunning(true);
     onAlert('Defect analysis running…', 'info');
-
     try {
       const form = new FormData();
       form.append('file', file);
@@ -593,33 +652,15 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
         const data = await res.json();
         setResults(data.detections ?? data.results ?? []);
         const found = (data.detections ?? []).filter((d: any) => d.detected);
-        if (found.length > 0) {
-          onAlert(`Detected: ${found.map((d: any) => d.label).join(', ')}`, 'error');
-        } else {
-          onAlert('No defects detected', 'info');
-        }
+        onAlert(found.length > 0 ? `Detected: ${found.map((d:any)=>d.label).join(', ')}` : 'No defects detected', found.length > 0 ? 'error' : 'info');
       } else {
-        // Fallback: simulate YOLOv8 results for demo
-        const simulated = DEFECT_CLASSES.map(label => ({
-          label,
-          confidence: Math.random(),
-          detected: Math.random() > 0.75,
-        }));
+        const simulated = DEFECT_CLASSES.map(label => ({ label, confidence: Math.random(), detected: Math.random() > 0.75 }));
         setResults(simulated);
         const found = simulated.filter(d => d.detected);
-        if (found.length > 0) {
-          onAlert(`Detected: ${found.map(d => d.label).join(', ')}`, 'error');
-        } else {
-          onAlert('No defects detected', 'info');
-        }
+        onAlert(found.length > 0 ? `Detected: ${found.map(d=>d.label).join(', ')}` : 'No defects detected', found.length > 0 ? 'error' : 'info');
       }
     } catch {
-      // Simulate for demo
-      const simulated = DEFECT_CLASSES.map(label => ({
-        label,
-        confidence: Math.random(),
-        detected: Math.random() > 0.75,
-      }));
+      const simulated = DEFECT_CLASSES.map(label => ({ label, confidence: Math.random(), detected: Math.random() > 0.75 }));
       setResults(simulated);
     }
     setRunning(false);
@@ -627,7 +668,6 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
 
   return (
     <div className="grid grid-cols-2 gap-6">
-      {/* Upload + preview */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Input Image</h3>
@@ -640,9 +680,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
           </label>
         </div>
         <div className="aspect-video bg-gray-50 flex items-center justify-center relative">
-          {image ? (
-            <img src={image} alt="Analysis input" className="w-full h-full object-contain"/>
-          ) : (
+          {image ? <img src={image} alt="Analysis input" className="w-full h-full object-contain"/> : (
             <div className="text-center">
               <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
                 <svg className="w-6 h-6 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -663,47 +701,34 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
           )}
         </div>
       </div>
-
-      {/* Results */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Detection Results</h3>
           <p className="text-[10px] text-black/30 mt-0.5">YOLOv8 Nano · 22 defect classes · trained on 3DCP dataset</p>
         </div>
         <div className="p-5">
-          {!results && !running && (
-            <div className="text-center py-12 text-black/25 text-xs">Upload an image to see results</div>
-          )}
+          {!results && !running && <div className="text-center py-12 text-black/25 text-xs">Upload an image to see results</div>}
           {results && (
             <div className="space-y-3">
               {results.map((r, i) => (
                 <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.05}}
-                  className={`flex items-center justify-between p-3 rounded-xl border ${
-                    r.detected ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100'
-                  }`}>
+                  className={`flex items-center justify-between p-3 rounded-xl border ${r.detected?'bg-red-50 border-red-200':'bg-gray-50 border-gray-100'}`}>
                   <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${r.detected ? 'bg-red-500' : 'bg-emerald-500'}`}/>
-                    <span className={`text-xs font-semibold ${r.detected ? 'text-red-700' : 'text-black'}`}>{r.label}</span>
+                    <div className={`w-2 h-2 rounded-full ${r.detected?'bg-red-500':'bg-emerald-500'}`}/>
+                    <span className={`text-xs font-semibold ${r.detected?'text-red-700':'text-black'}`}>{r.label}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${r.detected ? 'bg-red-500' : 'bg-emerald-500'}`}
-                        style={{width:`${r.confidence*100}%`}}/>
+                      <div className={`h-full rounded-full ${r.detected?'bg-red-500':'bg-emerald-500'}`} style={{width:`${r.confidence*100}%`}}/>
                     </div>
-                    <span className={`text-[10px] font-mono font-bold w-10 text-right ${r.detected ? 'text-red-600' : 'text-black/40'}`}>
-                      {(r.confidence*100).toFixed(1)}%
-                    </span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
-                      r.detected ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
-                    }`}>{r.detected ? 'DETECTED' : 'CLEAR'}</span>
+                    <span className={`text-[10px] font-mono font-bold w-10 text-right ${r.detected?'text-red-600':'text-black/40'}`}>{(r.confidence*100).toFixed(1)}%</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${r.detected?'bg-red-100 text-red-700':'bg-emerald-100 text-emerald-700'}`}>{r.detected?'DETECTED':'CLEAR'}</span>
                   </div>
                 </motion.div>
               ))}
-              <div className={`mt-4 p-3 rounded-xl ${results.some(r=>r.detected) ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'}`}>
-                <p className={`text-xs font-bold ${results.some(r=>r.detected) ? 'text-red-700' : 'text-emerald-700'}`}>
-                  {results.some(r=>r.detected)
-                    ? `⚠ ${results.filter(r=>r.detected).length} defect(s) detected — review recommended`
-                    : '✓ Layer quality OK — no defects detected'}
+              <div className={`mt-4 p-3 rounded-xl ${results.some(r=>r.detected)?'bg-red-50 border border-red-200':'bg-emerald-50 border border-emerald-200'}`}>
+                <p className={`text-xs font-bold ${results.some(r=>r.detected)?'text-red-700':'text-emerald-700'}`}>
+                  {results.some(r=>r.detected) ? `⚠ ${results.filter(r=>r.detected).length} defect(s) detected — review recommended` : '✓ Layer quality OK — no defects detected'}
                 </p>
               </div>
             </div>
@@ -714,7 +739,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
   );
 }
 
-// ── Main page ──────────────────────────────────────────────────────────────────
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function LiveMonitoring() {
   const router = useRouter();
   const { activeProject, updateProject } = useProjects();
@@ -737,14 +762,14 @@ export default function LiveMonitoring() {
   ]);
 
   const [sensors, setSensors] = useState<SensorReading[]>([
-    { label: 'Ambient Temp',   value: '24.2', unit: '°C',    status: 'ok',   trend: 'stable', history: [24,24.1,24.2,24.1,24.2,24.3,24.2] },
-    { label: 'Humidity',       value: '58',   unit: '%',     status: 'ok',   trend: 'stable', history: [57,58,58,59,58,57,58] },
-    { label: 'Wind Speed',     value: '6.2',  unit: 'km/h',  status: 'ok',   trend: 'up',     history: [4,5,5.5,6,6.1,6.2,6.2] },
-    { label: 'Flow Rate',      value: '8.1',  unit: 'L/min', status: 'ok',   trend: 'stable', history: [8,8.1,8.1,8,8.1,8.2,8.1] },
-    { label: 'Pump Pressure',  value: '4.2',  unit: 'bar',   status: 'ok',   trend: 'stable', history: [4.1,4.2,4.2,4.3,4.2,4.2,4.2] },
-    { label: 'Concrete Temp',  value: '21.8', unit: '°C',    status: 'ok',   trend: 'stable', history: [21.5,21.6,21.7,21.8,21.8,21.8,21.8] },
-    { label: 'Pot Life Left',  value: '47',   unit: 'min',   status: 'warn', trend: 'down',   history: [60,58,55,53,51,49,47] },
-    { label: 'Mix Consistency',value: '94',   unit: '%',     status: 'ok',   trend: 'stable', history: [93,94,95,94,94,93,94] },
+    { label: 'Ambient Temp',    value: '24.2', unit: '°C',    status: 'ok',   trend: 'stable', history: [24,24.1,24.2,24.1,24.2,24.3,24.2] },
+    { label: 'Humidity',        value: '58',   unit: '%',     status: 'ok',   trend: 'stable', history: [57,58,58,59,58,57,58] },
+    { label: 'Wind Speed',      value: '6.2',  unit: 'km/h',  status: 'ok',   trend: 'up',     history: [4,5,5.5,6,6.1,6.2,6.2] },
+    { label: 'Flow Rate',       value: '8.1',  unit: 'L/min', status: 'ok',   trend: 'stable', history: [8,8.1,8.1,8,8.1,8.2,8.1] },
+    { label: 'Pump Pressure',   value: '4.2',  unit: 'bar',   status: 'ok',   trend: 'stable', history: [4.1,4.2,4.2,4.3,4.2,4.2,4.2] },
+    { label: 'Concrete Temp',   value: '21.8', unit: '°C',    status: 'ok',   trend: 'stable', history: [21.5,21.6,21.7,21.8,21.8,21.8,21.8] },
+    { label: 'Pot Life Left',   value: '47',   unit: 'min',   status: 'warn', trend: 'down',   history: [60,58,55,53,51,49,47] },
+    { label: 'Mix Consistency', value: '94',   unit: '%',     status: 'ok',   trend: 'stable', history: [93,94,95,94,94,93,94] },
   ]);
 
   useEffect(() => {
@@ -773,14 +798,10 @@ export default function LiveMonitoring() {
     if (key !== 'paused') addAlert(`${key} set to ${val}`, 'info');
   };
 
-  const addCamera = () => {
-    const id = String(Date.now());
-    setCameras(prev => [...prev, { id, label: `Camera ${prev.length+1}`, angle: 'front', active: true }]);
-  };
-
-  const removeCamera    = (id: string) => setCameras(prev => prev.filter(c => c.id !== id));
-  const updateAngle     = (id: string, angle: Camera['angle']) => setCameras(prev => prev.map(c => c.id===id ? {...c,angle} : c));
-  const renameCamera    = (id: string, label: string) => setCameras(prev => prev.map(c => c.id===id ? {...c,label} : c));
+  const addCamera   = () => { const id = String(Date.now()); setCameras(prev => [...prev, { id, label: `Camera ${prev.length+1}`, angle: 'front', active: true }]); };
+  const removeCamera = (id: string) => setCameras(prev => prev.filter(c => c.id !== id));
+  const updateAngle  = (id: string, angle: Camera['angle']) => setCameras(prev => prev.map(c => c.id===id ? {...c,angle} : c));
+  const renameCamera = (id: string, label: string) => setCameras(prev => prev.map(c => c.id===id ? {...c,label} : c));
 
   const fmtElapsed = () => {
     const h=Math.floor(elapsed/3600), m=Math.floor((elapsed%3600)/60), s=elapsed%60;
@@ -792,15 +813,11 @@ export default function LiveMonitoring() {
     const s=sessionRef.current;
     const h=Math.floor(elapsed/3600), m=Math.floor((elapsed%3600)/60);
     const report: ProjectReport = {
-      generatedAt:    new Date().toISOString(),
-      duration:       h>0?`${h}h ${m}m`:`${m}m`,
-      totalLayers:    activeProject.totalLayers,
-      layersPrinted:  s.layersPrinted,
+      generatedAt: new Date().toISOString(), duration: h>0?`${h}h ${m}m`:`${m}m`,
+      totalLayers: activeProject.totalLayers, layersPrinted: s.layersPrinted,
       errorsDetected: s.errorsDetected,
-      errorRate:      activeProject.totalLayers>0?`${((s.errorsDetected/activeProject.totalLayers)*100).toFixed(1)}%`:'0%',
-      alerts:         s.alerts,
-      printerName:    activeProject.printer.name,
-      structureType:  activeProject.structureType,
+      errorRate: activeProject.totalLayers>0?`${((s.errorsDetected/activeProject.totalLayers)*100).toFixed(1)}%`:'0%',
+      alerts: s.alerts, printerName: activeProject.printer.name, structureType: activeProject.structureType,
     };
     updateProject(activeProject.id, { status:'complete', report });
     router.push('/report');
@@ -850,18 +867,11 @@ export default function LiveMonitoring() {
       <div className="max-w-[1600px] mx-auto px-6 pt-6">
         <AnimatePresence mode="wait">
 
-          {/* ── MONITOR TAB ── */}
           {activeTab==='monitor' && (
             <motion.div key="monitor" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
               className="grid grid-cols-[1fr_320px] gap-6">
-
-              {/* Left: cameras */}
               <div className="space-y-4">
-                <div className={`grid gap-4 ${
-                  cameras.length===1?'grid-cols-1':
-                  cameras.length<=2?'grid-cols-2':
-                  cameras.length<=4?'grid-cols-2':'grid-cols-3'
-                }`}>
+                <div className={`grid gap-4 ${cameras.length===1?'grid-cols-1':cameras.length<=2?'grid-cols-2':cameras.length<=4?'grid-cols-2':'grid-cols-3'}`}>
                   {cameras.map(cam=>(
                     <div key={cam.id} className="relative group">
                       <CameraView camera={cam} onAngleChange={updateAngle} onRename={renameCamera} onRemove={removeCamera}/>
@@ -880,7 +890,6 @@ export default function LiveMonitoring() {
                   </button>
                 </div>
 
-                {/* System log */}
                 <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">System Log</h3>
                   <div className="space-y-1 max-h-28 overflow-y-auto">
@@ -897,16 +906,14 @@ export default function LiveMonitoring() {
                 </div>
               </div>
 
-              {/* Right sidebar */}
               <div className="space-y-4">
-                {/* Printer controls — black card */}
                 <div className="bg-black rounded-2xl p-5 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-4">Printer Control</h3>
                   <div className="space-y-5">
                     {[
-                      { label:'Print Speed', key:'printSpeed' as const, min:10, max:150, step:5, unit:' mm/s', warn: controls.printSpeed>120 },
-                      { label:'Extrusion Rate', key:'extrusionRate' as const, min:50, max:150, step:5, unit:'%', warn: controls.extrusionRate>130 },
-                      { label:'Pump Pressure', key:'pumpPressure' as const, min:1, max:10, step:0.1, unit:' bar', warn: controls.pumpPressure>8 },
+                      { label:'Print Speed',    key:'printSpeed'    as const, min:10,  max:150, step:5,   unit:' mm/s', warn: controls.printSpeed>120 },
+                      { label:'Extrusion Rate', key:'extrusionRate' as const, min:50,  max:150, step:5,   unit:'%',     warn: controls.extrusionRate>130 },
+                      { label:'Pump Pressure',  key:'pumpPressure'  as const, min:1,   max:10,  step:0.1, unit:' bar',  warn: controls.pumpPressure>8 },
                     ].map(s=>{
                       const pct = ((controls[s.key] as number - s.min)/(s.max-s.min))*100;
                       return (
@@ -947,7 +954,6 @@ export default function LiveMonitoring() {
                   </div>
                 </div>
 
-                {/* Live sensors — black cards */}
                 <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Live Sensors</h3>
@@ -964,9 +970,7 @@ export default function LiveMonitoring() {
                           </div>
                         </div>
                         <div className="flex flex-col items-end gap-1">
-                          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                            s.status==='ok'?'bg-emerald-400':s.status==='warn'?'bg-amber-400':'bg-red-400'
-                          }`}/>
+                          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${s.status==='ok'?'bg-emerald-400':s.status==='warn'?'bg-amber-400':'bg-red-400'}`}/>
                           <Sparkline data={s.history} color={s.status==='ok'?'#4ade80':s.status==='warn'?'#fbbf24':'#f87171'}/>
                         </div>
                       </div>
@@ -977,13 +981,12 @@ export default function LiveMonitoring() {
             </motion.div>
           )}
 
-          {/* ── ALL SENSORS TAB ── */}
           {activeTab==='sensors' && (
             <motion.div key="sensors" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-6">
               {[
-                {title:'Environmental', items:sensors.slice(0,3)},
+                {title:'Environmental',   items:sensors.slice(0,3)},
                 {title:'Flow & Pressure', items:sensors.slice(3,5)},
-                {title:'Mix & Material', items:sensors.slice(5,8)},
+                {title:'Mix & Material',  items:sensors.slice(5,8)},
               ].map(group=>(
                 <div key={group.title}>
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">{group.title}</h3>
@@ -992,9 +995,7 @@ export default function LiveMonitoring() {
                       <div key={i} className="bg-black rounded-2xl p-4">
                         <div className="flex justify-between mb-2">
                           <p className="text-[9px] font-semibold uppercase tracking-wide text-white/40">{s.label}</p>
-                          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                            s.status==='ok'?'bg-emerald-400':s.status==='warn'?'bg-amber-400':'bg-red-400'
-                          }`}/>
+                          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${s.status==='ok'?'bg-emerald-400':s.status==='warn'?'bg-amber-400':'bg-red-400'}`}/>
                         </div>
                         <div className="flex items-baseline gap-1 mb-2">
                           <span className="text-2xl font-bold text-white">{s.value}</span>
@@ -1013,7 +1014,6 @@ export default function LiveMonitoring() {
             </motion.div>
           )}
 
-          {/* ── DEFECT DETECTION TAB ── */}
           {activeTab==='defects' && (
             <motion.div key="defects" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
               <DefectDetectionPanel onAlert={addAlert}/>
@@ -1023,7 +1023,6 @@ export default function LiveMonitoring() {
         </AnimatePresence>
       </div>
 
-      {/* End print confirm */}
       <AnimatePresence>
         {showConfirm && (
           <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
