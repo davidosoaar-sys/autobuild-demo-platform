@@ -499,7 +499,7 @@ export default function PrePrintOptimizer() {
                   {showConfirm ? (
                     <motion.div key="c" initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="flex gap-2">
                       <button onClick={beginPrint}
-                        className="flex-1 py-2.5 bg-emerald-500 text-white text-xs font-semibold rounded-xl hover:bg-emerald-400 transition-colors">
+                        className="flex-1 py-2.5 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-colors">
                         Confirm
                       </button>
                       <button onClick={()=>setShowConfirm(false)}
