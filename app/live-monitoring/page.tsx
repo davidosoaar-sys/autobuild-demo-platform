@@ -92,206 +92,85 @@ function CameraView({
   const bgSetRef   = useRef(false);
   const frameCount = useRef(0);
 
-  // ── CV: Isolate bead then analyse straightness ────────────────────────────
+  // ── Simple plumb overlay — no CV, just visual guides ─────────────────────
   const analyseFrame = () => {
-    const video   = videoRef.current;
-    const canvas  = canvasRef.current;
     const overlay = overlayRef.current;
-    if (!video || !canvas || !overlay || video.readyState < 2) return;
+    const video   = videoRef.current;
+    if (!overlay || !video) return;
 
-    const w = video.videoWidth  || 640;
-    const h = video.videoHeight || 360;
-    canvas.width = w; canvas.height = h;
-
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(video, 0, 0, w, h);
-    const { data } = ctx.getImageData(0, 0, w, h);
-
-    // Greyscale
-    const grey = new Float32Array(w * h);
-    for (let i = 0; i < w * h; i++) {
-      grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
-    }
-
-    frameCount.current++;
-
-    // ── Step 1: Build background model (first 8 frames = ~2 seconds) ─────────
-    if (!bgSetRef.current) {
-      if (!bgRef.current) bgRef.current = new Float32Array(grey);
-      else {
-        // Running average for background
-        const alpha = 0.15;
-        for (let i = 0; i < grey.length; i++) {
-          bgRef.current[i] = bgRef.current[i] * (1-alpha) + grey[i] * alpha;
-        }
-      }
-      if (frameCount.current > 8) bgSetRef.current = true;
-
-      // Draw scanning overlay
-      const ow = overlay.offsetWidth, oh = overlay.offsetHeight;
-      overlay.width = ow; overlay.height = oh;
-      const octx = overlay.getContext('2d')!;
-      octx.clearRect(0, 0, ow, oh);
-      octx.fillStyle = 'rgba(0,0,0,0.7)';
-      octx.roundRect(8, 8, 130, 22, 4); octx.fill();
-      octx.fillStyle = 'white'; octx.font = 'bold 10px monospace';
-      octx.fillText(`⏳ CALIBRATING ${Math.min(frameCount.current*12, 100)}%`, 14, 23);
-      return;
-    }
-
-    // ── Step 2: Background subtraction — isolate foreground (new beads) ──────
-    const diffMap = new Float32Array(w * h);
-    let maxDiff = 0;
-    for (let i = 0; i < grey.length; i++) {
-      diffMap[i] = Math.abs(grey[i] - bgRef.current![i]);
-      if (diffMap[i] > maxDiff) maxDiff = diffMap[i];
-    }
-
-    // Threshold: pixels significantly different from background = bead material
-    const threshold = Math.max(0.08, maxDiff * 0.25);
-    const beadMask = new Uint8Array(w * h);
-    let beadPixels = 0;
-    for (let i = 0; i < diffMap.length; i++) {
-      if (diffMap[i] > threshold) { beadMask[i] = 1; beadPixels++; }
-    }
-
-    // ── Step 3: Find bead rows (rows with significant bead presence) ──────────
-    // Scan each row — find rows where bead mask is consistently active
-    const xS = Math.floor(w * 0.10);
-    const xE = Math.floor(w * 0.90);
-    const rowFill: number[] = new Array(h).fill(0);
-    for (let y = 0; y < h; y++) {
-      let count = 0;
-      for (let x = xS; x < xE; x++) {
-        if (beadMask[y*w+x]) count++;
-      }
-      rowFill[y] = count / (xE - xS); // 0..1
-    }
-
-    // Find bead-dense rows (above 20% fill)
-    const beadRows = rowFill
-      .map((v,i) => ({v,i}))
-      .filter(r => r.v > 0.20)
-      .map(r => r.i);
-
-    // ── Step 4: Cluster into individual beads ─────────────────────────────────
-    const beadClusters: {rows: number[]; fill: number}[] = [];
-    let cluster: number[] = [];
-    for (let i = 0; i < beadRows.length; i++) {
-      if (cluster.length === 0 || beadRows[i] - cluster[cluster.length-1] < 12) {
-        cluster.push(beadRows[i]);
-      } else {
-        if (cluster.length > 1) {
-          const avgFill = cluster.reduce((a,r) => a+rowFill[r], 0) / cluster.length;
-          beadClusters.push({ rows: cluster, fill: avgFill });
-        }
-        cluster = [beadRows[i]];
-      }
-    }
-    if (cluster.length > 1) {
-      const avgFill = cluster.reduce((a,r) => a+rowFill[r], 0) / cluster.length;
-      beadClusters.push({ rows: cluster, fill: avgFill });
-    }
-
-    // ── Step 5: Analyse bead straightness ─────────────────────────────────────
-    let straight = false, deviation = 0, confidence = 0;
-    const beadCount = beadClusters.length;
-
-    if (beadCount >= 2) {
-      // Check bead height consistency (each bead should be similar height in px)
-      const heights = beadClusters.map(c => Math.max(...c.rows) - Math.min(...c.rows));
-      const avgH    = heights.reduce((a,b)=>a+b,0) / heights.length;
-      const stdH    = Math.sqrt(heights.reduce((a,b)=>a+Math.pow(b-avgH,2),0)/heights.length);
-
-      // Check bead fill consistency (each bead should cover similar % of width)
-      const fills   = beadClusters.map(c => c.fill);
-      const avgF    = fills.reduce((a,b)=>a+b,0) / fills.length;
-      const stdF    = Math.sqrt(fills.reduce((a,b)=>a+Math.pow(b-avgF,2),0)/fills.length);
-
-      // Check gap between beads is consistent
-      const centres = beadClusters.map(c => c.rows.reduce((a,b)=>a+b,0)/c.rows.length);
-      const gaps    = centres.slice(1).map((c,i)=>c-centres[i]);
-      const avgGap  = gaps.reduce((a,b)=>a+b,0)/gaps.length;
-      const stdGap  = Math.sqrt(gaps.reduce((a,b)=>a+Math.pow(b-avgGap,2),0)/gaps.length);
-
-      deviation  = Math.round(((stdGap/Math.max(avgGap,1))*0.5 + (stdF/Math.max(avgF,1))*0.3 + (stdH/Math.max(avgH,1))*0.2) * 100);
-      confidence = Math.min(100, beadCount * 20);
-      straight   = deviation < 18;
-    }
-
-    setPlumbStatus({ straight, deviation, confidence });
-
-    // ── Step 6: Draw overlay ──────────────────────────────────────────────────
-    const ow = overlay.offsetWidth, oh = overlay.offsetHeight;
+    const ow = overlay.offsetWidth;
+    const oh = overlay.offsetHeight;
     overlay.width = ow; overlay.height = oh;
     const octx = overlay.getContext('2d')!;
     octx.clearRect(0, 0, ow, oh);
 
     // Rule of thirds grid
-    octx.strokeStyle = 'rgba(255,255,255,0.10)';
+    octx.strokeStyle = 'rgba(255,255,255,0.15)';
     octx.lineWidth = 0.5;
-    [1/3,2/3].forEach(f => {
-      octx.beginPath(); octx.moveTo(ow*f,0); octx.lineTo(ow*f,oh); octx.stroke();
-      octx.beginPath(); octx.moveTo(0,oh*f); octx.lineTo(ow,oh*f); octx.stroke();
+    [1/3, 2/3].forEach(f => {
+      octx.beginPath(); octx.moveTo(ow*f, 0); octx.lineTo(ow*f, oh); octx.stroke();
+      octx.beginPath(); octx.moveTo(0, oh*f); octx.lineTo(ow, oh*f); octx.stroke();
     });
 
-    // Centre crosshair
-    octx.strokeStyle = 'rgba(59,130,246,0.6)';
+    // Vertical plumb line (centre)
+    octx.strokeStyle = 'rgba(59,130,246,0.85)';
+    octx.lineWidth = 1.5;
+    octx.setLineDash([4, 4]);
+    octx.beginPath(); octx.moveTo(ow/2, 0); octx.lineTo(ow/2, oh); octx.stroke();
+    octx.setLineDash([]);
+
+    // Horizontal level line (centre)
+    octx.strokeStyle = 'rgba(59,130,246,0.85)';
     octx.lineWidth = 1;
-    octx.beginPath(); octx.moveTo(ow/2,0); octx.lineTo(ow/2,oh); octx.stroke();
-    octx.beginPath(); octx.moveTo(0,oh/2); octx.lineTo(ow,oh/2); octx.stroke();
-    octx.beginPath(); octx.arc(ow/2,oh/2,18,0,Math.PI*2); octx.stroke();
+    octx.beginPath(); octx.moveTo(0, oh/2); octx.lineTo(ow, oh/2); octx.stroke();
 
-    // Draw each detected bead with coloured highlight
-    beadClusters.forEach((bc, idx) => {
-      const yTop = (Math.min(...bc.rows)/h)*oh;
-      const yBot = (Math.max(...bc.rows)/h)*oh;
-      const beadH = yBot - yTop;
-      const color = straight ? `rgba(34,197,94,0.25)` : `rgba(239,68,68,0.20)`;
-      const borderColor = straight ? `rgba(34,197,94,0.8)` : `rgba(239,68,68,0.8)`;
+    // Crosshair circle
+    octx.beginPath();
+    octx.arc(ow/2, oh/2, 22, 0, Math.PI*2);
+    octx.strokeStyle = 'rgba(59,130,246,0.9)';
+    octx.lineWidth = 1.5;
+    octx.stroke();
 
-      // Bead region highlight
-      octx.fillStyle = color;
-      octx.fillRect(ow*0.05, yTop, ow*0.90, beadH);
+    // VAR horizontal reference lines (evenly spaced, like a spirit level scale)
+    const numLines = 8;
+    octx.strokeStyle = 'rgba(255,255,255,0.25)';
+    octx.lineWidth = 0.8;
+    for (let i = 1; i < numLines; i++) {
+      const y = (oh / numLines) * i;
+      const lineW = i === numLines/2 ? ow * 0.7 : ow * 0.25;
+      const xOff  = (ow - lineW) / 2;
+      octx.beginPath();
+      octx.moveTo(xOff, y);
+      octx.lineTo(xOff + lineW, y);
+      octx.stroke();
 
-      // Bead top/bottom lines
-      octx.strokeStyle = borderColor;
-      octx.lineWidth = 1;
-      octx.beginPath(); octx.moveTo(ow*0.05, yTop); octx.lineTo(ow*0.95, yTop); octx.stroke();
-      octx.beginPath(); octx.moveTo(ow*0.05, yBot); octx.lineTo(ow*0.95, yBot); octx.stroke();
-
-      // Bead label
-      const cy = (yTop + yBot) / 2;
-      octx.fillStyle = borderColor;
-      octx.font = `bold ${Math.max(8,Math.min(11,beadH*0.5))}px monospace`;
-      octx.fillText(`B${idx+1}`, ow*0.02, cy+4);
-
-      // Height indicator
-      octx.font = '8px monospace';
-      octx.fillStyle = 'rgba(255,255,255,0.5)';
-      octx.fillText(`${Math.round(beadH)}px`, ow*0.88, cy+3);
-    });
-
-    // Status badge
-    const badge = beadCount === 0 ? '⟳ NO BEAD DETECTED' :
-                  beadCount < 2  ? `⟳ ${beadCount} BEAD — NEED ≥2` :
-                  straight ? `✓ STRAIGHT · ${beadCount} BEADS` :
-                  `✗ DEVIATION · ${beadCount} BEADS`;
-    const badgeBg = beadCount < 2 ? 'rgba(80,80,80,0.9)' :
-                    straight ? 'rgba(22,163,74,0.9)' : 'rgba(220,38,38,0.9)';
-
-    octx.fillStyle = badgeBg;
-    const bw = Math.min(ow-16, octx.measureText(badge).width + 24);
-    octx.beginPath(); octx.roundRect(8, 8, bw, 22, 4); octx.fill();
-    octx.fillStyle = 'white'; octx.font = 'bold 10px monospace';
-    octx.fillText(badge, 14, 23);
-
-    if (beadCount >= 2) {
-      octx.fillStyle = 'rgba(0,0,0,0.7)';
-      octx.beginPath(); octx.roundRect(8, 34, 160, 18, 4); octx.fill();
-      octx.fillStyle = 'rgba(255,255,255,0.8)'; octx.font = '9px monospace';
-      octx.fillText(`DEV ${deviation}% · CONF ${confidence}% · ${beadCount} beads`, 12, 46);
+      // Tick labels
+      if (i !== numLines/2) {
+        const deg = Math.round(((i - numLines/2) / (numLines/2)) * 15);
+        octx.fillStyle = 'rgba(255,255,255,0.35)';
+        octx.font = '8px monospace';
+        octx.fillText(`${deg > 0 ? '+' : ''}${deg}°`, xOff - 22, y + 3);
+      }
     }
+
+    // Angle indicator — shows 0.0° when level
+    const angleLabel = '0.0°';
+    octx.fillStyle = 'rgba(59,130,246,0.9)';
+    octx.beginPath(); octx.roundRect(ow/2 + 25, oh/2 - 11, 45, 18, 4); octx.fill();
+    octx.fillStyle = 'white'; octx.font = 'bold 10px monospace';
+    octx.fillText(angleLabel, ow/2 + 29, oh/2 + 4);
+
+    // Camera angle label bottom left
+    octx.fillStyle = 'rgba(0,0,0,0.65)';
+    octx.beginPath(); octx.roundRect(8, oh - 26, 100, 18, 4); octx.fill();
+    octx.fillStyle = 'rgba(255,255,255,0.7)'; octx.font = '9px monospace';
+    octx.fillText(`${camera.angle.toUpperCase()} VIEW`, 12, oh - 13);
+
+    // PLUMB label top right
+    octx.fillStyle = 'rgba(59,130,246,0.85)';
+    octx.beginPath(); octx.roundRect(ow - 58, 8, 50, 18, 4); octx.fill();
+    octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
+    octx.fillText('PLUMB', ow - 52, 20);
   };
 
   // Run at 4fps when plumb active
@@ -347,11 +226,6 @@ function CameraView({
             </button>
           )}
           {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">● LIVE</span>}
-          {plumbStatus && showPlumb && (
-            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg ${
-              plumbStatus.straight ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-            }`}>{plumbStatus.straight ? '✓ Straight' : '✗ Deviation'}</span>
-          )}
         </div>
         <div className="flex items-center gap-1">
           {angles.map(a=>(
@@ -364,12 +238,6 @@ function CameraView({
             className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${
               showPlumb?'bg-blue-500 text-white':'text-black/30 hover:text-black border border-gray-200'
             }`}>⊕ Plumb</button>
-          {showPlumb && streaming && (
-            <button onClick={()=>{bgSetRef.current=false;frameCount.current=0;bgRef.current=null;setPlumbStatus(null);}}
-              className="px-2 py-0.5 text-[9px] font-semibold rounded-lg text-black/30 hover:text-black border border-gray-200 transition-all">
-              ↺ Reset
-            </button>
-          )}
         </div>
       </div>
 
