@@ -724,7 +724,7 @@ export default function PrinterSetupPage() {
                 <h1 className="text-2xl font-bold text-black">Printer Setup</h1>
                 <p className="text-black/50 text-sm mt-1">How would you like to configure your printer?</p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-3xl">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-2xl">
 
                 {/* Pi */}
                 <button onClick={() => setMode('pi')}
@@ -742,22 +742,6 @@ export default function PrinterSetupPage() {
                   <div className="mt-4 text-emerald-400 text-xs font-medium">Auto-configure →</div>
                 </button>
 
-                {/* Known printer */}
-                <button onClick={() => setMode('connect')}
-                  className="group text-left bg-white border-2 border-gray-100 rounded-2xl p-6 hover:border-black transition-all">
-                  <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-4">
-                    <svg className="w-5 h-5 text-black/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z"/>
-                    </svg>
-                  </div>
-                  <p className="text-black/50 text-xs font-bold mb-1">Option A</p>
-                  <p className="text-black text-base font-semibold mb-2">Known Printer</p>
-                  <p className="text-black/40 text-xs leading-relaxed">
-                    Select from COBOD, Apis Cor, ICON and others. Profile loads automatically.
-                  </p>
-                  <div className="mt-4 text-black/30 text-xs font-medium group-hover:text-black transition-colors">5 printers →</div>
-                </button>
-
                 {/* Manual */}
                 <button onClick={() => setMode('manual')}
                   className="group text-left bg-white border-2 border-gray-100 rounded-2xl p-6 hover:border-black transition-all">
@@ -767,7 +751,7 @@ export default function PrinterSetupPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                     </svg>
                   </div>
-                  <p className="text-black/50 text-xs font-bold mb-1">Option B</p>
+                  <p className="text-black/50 text-xs font-bold mb-1">Option A</p>
                   <p className="text-black text-base font-semibold mb-2">Manual Config</p>
                   <p className="text-black/40 text-xs leading-relaxed">
                     Enter nozzle, pump, kinematics and aggregate specs for any custom printer.
