@@ -487,7 +487,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
       {fileUrl && showModel && (
         <ModelLoader
           fileUrl={fileUrl} fileExt={fileExt}
-          opacity={toolpath.length > 0 && animProgress < 1 ? 0.15 : 1.0}
+          opacity={toolpath.length > 0 && animProgress < 1 ? 0.3 : 1.0}
           scale={modelScale}
           enableTransform={enableTransform} transformMode={transformMode}
           orbitRef={orbitRef}
@@ -795,11 +795,6 @@ export default function LayerVisualization({
 
   return (
     <div className="absolute inset-0">
-      <ThreeErrorBoundary fallback={
-        <div className="absolute inset-0 flex items-center justify-center bg-black">
-          <p className="text-white/40 text-sm">3D viewer encountered an error. Try refreshing.</p>
-        </div>
-      }>
       <Canvas shadows
         gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:1.1}}
         style={{background:bg}}>
@@ -809,7 +804,6 @@ export default function LayerVisualization({
           orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}
           showModel={showModel} showToolpath={showToolpath}/>
       </Canvas>
-      </ThreeErrorBoundary>
 
       {/* ── Top-left: mode toggle + site info (clean, small) ── */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-1.5">
