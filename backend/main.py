@@ -262,11 +262,27 @@ async def optimize_endpoint(
     with open(f"{RESULTS_DIR}/{result_id}.gcode", "w", encoding="utf-8") as f:
         f.write(gcode_str)
 
-    # Save toolpath JSON
-    toolpath_json = [
-        [{"x0": s[0][0], "y0": s[0][1], "x1": s[1][0], "y1": s[1][1]} for s in layer]
-        for layer in toolpath
-    ]
+    # Save toolpath JSON — include gap markers for window/door openings
+    # A gap > 2mm between consecutive segments = travel move (window/door)
+    # Mark with {"gap": true} so the 3D viewer skips drawing beads across the gap
+    import math as _math
+    GAP_THRESHOLD_M = 0.002  # 2mm in metres
+
+    def serialise_layer(segs):
+        out = []
+        for i, s in enumerate(segs):
+            if i > 0:
+                prev = segs[i-1]
+                gap = _math.hypot(
+                    s[0][0] - prev[1][0],
+                    s[0][1] - prev[1][1],
+                )
+                if gap > GAP_THRESHOLD_M:
+                    out.append({"gap": True})  # window/door marker
+            out.append({"x0": s[0][0], "y0": s[0][1], "x1": s[1][0], "y1": s[1][1]})
+        return out
+
+    toolpath_json = [serialise_layer(layer) for layer in toolpath]
     with open(f"{RESULTS_DIR}/{result_id}.json", "w") as f:
         json.dump({"toolpath": toolpath_json, "layer_params": [lp.to_dict() for lp in layer_params]}, f)
 

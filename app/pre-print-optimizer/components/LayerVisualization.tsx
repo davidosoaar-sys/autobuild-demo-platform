@@ -6,7 +6,7 @@ import { OrbitControls, Line, TransformControls, GizmoHelper, GizmoViewport } fr
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 
-interface Segment { x0: number; y0: number; x1: number; y1: number; }
+interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; }
 type Layer         = Segment[];
 type ViewMode      = 'environment' | 'void-dark' | 'void-light';
 type TransformMode = 'translate' | 'rotate' | 'scale';
@@ -290,14 +290,17 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
 }) {
   const allSegs = useMemo(() => {
     const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
-    // Use raw coordinates — slicer outputs in metres, Three.js renders in same units
     toolpath.forEach((layer, li) => {
       const y = (li + 0.5) * layerHeight;
-      layer.forEach(seg => out.push({
-        s: [seg.x0, y, seg.y0],
-        e: [seg.x1, y, seg.y1],
-        layer: li,
-      }));
+      layer.forEach(seg => {
+        // Skip gap markers (window/door openings — no bead drawn across these)
+        if (seg.gap) return;
+        out.push({
+          s: [seg.x0, y, seg.y0],
+          e: [seg.x1, y, seg.y1],
+          layer: li,
+        });
+      });
     });
     return out;
   }, [toolpath, layerHeight]);
