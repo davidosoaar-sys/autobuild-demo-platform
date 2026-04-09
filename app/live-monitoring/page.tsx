@@ -66,6 +66,7 @@ function ControlSlider({ label, value, min, max, step, unit, onChange, warning }
 }
 
 // ── Camera View with plumb line + rename ──────────────────────────────────────
+// ── CameraView: auto-detect + tap-to-lock object straightness analysis ───────
 function CameraView({
   camera, onAngleChange, onRename, onRemove,
 }: {
@@ -75,112 +76,384 @@ function CameraView({
   onRemove: (id: string) => void;
 }) {
   const videoRef   = useRef<HTMLVideoElement>(null);
-  const canvasRef  = useRef<HTMLCanvasElement>(null);
-  const overlayRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);  // hidden CV canvas
+  const overlayRef = useRef<HTMLCanvasElement>(null);  // visible overlay
   const timerRef   = useRef<number | null>(null);
 
-  const [streaming,   setStreaming]   = useState(false);
-  const [error,       setError]       = useState('');
-  const [editing,     setEditing]     = useState(false);
-  const [label,       setLabel]       = useState(camera.label);
-  const [showPlumb,   setShowPlumb]   = useState(false);
-  const [plumbStatus, setPlumbStatus] = useState<{straight: boolean; deviation: number; confidence: number} | null>(null);
+  // Locked region: user tapped to lock onto a specific object
+  const lockedBox  = useRef<{x:number;y:number;w:number;h:number} | null>(null);
+  // Auto-detected region this frame
+  const autoBox    = useRef<{x:number;y:number;w:number;h:number} | null>(null);
+  // Device tilt angle from DeviceMotion API
+  const tiltAngle  = useRef<number>(0);
+
+  const [streaming,  setStreaming]  = useState(false);
+  const [error,      setError]      = useState('');
+  const [editing,    setEditing]    = useState(false);
+  const [label,      setLabel]      = useState(camera.label);
+  const [showPlumb,  setShowPlumb]  = useState(false);
+  const [isLocked,   setIsLocked]   = useState(false);
+  const [result,     setResult]     = useState<{straight:boolean; angle:number; label:string} | null>(null);
 
   const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
 
-  const bgRef      = useRef<Float32Array | null>(null);
-  const bgSetRef   = useRef(false);
-  const frameCount = useRef(0);
+  // ── DeviceMotion: real tilt from phone gyroscope ──────────────────────────
+  useEffect(() => {
+    const handler = (e: DeviceOrientationEvent) => {
+      // gamma = left/right tilt (-90 to 90), beta = front/back
+      const g = e.gamma ?? 0;
+      const b = e.beta  ?? 0;
+      // Use gamma for landscape, beta for portrait — pick whichever is smaller
+      tiltAngle.current = Math.abs(g) < Math.abs(b) ? g : (b - 90);
+    };
+    window.addEventListener('deviceorientation', handler);
+    return () => window.removeEventListener('deviceorientation', handler);
+  }, []);
 
-  // ── Simple plumb overlay — no CV, just visual guides ─────────────────────
+  // ── CV: auto-detect dominant vertical/horizontal structure ────────────────
+  const detectDominantObject = (
+    grey: Float32Array, w: number, h: number
+  ): {x:number;y:number;w:number;h:number} | null => {
+    // Sobel X+Y — find strong edges anywhere in frame
+    const edges = new Float32Array(w * h);
+    let maxE = 0;
+    for (let y = 1; y < h-1; y++) {
+      for (let x = 1; x < w-1; x++) {
+        const i = y*w+x;
+        const gx = Math.abs(
+          -grey[(y-1)*w+(x-1)] + grey[(y-1)*w+(x+1)]
+          -2*grey[y*w+(x-1)]   + 2*grey[y*w+(x+1)]
+          -grey[(y+1)*w+(x-1)] + grey[(y+1)*w+(x+1)]
+        );
+        const gy = Math.abs(
+          -grey[(y-1)*w+(x-1)] - 2*grey[(y-1)*w+x] - grey[(y-1)*w+(x+1)]
+          +grey[(y+1)*w+(x-1)] + 2*grey[(y+1)*w+x] + grey[(y+1)*w+(x+1)]
+        );
+        edges[i] = gx + gy;
+        if (edges[i] > maxE) maxE = edges[i];
+      }
+    }
+
+    // Divide frame into a 4x4 grid, find cell with most edge energy
+    const gridX = 4, gridY = 4;
+    const cellW = Math.floor(w / gridX);
+    const cellH = Math.floor(h / gridY);
+    let bestCell = 0, bestEnergy = 0;
+    const threshold = maxE * 0.3;
+
+    for (let gy = 0; gy < gridY; gy++) {
+      for (let gx = 0; gx < gridX; gx++) {
+        let energy = 0;
+        for (let py = gy*cellH; py < (gy+1)*cellH; py++) {
+          for (let px = gx*cellW; px < (gx+1)*cellW; px++) {
+            if (edges[py*w+px] > threshold) energy++;
+          }
+        }
+        if (energy > bestEnergy) {
+          bestEnergy = energy;
+          bestCell   = gy * gridX + gx;
+        }
+      }
+    }
+
+    if (bestEnergy === 0) return null;
+
+    // Expand best cell into a detection box (center 60% of frame)
+    const bx = (bestCell % gridX) * cellW;
+    const by = Math.floor(bestCell / gridX) * cellH;
+    // Expand 1.5x around best cell, clamped to frame
+    const padX = cellW * 0.5, padY = cellH * 0.5;
+    const rx = Math.max(0, bx - padX);
+    const ry = Math.max(0, by - padY);
+    const rw = Math.min(w - rx, cellW * 2 + padX);
+    const rh = Math.min(h - ry, cellH * 2 + padY);
+
+    return { x: rx, y: ry, w: rw, h: rh };
+  };
+
+  // ── CV: analyse straightness within a box region ──────────────────────────
+  const analyseBoxStraightness = (
+    grey: Float32Array, w: number,
+    box: {x:number;y:number;w:number;h:number}
+  ): {straight:boolean; score:number} => {
+    const xS = Math.floor(box.x);
+    const xE = Math.floor(box.x + box.w);
+    const yS = Math.floor(box.y);
+    const yE = Math.floor(box.y + box.h);
+
+    // Sobel Y (horizontal edges) within box — detect layer lines
+    const edgeRows: number[] = [];
+    for (let y = yS+1; y < yE-1; y++) {
+      let sum = 0;
+      for (let x = xS; x < xE; x++) {
+        sum += Math.abs(
+          -grey[(y-1)*w+x-1] - 2*grey[(y-1)*w+x] - grey[(y-1)*w+x+1]
+          +grey[(y+1)*w+x-1] + 2*grey[(y+1)*w+x] + grey[(y+1)*w+x+1]
+        );
+      }
+      if (sum / (xE - xS) > 0.06) edgeRows.push(y);
+    }
+
+    // Cluster into layer lines
+    const clusters: number[][] = [];
+    let cur: number[] = [];
+    for (const r of edgeRows) {
+      if (cur.length === 0 || r - cur[cur.length-1] < 8) cur.push(r);
+      else { if (cur.length > 1) clusters.push(cur); cur = [r]; }
+    }
+    if (cur.length > 1) clusters.push(cur);
+
+    if (clusters.length < 2) return { straight: true, score: 100 };
+
+    const centres = clusters.map(c => c.reduce((a,b)=>a+b,0)/c.length);
+    const gaps    = centres.slice(1).map((c,i)=>c-centres[i]);
+    const avgGap  = gaps.reduce((a,b)=>a+b,0)/gaps.length;
+    const std     = Math.sqrt(gaps.reduce((a,b)=>a+Math.pow(b-avgGap,2),0)/gaps.length);
+    const cv      = std / Math.max(avgGap, 1); // coefficient of variation
+    const score   = Math.round(Math.max(0, 100 - cv * 200));
+    return { straight: score > 70, score };
+  };
+
+  // ── Main frame analysis loop ──────────────────────────────────────────────
   const analyseFrame = () => {
-    const overlay = overlayRef.current;
     const video   = videoRef.current;
-    if (!overlay || !video) return;
+    const canvas  = canvasRef.current;
+    const overlay = overlayRef.current;
+    if (!video || !canvas || !overlay || video.readyState < 2) return;
 
+    const vw = video.videoWidth  || 640;
+    const vh = video.videoHeight || 360;
+    canvas.width = vw; canvas.height = vh;
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(video, 0, 0, vw, vh);
+    const { data } = ctx.getImageData(0, 0, vw, vh);
+
+    // Greyscale
+    const grey = new Float32Array(vw * vh);
+    for (let i = 0; i < vw * vh; i++) {
+      grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
+    }
+
+    // Get active region — locked takes priority, else auto-detect
+    const activeBox = lockedBox.current ?? detectDominantObject(grey, vw, vh);
+    autoBox.current = lockedBox.current ? null : activeBox;
+
+    let cvResult: {straight:boolean; score:number} | null = null;
+    if (activeBox) {
+      cvResult = analyseBoxStraightness(grey, vw, activeBox);
+    }
+
+    // Real device tilt
+    const tilt   = tiltAngle.current;
+    const isLevelByTilt = Math.abs(tilt) < 2.5;
+
+    // Combined result
+    const straight = (cvResult?.straight ?? true) && isLevelByTilt;
+    const angleStr = `${tilt >= 0 ? '+' : ''}${tilt.toFixed(1)}°`;
+
+    const objectLabel = lockedBox.current ? 'LOCKED OBJECT' :
+                        activeBox         ? 'AUTO-DETECTED' : 'SCANNING...';
+
+    setResult({ straight, angle: tilt, label: objectLabel });
+
+    // ── Draw overlay ──────────────────────────────────────────────────────
     const ow = overlay.offsetWidth;
     const oh = overlay.offsetHeight;
     overlay.width = ow; overlay.height = oh;
     const octx = overlay.getContext('2d')!;
     octx.clearRect(0, 0, ow, oh);
 
+    const scaleX = ow / vw;
+    const scaleY = oh / vh;
+
     // Rule of thirds grid
-    octx.strokeStyle = 'rgba(255,255,255,0.15)';
+    octx.strokeStyle = 'rgba(255,255,255,0.12)';
     octx.lineWidth = 0.5;
-    [1/3, 2/3].forEach(f => {
-      octx.beginPath(); octx.moveTo(ow*f, 0); octx.lineTo(ow*f, oh); octx.stroke();
-      octx.beginPath(); octx.moveTo(0, oh*f); octx.lineTo(ow, oh*f); octx.stroke();
+    [1/3,2/3].forEach(f => {
+      octx.beginPath(); octx.moveTo(ow*f,0); octx.lineTo(ow*f,oh); octx.stroke();
+      octx.beginPath(); octx.moveTo(0,oh*f); octx.lineTo(ow,oh*f); octx.stroke();
     });
 
-    // Vertical plumb line (centre)
-    octx.strokeStyle = 'rgba(59,130,246,0.85)';
+    // Centre plumb line (dashed blue)
+    octx.strokeStyle = 'rgba(59,130,246,0.7)';
     octx.lineWidth = 1.5;
-    octx.setLineDash([4, 4]);
+    octx.setLineDash([5,5]);
     octx.beginPath(); octx.moveTo(ow/2, 0); octx.lineTo(ow/2, oh); octx.stroke();
     octx.setLineDash([]);
 
-    // Horizontal level line (centre)
-    octx.strokeStyle = 'rgba(59,130,246,0.85)';
+    // Centre horizontal
     octx.lineWidth = 1;
     octx.beginPath(); octx.moveTo(0, oh/2); octx.lineTo(ow, oh/2); octx.stroke();
 
-    // Crosshair circle
-    octx.beginPath();
-    octx.arc(ow/2, oh/2, 22, 0, Math.PI*2);
-    octx.strokeStyle = 'rgba(59,130,246,0.9)';
-    octx.lineWidth = 1.5;
-    octx.stroke();
+    // Crosshair
+    octx.beginPath(); octx.arc(ow/2, oh/2, 20, 0, Math.PI*2);
+    octx.lineWidth = 1.5; octx.stroke();
 
-    // VAR horizontal reference lines (evenly spaced, like a spirit level scale)
+    // VAR scale lines (left side)
     const numLines = 8;
-    octx.strokeStyle = 'rgba(255,255,255,0.25)';
-    octx.lineWidth = 0.8;
     for (let i = 1; i < numLines; i++) {
-      const y = (oh / numLines) * i;
-      const lineW = i === numLines/2 ? ow * 0.7 : ow * 0.25;
-      const xOff  = (ow - lineW) / 2;
-      octx.beginPath();
-      octx.moveTo(xOff, y);
-      octx.lineTo(xOff + lineW, y);
-      octx.stroke();
-
-      // Tick labels
-      if (i !== numLines/2) {
-        const deg = Math.round(((i - numLines/2) / (numLines/2)) * 15);
-        octx.fillStyle = 'rgba(255,255,255,0.35)';
-        octx.font = '8px monospace';
-        octx.fillText(`${deg > 0 ? '+' : ''}${deg}°`, xOff - 22, y + 3);
+      const y    = (oh / numLines) * i;
+      const deg  = Math.round(((i - numLines/2) / (numLines/2)) * 15);
+      const lw   = i === numLines/2 ? ow*0.18 : ow*0.08;
+      const isZero = i === numLines/2;
+      octx.strokeStyle = isZero ? 'rgba(59,130,246,0.8)' : 'rgba(255,255,255,0.2)';
+      octx.lineWidth   = isZero ? 1.5 : 0.8;
+      octx.beginPath(); octx.moveTo(8, y); octx.lineTo(8+lw, y); octx.stroke();
+      // right side mirror
+      octx.beginPath(); octx.moveTo(ow-8, y); octx.lineTo(ow-8-lw, y); octx.stroke();
+      if (!isZero) {
+        octx.fillStyle = 'rgba(255,255,255,0.3)';
+        octx.font = '7px monospace';
+        octx.fillText(`${deg>0?'+':''}${deg}°`, 12+lw, y+3);
       }
     }
 
-    // Angle indicator — shows 0.0° when level
-    const angleLabel = '0.0°';
-    octx.fillStyle = 'rgba(59,130,246,0.9)';
-    octx.beginPath(); octx.roundRect(ow/2 + 25, oh/2 - 11, 45, 18, 4); octx.fill();
+    // Detected object bounding box
+    if (activeBox) {
+      const bx = activeBox.x * scaleX;
+      const by = activeBox.y * scaleY;
+      const bw = activeBox.w * scaleX;
+      const bh = activeBox.h * scaleY;
+
+      const boxColor = lockedBox.current
+        ? (straight ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)')
+        : 'rgba(251,191,36,0.8)'; // yellow = auto, not locked
+
+      // Box outline
+      octx.strokeStyle = boxColor;
+      octx.lineWidth   = lockedBox.current ? 2 : 1.5;
+      octx.setLineDash(lockedBox.current ? [] : [4,3]);
+      octx.strokeRect(bx, by, bw, bh);
+      octx.setLineDash([]);
+
+      // Corner brackets for locked
+      if (lockedBox.current) {
+        const cs = 12;
+        octx.lineWidth = 2.5;
+        [[bx,by],[bx+bw,by],[bx,by+bh],[bx+bw,by+bh]].forEach(([cx,cy],ci) => {
+          const sx = ci%2===0?1:-1, sy = ci<2?1:-1;
+          octx.beginPath();
+          octx.moveTo(cx+sx*cs, cy); octx.lineTo(cx,cy); octx.lineTo(cx, cy+sy*cs);
+          octx.stroke();
+        });
+      }
+
+      // Object label above box
+      octx.fillStyle = boxColor.replace('0.9','0.85').replace('0.8','0.85');
+      const lText = lockedBox.current
+        ? (straight ? '✓ STRAIGHT' : '✗ DEVIATION')
+        : '⊙ AUTO-DETECT';
+      const lw2 = octx.measureText(lText).width + 12;
+      octx.beginPath(); octx.roundRect(bx, by-20, lw2, 16, 3); octx.fill();
+      octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
+      octx.fillText(lText, bx+6, by-8);
+
+      // Straightness score inside box (if locked)
+      if (lockedBox.current && cvResult) {
+        octx.fillStyle = 'rgba(0,0,0,0.65)';
+        octx.beginPath(); octx.roundRect(bx+4, by+4, 90, 14, 3); octx.fill();
+        octx.fillStyle = 'rgba(255,255,255,0.8)'; octx.font = '8px monospace';
+        octx.fillText(`SCORE ${cvResult.score}% · ${angleStr}`, bx+8, by+14);
+      }
+    }
+
+    // Angle indicator next to centre crosshair
+    const tiltColor = Math.abs(tilt) < 1 ? 'rgba(34,197,94,0.9)' :
+                      Math.abs(tilt) < 5 ? 'rgba(251,191,36,0.9)' : 'rgba(239,68,68,0.9)';
+    octx.fillStyle = tiltColor;
+    octx.beginPath(); octx.roundRect(ow/2+26, oh/2-10, 52, 17, 4); octx.fill();
     octx.fillStyle = 'white'; octx.font = 'bold 10px monospace';
-    octx.fillText(angleLabel, ow/2 + 29, oh/2 + 4);
+    octx.fillText(angleStr, ow/2+30, oh/2+3);
 
-    // Camera angle label bottom left
-    octx.fillStyle = 'rgba(0,0,0,0.65)';
-    octx.beginPath(); octx.roundRect(8, oh - 26, 100, 18, 4); octx.fill();
-    octx.fillStyle = 'rgba(255,255,255,0.7)'; octx.font = '9px monospace';
-    octx.fillText(`${camera.angle.toUpperCase()} VIEW`, 12, oh - 13);
-
-    // PLUMB label top right
-    octx.fillStyle = 'rgba(59,130,246,0.85)';
-    octx.beginPath(); octx.roundRect(ow - 58, 8, 50, 18, 4); octx.fill();
+    // Status badge top-left
+    const badgeBg = !activeBox ? 'rgba(80,80,80,0.9)' :
+                    straight   ? 'rgba(22,163,74,0.9)' : 'rgba(220,38,38,0.9)';
+    const badge = !activeBox        ? '⟳ SCANNING...' :
+                  !lockedBox.current? '⊙ TAP TO LOCK' :
+                  straight          ? '✓ STRAIGHT'    : '✗ DEVIATION';
+    octx.fillStyle = badgeBg;
+    const badgeW = octx.measureText(badge).width + 16;
+    octx.beginPath(); octx.roundRect(8, 8, badgeW, 20, 4); octx.fill();
     octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
-    octx.fillText('PLUMB', ow - 52, 20);
+    octx.fillText(badge, 14, 21);
+
+    // PLUMB badge top-right
+    octx.fillStyle = 'rgba(59,130,246,0.85)';
+    octx.beginPath(); octx.roundRect(ow-56, 8, 48, 20, 4); octx.fill();
+    octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
+    octx.fillText('PLUMB', ow-50, 21);
+
+    // Camera label bottom-left
+    octx.fillStyle = 'rgba(0,0,0,0.65)';
+    octx.beginPath(); octx.roundRect(8, oh-24, 96, 16, 4); octx.fill();
+    octx.fillStyle = 'rgba(255,255,255,0.7)'; octx.font = '8px monospace';
+    octx.fillText(`${camera.angle.toUpperCase()} VIEW`, 12, oh-12);
+
+    // Unlock hint bottom-right (if locked)
+    if (lockedBox.current) {
+      octx.fillStyle = 'rgba(0,0,0,0.55)';
+      octx.beginPath(); octx.roundRect(ow-90, oh-24, 82, 16, 4); octx.fill();
+      octx.fillStyle = 'rgba(255,255,255,0.5)'; octx.font = '8px monospace';
+      octx.fillText('TAP TO UNLOCK', ow-86, oh-12);
+    }
   };
 
-  // Run at 4fps when plumb active
+  // ── Tap handler: lock/unlock on click ────────────────────────────────────
+  const handleOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!showPlumb || !streaming) return;
+    const overlay = overlayRef.current;
+    const video   = videoRef.current;
+    if (!overlay || !video) return;
+
+    const rect   = overlay.getBoundingClientRect();
+    const clickX = (e.clientX - rect.left) / rect.width;
+    const clickY = (e.clientY - rect.top)  / rect.height;
+
+    // If already locked, any tap unlocks
+    if (lockedBox.current) {
+      lockedBox.current = null;
+      setIsLocked(false);
+      return;
+    }
+
+    // If auto-detected box exists and click is near it, lock to it
+    if (autoBox.current) {
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 360;
+      const b  = autoBox.current;
+      const bx = b.x/vw, by = b.y/vh, bw = b.w/vw, bh = b.h/vh;
+      if (clickX >= bx-0.05 && clickX <= bx+bw+0.05 &&
+          clickY >= by-0.05 && clickY <= by+bh+0.05) {
+        lockedBox.current = autoBox.current;
+        setIsLocked(true);
+        return;
+      }
+    }
+
+    // Tap anywhere else = create a lock box centred on tap point
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 360;
+    const bw = vw * 0.35, bh = vh * 0.45;
+    lockedBox.current = {
+      x: Math.max(0, clickX*vw - bw/2),
+      y: Math.max(0, clickY*vh - bh/2),
+      w: Math.min(vw, bw),
+      h: Math.min(vh, bh),
+    };
+    setIsLocked(true);
+  };
+
+  // Run at 8fps when plumb active
   useEffect(() => {
     if (streaming && showPlumb) {
       const loop = () => {
         analyseFrame();
-        timerRef.current = window.setTimeout(loop, 250) as unknown as number;
+        timerRef.current = window.setTimeout(loop, 125) as unknown as number;
       };
-      timerRef.current = window.setTimeout(loop, 250) as unknown as number;
+      timerRef.current = window.setTimeout(loop, 125) as unknown as number;
+    } else {
+      if (timerRef.current) clearTimeout(timerRef.current);
     }
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [streaming, showPlumb]);
@@ -205,55 +478,73 @@ function CameraView({
       (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
       videoRef.current.srcObject = null;
     }
+    lockedBox.current = null;
+    setIsLocked(false);
     setStreaming(false);
-    setPlumbStatus(null);
+    setResult(null);
   };
 
   const saveLabel = () => { onRename(camera.id, label); setEditing(false); };
 
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+      {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
         <div className="flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full ${streaming ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}/>
           {editing ? (
             <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
               onBlur={saveLabel} onKeyDown={e=>e.key==='Enter'&&saveLabel()}
-              className="text-xs font-semibold text-black border-b border-black outline-none bg-transparent w-32"/>
+              className="text-xs font-semibold border-b border-black outline-none bg-transparent w-32"/>
           ) : (
             <button onClick={()=>setEditing(true)} className="text-xs font-semibold text-black hover:text-black/60">
               {camera.label}
             </button>
           )}
           {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">● LIVE</span>}
+          {result && showPlumb && (
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg ${
+              isLocked
+                ? result.straight ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                : 'bg-amber-100 text-amber-700'
+            }`}>
+              {isLocked ? (result.straight ? '✓ Straight' : '✗ Deviation') : '⊙ Detecting'}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap justify-end">
           {angles.map(a=>(
             <button key={a} onClick={()=>onAngleChange(camera.id,a)}
               className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${
                 camera.angle===a?'bg-black text-white':'text-black/30 hover:text-black'
               }`}>{a}</button>
           ))}
-          <button onClick={()=>setShowPlumb(v=>!v)}
+          <button onClick={()=>{ setShowPlumb(v=>!v); lockedBox.current=null; setIsLocked(false); }}
             className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${
               showPlumb?'bg-blue-500 text-white':'text-black/30 hover:text-black border border-gray-200'
             }`}>⊕ Plumb</button>
         </div>
       </div>
 
+      {/* Video */}
       <div className="relative bg-black aspect-video flex items-center justify-center">
         <video ref={videoRef} autoPlay playsInline muted
           className={`absolute inset-0 w-full h-full object-cover ${streaming?'block':'hidden'}`}/>
         <canvas ref={canvasRef} className="hidden"/>
         <canvas ref={overlayRef}
-          className={`absolute inset-0 w-full h-full z-10 pointer-events-none ${streaming&&showPlumb?'block':'hidden'}`}/>
+          onClick={handleOverlayClick}
+          className={`absolute inset-0 w-full h-full z-10 ${
+            streaming&&showPlumb ? 'block' : 'hidden'
+          } ${showPlumb ? 'cursor-crosshair' : 'pointer-events-none'}`}/>
 
+        {/* Angle label when plumb off */}
         {streaming && !showPlumb && (
           <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg z-10">
             <span className="text-[9px] text-white/70 font-mono uppercase">{camera.angle} view</span>
           </div>
         )}
 
+        {/* Placeholder */}
         {!streaming && (
           <div className="text-center z-10">
             <svg className="w-8 h-8 text-white/20 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -261,7 +552,7 @@ function CameraView({
             </svg>
             {error && <p className="text-red-400 text-[10px] mb-2 max-w-[200px] mx-auto">{error}</p>}
             <button onClick={startCamera}
-              className="text-[11px] font-semibold text-white bg-white/10 border border-white/20 rounded-xl px-4 py-2 hover:bg-white/20 transition-all">
+              className="text-[11px] font-semibold text-white bg-white/10 border border-white/20 rounded-xl px-4 py-2 hover:bg-white/20">
               Connect Camera
             </button>
           </div>
@@ -276,7 +567,6 @@ function CameraView({
     </div>
   );
 }
-
 
 // ── Defect Detection ───────────────────────────────────────────────────────────
 const DEFECT_CLASSES = ['Cracking', 'Delamination', 'Over-extrusion', 'Under-extrusion', 'Layer Shift', 'Void'];
