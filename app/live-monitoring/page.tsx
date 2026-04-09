@@ -6,9 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useProjects, ProjectReport, ReportAlert } from '@/lib/project-store';
 import AppNav from '@/components/AppNav';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type Tab = 'control' | 'sensors' | 'camera' | 'defects';
+type Tab = 'monitor' | 'sensors' | 'defects';
 
 interface SensorReading {
   label: string;
@@ -20,17 +18,21 @@ interface SensorReading {
 }
 
 interface PrinterControl {
-  printSpeed: number;       // mm/s
-  extrusionRate: number;    // %
-  layerHeight: number;      // mm
-  nozzleTemp: number;       // °C
-  pumpPressure: number;     // bar
+  printSpeed: number;
+  extrusionRate: number;
+  pumpPressure: number;
   paused: boolean;
 }
 
-// ── Mini sparkline ─────────────────────────────────────────────────────────────
+interface Camera {
+  id: string;
+  label: string;
+  angle: 'front' | 'side' | 'overhead' | 'nozzle' | 'custom';
+  rtspUrl: string;
+  active: boolean;
+}
 
-function Sparkline({ data, color = '#22c55e', width = 80, height = 28 }: {
+function Sparkline({ data, color = '#22c55e', width = 60, height = 24 }: {
   data: number[]; color?: string; width?: number; height?: number;
 }) {
   if (data.length < 2) return null;
@@ -43,88 +45,48 @@ function Sparkline({ data, color = '#22c55e', width = 80, height = 28 }: {
     return `${x},${y}`;
   }).join(' ');
   return (
-    <svg width={width} height={height} className="opacity-70">
+    <svg width={width} height={height}>
       <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round"/>
     </svg>
   );
 }
 
-// ── Sensor card ───────────────────────────────────────────────────────────────
-
-function SensorCard({ sensor }: { sensor: SensorReading }) {
-  const statusColor = {
-    ok:    'text-emerald-600 bg-emerald-50 border-emerald-200',
-    warn:  'text-amber-600 bg-amber-50 border-amber-200',
-    error: 'text-red-600 bg-red-50 border-red-200',
-  }[sensor.status];
-
-  const dotColor = {
-    ok:    'bg-emerald-500',
-    warn:  'bg-amber-500',
-    error: 'bg-red-500',
-  }[sensor.status];
-
-  const sparkColor = {
-    ok:    '#22c55e',
-    warn:  '#f59e0b',
-    error: '#ef4444',
-  }[sensor.status];
-
+function MiniSensor({ sensor }: { sensor: SensorReading }) {
+  const colors = { ok: '#22c55e', warn: '#f59e0b', error: '#ef4444' };
+  const bgColors = { ok: 'bg-emerald-50 border-emerald-200', warn: 'bg-amber-50 border-amber-200', error: 'bg-red-50 border-red-200' };
+  const textColors = { ok: 'text-emerald-700', warn: 'text-amber-700', error: 'text-red-700' };
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`bg-white border rounded-2xl p-4 ${statusColor}`}
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest opacity-60 mb-0.5">{sensor.label}</p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold">{sensor.value}</span>
-            <span className="text-xs opacity-60">{sensor.unit}</span>
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <div className={`w-2 h-2 rounded-full ${dotColor} animate-pulse`}/>
-          {sensor.trend && (
-            <span className="text-[10px] opacity-50">
-              {sensor.trend === 'up' ? '↑' : sensor.trend === 'down' ? '↓' : '→'}
-            </span>
-          )}
-        </div>
+    <div className={`rounded-xl border p-3 ${bgColors[sensor.status]}`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className={`text-[10px] font-semibold uppercase tracking-wide ${textColors[sensor.status]}`}>{sensor.label}</span>
+        <div className={`w-1.5 h-1.5 rounded-full animate-pulse`} style={{background: colors[sensor.status]}}/>
       </div>
-      <Sparkline data={sensor.history} color={sparkColor}/>
-    </motion.div>
+      <div className="flex items-end justify-between">
+        <div>
+          <span className={`text-lg font-bold ${textColors[sensor.status]}`}>{sensor.value}</span>
+          <span className={`text-[10px] ml-1 ${textColors[sensor.status]} opacity-60`}>{sensor.unit}</span>
+        </div>
+        <Sparkline data={sensor.history} color={colors[sensor.status]}/>
+      </div>
+    </div>
   );
 }
 
-// ── Slider control ─────────────────────────────────────────────────────────────
-
-function ControlSlider({
-  label, value, min, max, step, unit, onChange, warning
-}: {
+function ControlSlider({ label, value, min, max, step, unit, onChange, warning }: {
   label: string; value: number; min: number; max: number;
   step: number; unit: string; onChange: (v: number) => void; warning?: boolean;
 }) {
   const pct = ((value - min) / (max - min)) * 100;
   return (
-    <div className="space-y-2">
-      <div className="flex justify-between items-center">
-        <span className="text-xs font-semibold text-black/60">{label}</span>
-        <span className={`text-sm font-bold font-mono ${warning ? 'text-red-500' : 'text-black'}`}>
-          {value}{unit}
-        </span>
+    <div className="space-y-1.5">
+      <div className="flex justify-between">
+        <span className="text-xs font-medium text-black/60">{label}</span>
+        <span className={`text-xs font-bold font-mono ${warning ? 'text-red-500' : 'text-black'}`}>{value}{unit}</span>
       </div>
-      <div className="relative">
-        <input
-          type="range" min={min} max={max} step={step} value={value}
-          onChange={e => onChange(Number(e.target.value))}
-          className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-          style={{
-            background: `linear-gradient(to right, ${warning ? '#ef4444' : '#000'} ${pct}%, #e5e7eb ${pct}%)`
-          }}
-        />
-      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        className="w-full h-1 rounded-full appearance-none cursor-pointer"
+        style={{ background: `linear-gradient(to right, ${warning ? '#ef4444' : '#000'} ${pct}%, #e5e7eb ${pct}%)` }}/>
       <div className="flex justify-between text-[9px] text-black/25">
         <span>{min}{unit}</span><span>{max}{unit}</span>
       </div>
@@ -132,73 +94,89 @@ function ControlSlider({
   );
 }
 
-// ── Main page ──────────────────────────────────────────────────────────────────
+function CameraView({ camera, onAngleChange }: { camera: Camera; onAngleChange: (id: string, angle: Camera['angle']) => void }) {
+  const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
+  return (
+    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"/>
+          <span className="text-xs font-semibold text-black">{camera.label}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {angles.map(a => (
+            <button key={a} onClick={() => onAngleChange(camera.id, a)}
+              className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${
+                camera.angle === a ? 'bg-black text-white' : 'text-black/30 hover:text-black'
+              }`}>
+              {a}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="relative bg-black aspect-video flex items-center justify-center">
+        <div className="absolute inset-0 opacity-5"
+          style={{backgroundImage:'linear-gradient(rgba(255,255,255,0.15) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.15) 1px,transparent 1px)',backgroundSize:'24px 24px'}}/>
+        {/* Angle-specific overlay */}
+        <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg">
+          <span className="text-[9px] text-white/60 font-mono uppercase">{camera.angle} view</span>
+        </div>
+        <div className="text-center z-10">
+          <svg className="w-8 h-8 text-white/20 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+          <p className="text-white/25 text-[10px] mb-2">{camera.rtspUrl || 'No stream configured'}</p>
+          <button className="text-[10px] text-white/40 border border-white/15 rounded-lg px-2 py-1 hover:border-white/40 transition-all">
+            Connect Stream
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function LiveMonitoring() {
   const router = useRouter();
   const { activeProject, updateProject } = useProjects();
-  const startTimeRef  = useRef<Date>(new Date());
-  const sessionRef    = useRef({ layersPrinted: 0, errorsDetected: 0, alerts: [] as ReportAlert[] });
-  const tickRef       = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef = useRef<Date>(new Date());
+  const sessionRef   = useRef({ layersPrinted: 0, errorsDetected: 0, alerts: [] as ReportAlert[] });
+  const tickRef      = useRef<NodeJS.Timeout | null>(null);
 
-  const [activeTab,    setActiveTab]   = useState<Tab>('control');
-  const [showConfirm,  setShowConfirm] = useState(false);
-  const [elapsed,      setElapsed]     = useState(0); // seconds
-  const [alertLog,     setAlertLog]    = useState<{time:string;msg:string;level:'info'|'warn'|'error'}[]>([]);
+  const [activeTab,   setActiveTab]   = useState<Tab>('monitor');
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [elapsed,     setElapsed]     = useState(0);
+  const [alertLog,    setAlertLog]    = useState<{time:string;msg:string;level:'info'|'warn'|'error'}[]>([]);
 
-  // ── Printer controls ───────────────────────────────────────────────────────
   const [controls, setControls] = useState<PrinterControl>({
-    printSpeed:    60,
-    extrusionRate: 100,
-    layerHeight:   15,
-    nozzleTemp:    22,
-    pumpPressure:  4.2,
-    paused:        false,
+    printSpeed: 60, extrusionRate: 100, pumpPressure: 4.2, paused: false,
   });
 
-  const updateControl = (key: keyof PrinterControl, val: number | boolean) => {
-    setControls(prev => ({ ...prev, [key]: val }));
-    if (key !== 'paused') {
-      const label = key.replace(/([A-Z])/g, ' $1').toLowerCase();
-      addAlert(`${label} updated to ${val}${typeof val === 'number' ? '' : ''}`, 'info');
-    }
-  };
-
-  // ── Sensor simulation ──────────────────────────────────────────────────────
-  const [sensors, setSensors] = useState<SensorReading[]>([
-    // Environmental
-    { label: 'Ambient Temp',    value: '24.2', unit: '°C',  status: 'ok',   trend: 'stable', history: [24,24.1,24.2,24.1,24.2,24.3,24.2] },
-    { label: 'Humidity',        value: '58',   unit: '%',   status: 'ok',   trend: 'stable', history: [57,58,58,59,58,57,58] },
-    { label: 'Wind Speed',      value: '6.2',  unit: 'km/h',status: 'ok',   trend: 'up',     history: [4,5,5.5,6,6.1,6.2,6.2] },
-    { label: 'UV Index',        value: '3',    unit: '',    status: 'ok',   trend: 'stable', history: [2,3,3,3,3,3,3] },
-    // Nozzle / material
-    { label: 'Nozzle Temp',     value: '22.1', unit: '°C',  status: 'ok',   trend: 'stable', history: [22,22.1,22,22.1,22.2,22.1,22.1] },
-    { label: 'Flow Rate',       value: '8.1',  unit: 'L/min',status:'ok',   trend: 'stable', history: [8,8.1,8.1,8,8.1,8.2,8.1] },
-    { label: 'Pump Pressure',   value: '4.2',  unit: 'bar', status: 'ok',   trend: 'stable', history: [4.1,4.2,4.2,4.3,4.2,4.2,4.2] },
-    { label: 'Extrusion Rate',  value: '100',  unit: '%',   status: 'ok',   trend: 'stable', history: [100,100,100,99,100,100,100] },
-    // Mix / material
-    { label: 'Mix Consistency', value: '94',   unit: '%',   status: 'ok',   trend: 'stable', history: [93,94,95,94,94,93,94] },
-    { label: 'Pot Life Left',   value: '47',   unit: 'min', status: 'warn', trend: 'down',   history: [60,58,55,53,51,49,47] },
-    { label: 'W/C Ratio',       value: '0.45', unit: '',    status: 'ok',   trend: 'stable', history: [0.45,0.45,0.45,0.46,0.45,0.45,0.45] },
-    { label: 'Batch Temp',      value: '21.8', unit: '°C',  status: 'ok',   trend: 'stable', history: [21.5,21.6,21.7,21.8,21.8,21.8,21.8] },
+  const [cameras, setCameras] = useState<Camera[]>([
+    { id: '1', label: 'Camera 1', angle: 'front',    rtspUrl: '', active: true },
+    { id: '2', label: 'Camera 2', angle: 'overhead', rtspUrl: '', active: true },
   ]);
 
-  // ── Elapsed timer ──────────────────────────────────────────────────────────
+  const [sensors, setSensors] = useState<SensorReading[]>([
+    { label: 'Ambient Temp',  value: '24.2', unit: '°C',   status: 'ok',   trend: 'stable', history: [24,24.1,24.2,24.1,24.2,24.3,24.2] },
+    { label: 'Humidity',      value: '58',   unit: '%',    status: 'ok',   trend: 'stable', history: [57,58,58,59,58,57,58] },
+    { label: 'Wind Speed',    value: '6.2',  unit: 'km/h', status: 'ok',   trend: 'up',     history: [4,5,5.5,6,6.1,6.2,6.2] },
+    { label: 'Flow Rate',     value: '8.1',  unit: 'L/min',status: 'ok',   trend: 'stable', history: [8,8.1,8.1,8,8.1,8.2,8.1] },
+    { label: 'Pump Pressure', value: '4.2',  unit: 'bar',  status: 'ok',   trend: 'stable', history: [4.1,4.2,4.2,4.3,4.2,4.2,4.2] },
+    { label: 'Concrete Temp', value: '21.8', unit: '°C',   status: 'ok',   trend: 'stable', history: [21.5,21.6,21.7,21.8,21.8,21.8,21.8] },
+    { label: 'Pot Life Left', value: '47',   unit: 'min',  status: 'warn', trend: 'down',   history: [60,58,55,53,51,49,47] },
+    { label: 'Mix Consistency',value: '94',  unit: '%',    status: 'ok',   trend: 'stable', history: [93,94,95,94,94,93,94] },
+  ]);
+
   useEffect(() => {
     tickRef.current = setInterval(() => {
       setElapsed(s => s + 1);
-      // Simulate sensor drift
       setSensors(prev => prev.map(s => {
-        const last = parseFloat(s.value);
-        const drift = (Math.random() - 0.5) * 0.2;
-        const next  = Math.round((last + drift) * 100) / 100;
-        const newHistory = [...s.history.slice(-8), next];
-        // Recalculate status
+        const last  = parseFloat(s.value);
+        const next  = Math.round((last + (Math.random() - 0.5) * 0.2) * 100) / 100;
+        const newH  = [...s.history.slice(-8), next];
         let status: 'ok'|'warn'|'error' = s.status;
-        if (s.label === 'Pot Life Left') {
-          status = next < 20 ? 'error' : next < 35 ? 'warn' : 'ok';
-        }
-        return { ...s, value: String(next), history: newHistory, status };
+        if (s.label === 'Pot Life Left') status = next < 20 ? 'error' : next < 35 ? 'warn' : 'ok';
+        return { ...s, value: String(next), history: newH, status };
       }));
     }, 3000);
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
@@ -207,9 +185,23 @@ export default function LiveMonitoring() {
   const addAlert = (msg: string, level: 'info'|'warn'|'error' = 'info') => {
     const time = new Date().toLocaleTimeString();
     setAlertLog(prev => [{ time, msg, level }, ...prev.slice(0, 19)]);
-    if (level !== 'info') {
-      sessionRef.current.alerts.push({ time, layer: sessionRef.current.layersPrinted, message: msg });
-    }
+    if (level !== 'info') sessionRef.current.alerts.push({ time, layer: sessionRef.current.layersPrinted, message: msg });
+  };
+
+  const updateControl = (key: keyof PrinterControl, val: number | boolean) => {
+    setControls(prev => ({ ...prev, [key]: val }));
+    if (key !== 'paused') addAlert(`${key} set to ${val}`, 'info');
+  };
+
+  const addCamera = () => {
+    const id = String(Date.now());
+    setCameras(prev => [...prev, { id, label: `Camera ${prev.length + 1}`, angle: 'front', rtspUrl: '', active: true }]);
+  };
+
+  const removeCamera = (id: string) => setCameras(prev => prev.filter(c => c.id !== id));
+
+  const updateCameraAngle = (id: string, angle: Camera['angle']) => {
+    setCameras(prev => prev.map(c => c.id === id ? { ...c, angle } : c));
   };
 
   const fmtElapsed = () => {
@@ -230,9 +222,7 @@ export default function LiveMonitoring() {
       totalLayers:    activeProject.totalLayers,
       layersPrinted:  s.layersPrinted,
       errorsDetected: s.errorsDetected,
-      errorRate:      activeProject.totalLayers > 0
-        ? `${((s.errorsDetected / activeProject.totalLayers) * 100).toFixed(1)}%`
-        : '0%',
+      errorRate:      activeProject.totalLayers > 0 ? `${((s.errorsDetected / activeProject.totalLayers) * 100).toFixed(1)}%` : '0%',
       alerts:         s.alerts,
       printerName:    activeProject.printer.name,
       structureType:  activeProject.structureType,
@@ -241,244 +231,173 @@ export default function LiveMonitoring() {
     router.push('/report');
   };
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: 'control', label: 'Printer Control' },
-    { key: 'sensors', label: 'Sensors' },
-    { key: 'camera',  label: 'Camera Feed' },
-    { key: 'defects', label: 'Defect Detection' },
-  ];
-
-  const envSensors    = sensors.slice(0, 4);
-  const nozzleSensors = sensors.slice(4, 8);
-  const mixSensors    = sensors.slice(8, 12);
+  const keySensors = sensors.slice(0, 4); // show in sidebar
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-28">
+    <div className="min-h-screen bg-gray-50 pb-6">
       <AppNav currentStep="monitor"/>
       <style>{`footer { display: none !important; }`}</style>
 
-      {/* ── Header strip ── */}
-      <div className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between sticky top-14 z-20">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <motion.div className="w-2.5 h-2.5 rounded-full bg-emerald-500"
+            <motion.div className="w-2 h-2 rounded-full bg-emerald-500"
               animate={{ opacity: controls.paused ? 1 : [1,0.3,1] }}
               transition={{ duration: 1.2, repeat: Infinity }}/>
-            <span className="text-sm font-semibold text-black">
-              {controls.paused ? 'Paused' : 'Printing'}
-            </span>
+            <span className="text-sm font-semibold">{controls.paused ? 'Paused' : 'Printing'}</span>
           </div>
           <div className="h-4 w-px bg-gray-200"/>
           <span className="text-xs font-mono text-black/40">{fmtElapsed()}</span>
-          {activeProject && (
-            <>
-              <div className="h-4 w-px bg-gray-200"/>
-              <span className="text-xs text-black/40">{activeProject.printer.name || 'No printer'}</span>
-            </>
-          )}
+          {activeProject && <><div className="h-4 w-px bg-gray-200"/><span className="text-xs text-black/40">{activeProject.printer.name || '—'}</span></>}
         </div>
         <div className="flex items-center gap-2">
+          {(['monitor','sensors','defects'] as Tab[]).map(t => (
+            <button key={t} onClick={() => setActiveTab(t)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${
+                activeTab === t ? 'bg-black text-white' : 'text-black/40 hover:text-black hover:bg-gray-100'
+              }`}>{t === 'monitor' ? 'Monitor' : t === 'sensors' ? 'All Sensors' : 'Defect Detection'}</button>
+          ))}
+          <div className="h-4 w-px bg-gray-200"/>
           <button onClick={() => updateControl('paused', !controls.paused)}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-xl border transition-all ${
-              controls.paused
-                ? 'bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-400'
-                : 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100'
-            }`}>
-            {controls.paused ? 'Resume' : 'Pause'}
-          </button>
+            className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all ${
+              controls.paused ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-amber-50 text-amber-600 border-amber-200'
+            }`}>{controls.paused ? 'Resume' : 'Pause'}</button>
           <button onClick={() => setShowConfirm(true)}
-            className="px-4 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
+            className="px-3 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
             End Print
           </button>
         </div>
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="max-w-7xl mx-auto px-6 pt-6">
-        <div className="flex gap-1 bg-white border border-gray-100 rounded-2xl p-1 w-fit mb-6 shadow-sm">
-          {TABS.map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all ${
-                activeTab === tab.key
-                  ? 'bg-black text-white'
-                  : 'text-black/40 hover:text-black hover:bg-gray-50'
-              }`}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
+      <div className="max-w-[1600px] mx-auto px-6 pt-6">
         <AnimatePresence mode="wait">
 
-          {/* ── PRINTER CONTROL TAB ── */}
-          {activeTab === 'control' && (
-            <motion.div key="control" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="grid grid-cols-3 gap-6">
+          {/* ── MONITOR TAB — main layout ── */}
+          {activeTab === 'monitor' && (
+            <motion.div key="monitor" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+              className="grid grid-cols-[1fr_320px] gap-6">
 
-              {/* Main controls */}
-              <div className="col-span-2 space-y-4">
-                <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40 mb-5">Print Speed & Extrusion</h3>
-                  <div className="space-y-6">
-                    <ControlSlider label="Print Speed" value={controls.printSpeed} min={10} max={150} step={5} unit=" mm/s"
-                      warning={controls.printSpeed > 120}
-                      onChange={v => updateControl('printSpeed', v)}/>
-                    <ControlSlider label="Extrusion Rate" value={controls.extrusionRate} min={50} max={150} step={5} unit="%"
-                      warning={controls.extrusionRate > 130 || controls.extrusionRate < 70}
-                      onChange={v => updateControl('extrusionRate', v)}/>
-                    <ControlSlider label="Pump Pressure" value={controls.pumpPressure} min={1} max={10} step={0.1} unit=" bar"
-                      warning={controls.pumpPressure > 8}
-                      onChange={v => updateControl('pumpPressure', v)}/>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40 mb-5">Layer & Nozzle</h3>
-                  <div className="space-y-6">
-                    <ControlSlider label="Layer Height" value={controls.layerHeight} min={6} max={20} step={1} unit=" mm"
-                      onChange={v => updateControl('layerHeight', v)}/>
-                    <ControlSlider label="Nozzle Temperature" value={controls.nozzleTemp} min={10} max={45} step={0.5} unit="°C"
-                      warning={controls.nozzleTemp > 35}
-                      onChange={v => updateControl('nozzleTemp', v)}/>
-                  </div>
-                </div>
-
-                {/* Quick actions */}
-                <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40 mb-4">Quick Actions</h3>
-                  <div className="grid grid-cols-4 gap-3">
-                    {[
-                      { label: 'Home Nozzle',   action: () => addAlert('Homing nozzle…') },
-                      { label: 'Purge',          action: () => addAlert('Purge sequence started') },
-                      { label: 'Prime',          action: () => addAlert('Priming pump…') },
-                      { label: 'Emergency Stop', action: () => { updateControl('paused', true); addAlert('EMERGENCY STOP', 'error'); }, danger: true },
-                    ].map((btn, i) => (
-                      <button key={i} onClick={btn.action}
-                        className={`py-2.5 text-xs font-semibold rounded-xl border transition-all ${
-                          (btn as any).danger
-                            ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
-                            : 'bg-gray-50 text-black border-gray-200 hover:bg-gray-100'
-                        }`}>
-                        {btn.label}
+              {/* Left: cameras */}
+              <div className="space-y-4">
+                {/* Camera grid */}
+                <div className={`grid gap-4 ${cameras.length === 1 ? 'grid-cols-1' : cameras.length <= 2 ? 'grid-cols-2' : cameras.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                  {cameras.map(cam => (
+                    <div key={cam.id} className="relative group">
+                      <CameraView camera={cam} onAngleChange={updateCameraAngle}/>
+                      <button onClick={() => removeCamera(cam.id)}
+                        className="absolute top-2 right-2 w-6 h-6 bg-black/60 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-red-600">
+                        ×
                       </button>
+                    </div>
+                  ))}
+                  {/* Add camera */}
+                  <button onClick={addCamera}
+                    className="aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition-all group">
+                    <div className="w-8 h-8 rounded-full border-2 border-gray-200 group-hover:border-black flex items-center justify-center transition-all">
+                      <span className="text-gray-300 group-hover:text-black text-lg transition-all">+</span>
+                    </div>
+                    <span className="text-xs text-black/30 group-hover:text-black transition-all">Add Camera</span>
+                  </button>
+                </div>
+
+                {/* System log */}
+                <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">System Log</h3>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {alertLog.length === 0 && <p className="text-xs text-black/25 text-center py-4">No events</p>}
+                    {alertLog.map((a, i) => (
+                      <div key={i} className={`flex gap-2 px-2 py-1.5 rounded-lg text-[11px] ${
+                        a.level === 'error' ? 'bg-red-50 text-red-700' : a.level === 'warn' ? 'bg-amber-50 text-amber-700' : 'bg-gray-50 text-black/50'
+                      }`}>
+                        <span className="font-mono opacity-50 flex-shrink-0">{a.time}</span>
+                        <span>{a.msg}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
               </div>
 
-              {/* Alert log */}
+              {/* Right sidebar: controls + sensors */}
               <div className="space-y-4">
-                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm h-full">
-                  <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40 mb-4">System Log</h3>
-                  <div className="space-y-2 max-h-[520px] overflow-y-auto">
-                    <AnimatePresence>
-                      {alertLog.length === 0 && (
-                        <p className="text-xs text-black/25 text-center py-8">No events yet</p>
-                      )}
-                      {alertLog.map((a, i) => (
-                        <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}}
-                          className={`flex gap-2 p-2 rounded-xl text-[11px] ${
-                            a.level === 'error' ? 'bg-red-50 text-red-700' :
-                            a.level === 'warn'  ? 'bg-amber-50 text-amber-700' :
-                            'bg-gray-50 text-black/50'
-                          }`}>
-                          <span className="font-mono opacity-60 flex-shrink-0">{a.time}</span>
-                          <span className="font-medium">{a.msg}</span>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
+
+                {/* Printer controls */}
+                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-4">Printer Control</h3>
+                  <div className="space-y-5">
+                    <ControlSlider label="Print Speed" value={controls.printSpeed} min={10} max={150} step={5} unit=" mm/s"
+                      warning={controls.printSpeed > 120} onChange={v => updateControl('printSpeed', v)}/>
+                    <ControlSlider label="Extrusion Rate" value={controls.extrusionRate} min={50} max={150} step={5} unit="%"
+                      warning={controls.extrusionRate > 130} onChange={v => updateControl('extrusionRate', v)}/>
+                    <ControlSlider label="Pump Pressure" value={controls.pumpPressure} min={1} max={10} step={0.1} unit=" bar"
+                      warning={controls.pumpPressure > 8} onChange={v => updateControl('pumpPressure', v)}/>
+                  </div>
+
+                  {/* Quick actions */}
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    {[
+                      { label: 'Home',  action: () => addAlert('Homing nozzle…') },
+                      { label: 'Purge', action: () => addAlert('Purge started') },
+                      { label: 'Prime', action: () => addAlert('Priming pump…') },
+                      { label: 'E-Stop',action: () => { updateControl('paused', true); addAlert('EMERGENCY STOP', 'error'); }, danger: true },
+                    ].map((btn, i) => (
+                      <button key={i} onClick={btn.action}
+                        className={`py-2 text-[11px] font-semibold rounded-xl border transition-all ${
+                          (btn as any).danger ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-gray-50 text-black border-gray-200 hover:bg-gray-100'
+                        }`}>{btn.label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Key sensor stats */}
+                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Live Sensors</h3>
+                    <button onClick={() => setActiveTab('sensors')} className="text-[10px] text-black/30 hover:text-black transition-colors">
+                      View all →
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {keySensors.map((s, i) => <MiniSensor key={i} sensor={s}/>)}
                   </div>
                 </div>
               </div>
             </motion.div>
           )}
 
-          {/* ── SENSORS TAB ── */}
+          {/* ── ALL SENSORS TAB ── */}
           {activeTab === 'sensors' && (
-            <motion.div key="sensors" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="space-y-6">
-              <div>
-                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Environmental Sensors</h3>
-                <div className="grid grid-cols-4 gap-4">
-                  {envSensors.map((s, i) => <SensorCard key={i} sensor={s}/>)}
-                </div>
-              </div>
-              <div>
-                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Nozzle & Printer Sensors</h3>
-                <div className="grid grid-cols-4 gap-4">
-                  {nozzleSensors.map((s, i) => <SensorCard key={i} sensor={s}/>)}
-                </div>
-              </div>
-              <div>
-                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Mix & Material Sensors</h3>
-                <div className="grid grid-cols-4 gap-4">
-                  {mixSensors.map((s, i) => <SensorCard key={i} sensor={s}/>)}
-                </div>
-              </div>
-
-              {/* Connect external sensor */}
-              <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-                <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40 mb-4">Connect External Sensor</h3>
-                <div className="grid grid-cols-3 gap-4">
-                  {[
-                    { label: 'Weather Station', desc: 'Davis Vantage Pro 2 · Modbus TCP', connected: true },
-                    { label: 'Nozzle IR Sensor', desc: 'FLIR Lepton 3.5 · USB', connected: true },
-                    { label: 'Mix Viscometer', desc: 'Anton Paar · RS-232', connected: false },
-                    { label: 'Concrete Thermometer', desc: 'PT100 probe · 4-20mA', connected: false },
-                    { label: 'Laser Profilometer', desc: 'Keyence LJ-X · Ethernet', connected: false },
-                    { label: 'Custom Sensor', desc: 'MQTT · WebSocket · Modbus', connected: false },
-                  ].map((s, i) => (
-                    <div key={i} className={`rounded-xl border p-4 flex items-start justify-between ${
-                      s.connected ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-white'
-                    }`}>
-                      <div>
-                        <p className={`text-xs font-semibold mb-0.5 ${s.connected ? 'text-emerald-700' : 'text-black'}`}>{s.label}</p>
-                        <p className="text-[10px] text-black/40">{s.desc}</p>
-                      </div>
-                      <button className={`text-[10px] font-semibold px-2 py-1 rounded-lg border flex-shrink-0 ml-2 transition-all ${
-                        s.connected
-                          ? 'border-emerald-300 text-emerald-600 bg-white hover:bg-emerald-100'
-                          : 'border-gray-200 text-black/40 bg-white hover:border-black hover:text-black'
-                      }`}>
-                        {s.connected ? 'Connected' : 'Connect'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ── CAMERA TAB ── */}
-          {activeTab === 'camera' && (
-            <motion.div key="camera" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="grid grid-cols-2 gap-6">
+            <motion.div key="sensors" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-6">
               {[
-                { label: 'Camera 1 — Front',    id: 'cam1' },
-                { label: 'Camera 2 — Side',     id: 'cam2' },
-                { label: 'Camera 3 — Overhead', id: 'cam3' },
-                { label: 'Camera 4 — Nozzle',   id: 'cam4' },
-              ].map((cam, i) => (
-                <div key={cam.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-                  <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"/>
-                      <span className="text-xs font-semibold text-black">{cam.label}</span>
-                    </div>
-                    <span className="text-[10px] font-mono text-black/30">LIVE</span>
-                  </div>
-                  {/* Camera placeholder */}
-                  <div className="relative bg-black aspect-video flex items-center justify-center">
-                    <div className="absolute inset-0 opacity-10"
-                      style={{backgroundImage:'linear-gradient(rgba(255,255,255,0.1) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.1) 1px,transparent 1px)',backgroundSize:'32px 32px'}}/>
-                    <div className="text-center">
-                      <div className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center mx-auto mb-2">
-                        <svg className="w-5 h-5 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                        </svg>
+                { title: 'Environmental', items: sensors.slice(0,3) },
+                { title: 'Flow & Pressure', items: sensors.slice(3,5) },
+                { title: 'Mix & Material', items: sensors.slice(5,8) },
+              ].map(group => (
+                <div key={group.title}>
+                  <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">{group.title}</h3>
+                  <div className="grid grid-cols-4 gap-4">
+                    {group.items.map((s, i) => (
+                      <div key={i} className={`bg-white border rounded-2xl p-4 ${
+                        s.status === 'ok' ? 'border-emerald-200' : s.status === 'warn' ? 'border-amber-200' : 'border-red-200'
+                      }`}>
+                        <div className="flex justify-between mb-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-black/40">{s.label}</p>
+                          <div className={`w-2 h-2 rounded-full animate-pulse ${
+                            s.status === 'ok' ? 'bg-emerald-500' : s.status === 'warn' ? 'bg-amber-500' : 'bg-red-500'
+                          }`}/>
+                        </div>
+                        <div className="flex items-baseline gap-1 mb-2">
+                          <span className="text-2xl font-bold text-black">{s.value}</span>
+                          <span className="text-xs text-black/40">{s.unit}</span>
+                        </div>
+                        <Sparkline data={s.history} color={s.status === 'ok' ? '#22c55e' : s.status === 'warn' ? '#f59e0b' : '#ef4444'} width={100}/>
                       </div>
-                      <p className="text-white/30 text-xs">Connect camera stream</p>
-                      <button className="mt-2 text-[10px] text-white/40 border border-white/15 rounded-lg px-3 py-1 hover:border-white/40 transition-all">
-                        Configure RTSP URL
-                      </button>
-                    </div>
+                    ))}
+                    {/* Connect sensor card */}
+                    <button className="bg-white border-2 border-dashed border-gray-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-black transition-all group">
+                      <span className="text-2xl text-gray-200 group-hover:text-black transition-all">+</span>
+                      <span className="text-[10px] text-black/25 group-hover:text-black transition-all">Connect Sensor</span>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -487,22 +406,21 @@ export default function LiveMonitoring() {
 
           {/* ── DEFECT DETECTION TAB ── */}
           {activeTab === 'defects' && (
-            <motion.div key="defects" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}}>
-              <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm text-center py-16">
+            <motion.div key="defects" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
+              <div className="bg-white border border-gray-100 rounded-2xl p-12 shadow-sm text-center">
                 <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4">
                   <svg className="w-8 h-8 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                   </svg>
                 </div>
                 <h3 className="text-sm font-semibold text-black mb-1">YOLOv8 Defect Detection</h3>
-                <p className="text-xs text-black/40 mb-4 max-w-xs mx-auto">Upload an image from your camera feed to run real-time defect analysis on the printed layers.</p>
-                <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-all">
+                <p className="text-xs text-black/40 mb-6 max-w-xs mx-auto">Upload an image from your camera feed to run real-time defect analysis on the printed layers.</p>
+                <label className="cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-all">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                   </svg>
                   Upload Image for Analysis
-                  <input type="file" accept="image/*" className="hidden"
-                    onChange={() => addAlert('Defect analysis started…')}/>
+                  <input type="file" accept="image/*" className="hidden" onChange={() => addAlert('Defect analysis started…')}/>
                 </label>
               </div>
             </motion.div>
@@ -511,7 +429,7 @@ export default function LiveMonitoring() {
         </AnimatePresence>
       </div>
 
-      {/* ── End print confirm ── */}
+      {/* End print confirm */}
       <AnimatePresence>
         {showConfirm && (
           <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
@@ -522,11 +440,9 @@ export default function LiveMonitoring() {
               <p className="text-sm text-black/40 mb-6">This will generate your report and mark the project as complete.</p>
               <div className="flex gap-3">
                 <button onClick={() => setShowConfirm(false)}
-                  className="flex-1 py-2.5 text-sm font-semibold border border-gray-200 rounded-xl hover:bg-gray-50 transition-all">
-                  Cancel
-                </button>
+                  className="flex-1 py-2.5 text-sm font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
                 <button onClick={endPrint}
-                  className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
+                  className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/80">
                   End & Generate Report
                 </button>
               </div>
