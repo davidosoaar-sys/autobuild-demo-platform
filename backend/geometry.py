@@ -80,8 +80,14 @@ def parse_and_slice(
         except Exception as e:
             raise ValueError(f"Could not merge mesh geometry: {e}")
 
-    # ── Normalise: sit on Z = 0 ───────────────────────────────────────────────
+    # ── Normalise: sit on Z=0, centered on X/Y ───────────────────────────────
+    # Move to Z=0 first
     mesh.apply_translation(-mesh.bounds[0])
+    # Now center X and Y so toolpath aligns with model in 3D viewer
+    bounds       = mesh.bounds
+    cx           = (bounds[0][0] + bounds[1][0]) / 2.0
+    cy           = (bounds[0][1] + bounds[1][1]) / 2.0
+    mesh.apply_translation([-cx, -cy, 0])
 
     bounds       = mesh.bounds                      # [[xmin,ymin,zmin],[xmax,ymax,zmax]]
     total_height = float(bounds[1][2])
@@ -170,17 +176,48 @@ def _slice_at_z(
 
     segments: Layer = []
 
-    # 1. Perimeter segments from each entity (closed polygon outlines)
-    for entity in path2d.entities:
-        pts = path2d.vertices[entity.points]
-        for j in range(len(pts) - 1):
-            p0 = (float(pts[j][0]),   float(pts[j][1]))
-            p1 = (float(pts[j+1][0]), float(pts[j+1][1]))
-            if _seg_len(p0, p1) > 0.001:    # ignore < 1 mm
-                segments.append((p0, p1))
+    # Filter: keep only the largest polygon (outer wall shell)
+    # This removes interior features, floors, ceilings that a 3DCP printer doesn't print
+        try:
+            polys = []
+            for entity in path2d.entities:
+                pts = path2d.vertices[entity.points]
+                if len(pts) >= 3:
+                    try:
+                        p = Polygon(pts)
+                        if p.is_valid and not p.is_empty and p.area > 0.001:
+                            polys.append(p)
+                    except Exception:
+                        pass
 
-    # 2. Infill lines inside the cross-section
-    infill = _boustrophedon_infill(path2d, nozzle_width)
+            if polys:
+                # Keep only the largest polygon — the outer building shell
+                outer = max(polys, key=lambda p: p.area)
+                # Also keep polygons that are at least 20% of the largest area
+                # (handles L-shaped or complex footprints)
+                min_area = outer.area * 0.20
+                significant = [p for p in polys if p.area >= min_area]
+                filtered = unary_union(significant)
+
+                # Regenerate perimeter segments from filtered polygon only
+                segments = []
+                if hasattr(filtered, 'geoms'):
+                    polys_to_trace = list(filtered.geoms)
+                else:
+                    polys_to_trace = [filtered]
+
+                for poly in polys_to_trace:
+                    coords = list(poly.exterior.coords)
+                    for j in range(len(coords) - 1):
+                        p0 = (float(coords[j][0]),   float(coords[j][1]))
+                        p1 = (float(coords[j+1][0]), float(coords[j+1][1]))
+                        if _seg_len(p0, p1) > 0.001:
+                            segments.append((p0, p1))
+        except Exception:
+            pass  # fall back to raw segments if filtering fails
+
+    # 2. Infill lines inside the filtered cross-section
+    infill = _boustrophedon_infill(path2d, nozzle_width, outer_only=True)
     segments.extend(infill)
 
     return segments
@@ -188,52 +225,58 @@ def _slice_at_z(
 
 # ── Boustrophedon infill ──────────────────────────────────────────────────────
 
-def _boustrophedon_infill(path2d, spacing: float) -> Layer:
+def _boustrophedon_infill(path2d, spacing: float, outer_only: bool = True) -> Layer:
     """
-    Generate back-and-forth horizontal fill lines inside the cross-section.
-
-    'Boustrophedon' means alternating left→right and right→left,
-    which minimises travel moves and is standard for 3DCP infill.
+    Generate back-and-forth horizontal fill lines strictly inside the wall cross-section.
+    Uses only the exterior boundary to prevent infill bleeding outside the model.
     """
     segments: Layer = []
     try:
-        # Build Shapely polygons from each closed entity
         polys = []
         for entity in path2d.entities:
             pts = path2d.vertices[entity.points]
             if len(pts) >= 3:
                 try:
                     p = Polygon(pts)
-                    if p.is_valid and not p.is_empty:
-                        polys.append(p)
+                    if p.is_valid and not p.is_empty and p.area > 0.001:
+                        # Use only exterior ring — ignore holes to prevent bleed
+                        exterior = Polygon(p.exterior.coords)
+                        if exterior.is_valid:
+                            polys.append(exterior)
                 except Exception:
                     pass
 
         if not polys:
             return []
 
+        if outer_only and len(polys) > 1:
+            largest_area = max(p.area for p in polys)
+            polys = [p for p in polys if p.area >= largest_area * 0.20]
+
+        # Use union but then take only exterior to avoid interior artifacts
         union = unary_union(polys)
         if union.is_empty:
             return []
 
-        minx, miny, maxx, maxy = union.bounds
+        # Shrink slightly inward (erosion) to keep infill inside walls
+        clipped = union.buffer(-spacing * 0.3)
+        if clipped.is_empty:
+            clipped = union
 
+        minx, miny, maxx, maxy = clipped.bounds
         row  = 0
         y    = miny + spacing * 0.5
+
         while y <= maxy:
-            # Horizontal scan line across the full width
-            scan  = LineString([(minx - 0.01, y), (maxx + 0.01, y)])
-            inter = union.intersection(scan)
+            scan  = LineString([(minx - 0.001, y), (maxx + 0.001, y)])
+            inter = clipped.intersection(scan)
 
             if not inter.is_empty:
-                # May be a single LineString or MultiLineString
                 lines = list(inter.geoms) if hasattr(inter, "geoms") else [inter]
-
                 for line in lines:
                     coords = list(line.coords)
                     if len(coords) < 2:
                         continue
-                    # Alternate direction each row
                     if row % 2 == 1:
                         coords = list(reversed(coords))
                     for k in range(len(coords) - 1):

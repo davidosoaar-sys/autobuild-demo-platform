@@ -367,13 +367,16 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
 function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, site, modelScale,
-  snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor }: {
+  snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor,
+  showModel = true, showToolpath = true }: {
   fileUrl: string|null; fileExt: string; toolpath: Layer[];
   layerHeight: number; animProgress: number; mode: ViewMode;
   site: SiteDimensions; modelScale: number; snap: string|null;
   enableTransform: boolean; transformMode: TransformMode; orbitRef: React.RefObject<any>;
   sitePlan?: import('./SitePlanReader').SitePlanData | null;
   pathColor?: string;
+  showModel?: boolean;
+  showToolpath?: boolean;
 }) {
   const isVoid = mode !== 'environment';
   const isDark = mode === 'void-dark';
@@ -398,17 +401,17 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
 
       <SiteGround site={site} mode={mode} sitePlan={sitePlan}/>
 
-      {fileUrl && (
+      {fileUrl && showModel && (
         <ModelLoader
           fileUrl={fileUrl} fileExt={fileExt}
-          opacity={toolpath.length > 0 && animProgress < 1 ? 0 : 1.0}
+          opacity={toolpath.length > 0 && animProgress < 1 ? 0.15 : 1.0}
           scale={modelScale}
           enableTransform={enableTransform} transformMode={transformMode}
           orbitRef={orbitRef}
         />
       )}
 
-      {toolpath.length > 0 && (
+      {toolpath.length > 0 && showToolpath && (
         <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} progress={animProgress} pathColor={pathColor}/>
       )}
 
@@ -430,11 +433,14 @@ function PlaybackBar({
   progress, isPlaying, totalSegs, animProgress,
   onReset, onToggle, onEnd, onScrub,
   mode, onModeChange, pathColor, onPathColorChange,
+  showModel, onShowModel, showToolpath, onShowToolpath,
 }: {
   progress: number; isPlaying: boolean; totalSegs: number; animProgress: number;
   onReset: ()=>void; onToggle: ()=>void; onEnd: ()=>void; onScrub:(v:number)=>void;
   mode: ViewMode; onModeChange:(m:ViewMode)=>void;
   pathColor: string; onPathColorChange:(c:string)=>void;
+  showModel: boolean; onShowModel:(v:boolean)=>void;
+  showToolpath: boolean; onShowToolpath:(v:boolean)=>void;
 }) {
   const doneSegs = Math.round(animProgress * totalSegs);
 
@@ -529,6 +535,22 @@ function PlaybackBar({
             ))}
           </div>
 
+          {/* Visibility toggles */}
+          <div className="flex items-center gap-1">
+            <button onClick={()=>onShowModel(!showModel)}
+              className={`px-2 py-1 text-[10px] rounded-md border transition-all ${
+                showModel ? 'bg-white/15 text-white border-white/20' : 'text-white/25 border-white/8'
+              }`}>
+              Model
+            </button>
+            <button onClick={()=>onShowToolpath(!showToolpath)}
+              className={`px-2 py-1 text-[10px] rounded-md border transition-all ${
+                showToolpath ? 'bg-white/15 text-white border-white/20' : 'text-white/25 border-white/8'
+              }`}>
+              Path
+            </button>
+          </div>
+
           {/* Path color picker */}
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-white/25">Path colour</span>
@@ -567,6 +589,8 @@ export default function LayerVisualization({
   const [enableTransform, setEnableTransform] = useState(false);
   const [transformMode,   setTransformMode]   = useState<TransformMode>('translate');
   const [pathColor,       setPathColor]       = useState('#22c55e');
+  const [showModel,       setShowModel]       = useState(true);
+  const [showToolpath,    setShowToolpath]    = useState(true);
   const orbitRef = useRef<any>(null);
   const rafRef   = useRef<number|null>(null);
   const lastTRef = useRef<number|null>(null);
@@ -694,7 +718,8 @@ export default function LayerVisualization({
         <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={toolpath} layerHeight={layerHeight||0.04}
           animProgress={animProgress} mode={mode} site={resolvedSite} modelScale={modelScale}
           snap={snap} enableTransform={enableTransform} transformMode={transformMode}
-          orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}/>
+          orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}
+          showModel={showModel} showToolpath={showToolpath}/>
       </Canvas>
 
       {/* ── Top-left: mode toggle + site info (clean, small) ── */}
@@ -721,6 +746,23 @@ export default function LayerVisualization({
             {resolvedSite.width}m × {resolvedSite.length}m
             {resolvedSite.slope>0?` · ${resolvedSite.slope}°`:''}
           </span>
+        </div>
+
+        {/* Model / Toolpath visibility toggles */}
+        <div className="flex items-center gap-1 p-0.5 rounded-xl border border-white/8"
+          style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)'}}>
+          <button onClick={()=>setShowModel(v=>!v)}
+            className={`px-2.5 py-1 text-[10px] font-medium rounded-lg transition-all ${
+              showModel?'bg-white/15 text-white':'text-white/30 hover:text-white/60'
+            }`}>
+            Model
+          </button>
+          <button onClick={()=>setShowToolpath(v=>!v)}
+            className={`px-2.5 py-1 text-[10px] font-medium rounded-lg transition-all ${
+              showToolpath?'bg-white/15 text-white':'text-white/30 hover:text-white/60'
+            }`}>
+            Toolpath
+          </button>
         </div>
       </div>
 
@@ -785,6 +827,8 @@ export default function LayerVisualization({
             onScrub={v=>{setIsPlaying(false);setAnimProgress(v);}}
             mode={mode} onModeChange={setMode}
             pathColor={pathColor} onPathColorChange={setPathColor}
+            showModel={showModel} onShowModel={setShowModel}
+            showToolpath={showToolpath} onShowToolpath={setShowToolpath}
           />
         </div>
       )}

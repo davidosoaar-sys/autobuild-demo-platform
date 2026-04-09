@@ -395,6 +395,9 @@ export default function PrePrintOptimizer() {
 
   return (
     <div className={isResults ? 'fixed inset-0 overflow-hidden' : 'min-h-screen bg-gray-50 pb-24'}>
+      {isResults && (
+        <style>{`footer { display: none !important; }`}</style>
+      )}
 
       <AnimatePresence>
         {phase === 'optimizing' && (
