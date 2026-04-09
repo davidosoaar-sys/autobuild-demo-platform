@@ -239,6 +239,7 @@ export default function PrePrintOptimizer() {
 
   const [activeTab,     setActiveTab]     = useState<ActiveTab>('setup');
   const [sidebarPanel,  setSidebarPanel]  = useState<SidebarPanel>('results');
+  const [showSidebar,   setShowSidebar]   = useState(true);
   const [viewMode,      setViewMode]      = useState<ViewMode>('environment');
   const [modelScale,    setModelScale]    = useState(1.0);
   const [file,          setFile]          = useState<File | null>(null);
@@ -364,8 +365,21 @@ export default function PrePrintOptimizer() {
             <span className="text-[10px] text-white/25 font-mono hidden sm:block">{file?.name}</span>
           </div>
 
+          {/* ── Sidebar toggle button ── */}
+          <button
+            onClick={() => setShowSidebar(v => !v)}
+            className="absolute top-14 right-3 z-30 w-7 h-7 rounded-xl border border-white/15 flex items-center justify-center transition-all hover:bg-white/10"
+            style={{background:'rgba(6,6,10,0.78)',backdropFilter:'blur(12px)'}}
+            title={showSidebar ? 'Hide panel' : 'Show panel'}>
+            <svg className="w-3.5 h-3.5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              {showSidebar
+                ? <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>}
+            </svg>
+          </button>
+
           {/* ── Glass panel — right, starts just below thin header ── */}
-          <div className="absolute top-10 right-3 bottom-3 z-20 w-[310px] flex flex-col"
+          <div className={`absolute top-10 right-3 bottom-3 z-20 w-[310px] flex flex-col transition-all duration-300 ${showSidebar ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'}`}
             style={{filter:'drop-shadow(0 0 30px rgba(0,0,0,0.5))'}}>
             <div className="flex flex-col h-full rounded-2xl overflow-hidden border border-white/10"
               style={{background:'rgba(6,6,10,0.78)',backdropFilter:'blur(24px)'}}>

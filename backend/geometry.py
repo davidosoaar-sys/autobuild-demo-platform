@@ -73,6 +73,24 @@ def parse_and_slice(
     total_height = float(bounds[1][2])
     layer_height = float(np.clip(layer_height, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M))
 
+    # ── Build wall-only mesh (filter out roofs/floors) ────────────────────────
+    # Faces whose normal is mostly horizontal (|nz| < 0.55) = walls
+    # Faces whose normal is mostly vertical (|nz| >= 0.55) = roofs/floors
+    try:
+        normals         = mesh.face_normals
+        wall_mask       = np.abs(normals[:, 2]) < 0.55
+        wall_faces      = mesh.faces[wall_mask]
+        if len(wall_faces) >= 10:
+            wall_mesh = trimesh.Trimesh(
+                vertices=mesh.vertices.copy(),
+                faces=wall_faces,
+                process=False,
+            )
+        else:
+            wall_mesh = mesh
+    except Exception:
+        wall_mesh = mesh
+
     num_layers = max(1, int(total_height / layer_height))
     if max_layers:
         num_layers = min(num_layers, max_layers)
@@ -84,7 +102,7 @@ def parse_and_slice(
 
     for i in range(num_layers):
         z = (i + 0.5) * layer_height
-        segments, layer_poly = _slice_layer(mesh, z, nozzle_width, prev_poly, i == 0)
+        segments, layer_poly = _slice_layer(wall_mesh, z, nozzle_width, prev_poly, i == 0)
 
         if layer_poly is not None and not layer_poly.is_empty:
             prev_poly = layer_poly
