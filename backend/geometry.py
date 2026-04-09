@@ -38,6 +38,7 @@ def parse_and_slice(
 ) -> Tuple[Geometry, List[dict], dict]:
     """
     Slice an STL/OBJ into 3DCP-printable layers.
+    Includes island detection — only prints polygons connected to the ground.
     Returns (geometry, layer_metas, meta).
     """
     ext = filename.lower().split(".")[-1]
@@ -62,15 +63,14 @@ def parse_and_slice(
     # ── Centre mesh at origin: Z sits on 0, X/Y centred ──────────────────────
     b = mesh.bounds
     mesh.apply_translation([
-        -(b[0][0] + b[1][0]) / 2.0,   # centre X
-        -(b[0][1] + b[1][1]) / 2.0,   # centre Y
-        -b[0][2],                       # sit on Z=0
+        -(b[0][0] + b[1][0]) / 2.0,
+        -(b[0][1] + b[1][1]) / 2.0,
+        -b[0][2],
     ])
 
     bounds       = mesh.bounds
     total_height = float(bounds[1][2])
 
-    # Clamp layer height to Sika 733 PDS limits
     layer_height = float(np.clip(layer_height, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M))
 
     num_layers = max(1, int(total_height / layer_height))
@@ -81,9 +81,20 @@ def parse_and_slice(
     layer_metas: List[dict] = []
     max_segs     = 0
 
+    # Island detection — track which polygons are ground-connected
+    # At layer 0, all polygons are ground-connected (they sit on Z=0)
+    # At layer N, only keep polygons that overlap with a polygon from layer N-1
+    prev_union: Optional[object] = None  # Shapely geometry from previous layer
+
     for i in range(num_layers):
         z        = (i + 0.5) * layer_height
-        segments = _slice_at_z(mesh, z, nozzle_width)
+        segments, layer_poly = _slice_at_z_with_poly(mesh, z, nozzle_width, prev_union, i == 0)
+
+        # Update previous layer polygon for next iteration
+        if layer_poly is not None and not layer_poly.is_empty:
+            prev_union = layer_poly
+        # If no valid polygon, don't reset prev_union — keep last valid for continuity
+
         geometry.append(segments)
 
         if segments:
@@ -105,7 +116,7 @@ def parse_and_slice(
     for lm in layer_metas:
         lm["complexity"] = round(lm["segment_count"] / max(max_segs, 1), 4)
 
-    bounds = mesh.bounds  # recompute after translation
+    bounds = mesh.bounds
     meta = {
         "num_layers":        num_layers,
         "layer_height":      layer_height,
@@ -122,15 +133,109 @@ def parse_and_slice(
     return geometry, layer_metas, meta
 
 
+def _slice_at_z_with_poly(
+    mesh:         trimesh.Trimesh,
+    z:            float,
+    nozzle_width: float,
+    prev_poly,    # Shapely geometry from previous layer (or None for layer 0)
+    is_first:     bool,
+) -> Tuple[Layer, object]:
+    """
+    Slice at height z with island detection.
+    Only returns segments for polygons that are connected to the previous layer.
+    Returns (segments, valid_polygon).
+    """
+    try:
+        section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
+    except Exception:
+        return [], None
+
+    if section is None:
+        return [], None
+
+    try:
+        path2d, _ = section.to_planar()
+    except Exception:
+        return [], None
+
+    # Build polygons from cross-section
+    raw_polys = []
+    for entity in path2d.entities:
+        pts = path2d.vertices[entity.points]
+        if len(pts) < 3:
+            continue
+        try:
+            poly = Polygon(pts)
+            if poly.is_valid and not poly.is_empty and poly.area > (nozzle_width ** 2):
+                raw_polys.append(poly)
+        except Exception:
+            pass
+
+    if not raw_polys:
+        return [], None
+
+    # ── Island detection ──────────────────────────────────────────────────────
+    # First layer: all polygons are ground-connected
+    # Subsequent layers: keep only polygons that overlap with prev layer
+    if is_first or prev_poly is None:
+        valid_polys = raw_polys
+    else:
+        valid_polys = []
+        # Use a slightly expanded prev_poly for overlap detection
+        # (accounts for slight misalignment between layers)
+        prev_expanded = prev_poly.buffer(nozzle_width * 1.5)
+        for poly in raw_polys:
+            try:
+                if poly.intersects(prev_expanded):
+                    valid_polys.append(poly)
+            except Exception:
+                pass
+
+        # If nothing connects (hollow section between layers), fall back to largest
+        if not valid_polys and raw_polys:
+            valid_polys = [max(raw_polys, key=lambda p: p.area)]
+
+    if not valid_polys:
+        return [], None
+
+    # Keep outer shell only
+    valid_polys.sort(key=lambda p: p.area, reverse=True)
+    max_area   = valid_polys[0].area
+    wall_polys = [p for p in valid_polys if p.area >= max_area * 0.15]
+
+    wall_union = unary_union(wall_polys)
+    if wall_union.is_empty:
+        return [], None
+
+    segments: Layer = []
+
+    def _trace_ring(ring):
+        coords = list(ring.coords)
+        segs = []
+        for j in range(len(coords) - 1):
+            p0 = (float(coords[j][0]),   float(coords[j][1]))
+            p1 = (float(coords[j+1][0]), float(coords[j+1][1]))
+            if _seg_len(p0, p1) > nozzle_width * 0.1:
+                segs.append((p0, p1))
+        return segs
+
+    polys_list = list(wall_union.geoms) if hasattr(wall_union, "geoms") else [wall_union]
+    for poly in polys_list:
+        segments.extend(_trace_ring(poly.exterior))
+        for interior in poly.interiors:
+            segments.extend(_trace_ring(interior))
+
+    return segments, wall_union
+
+
 def _slice_at_z(
     mesh:         trimesh.Trimesh,
     z:            float,
     nozzle_width: float,
 ) -> Layer:
-    """
-    Slice at height z. Returns wall perimeter + infill segments,
-    strictly clipped to the wall polygon.
-    """
+    """Legacy wrapper — calls _slice_at_z_with_poly without island detection."""
+    segs, _ = _slice_at_z_with_poly(mesh, z, nozzle_width, None, True)
+    return segs
     try:
         section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
     except Exception:

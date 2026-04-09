@@ -200,6 +200,8 @@ export default function ParameterInputs({
   const [useBlocks, setUseBlocks] = useState(false);
   const [startHour, setStartHour] = useState(8.0);
   const [blocks,    setBlocks]    = useState<WeatherBlock[]>([newBlock(8)]);
+  const [mixType,   setMixType]   = useState<'sika733' | 'custom'>('sika733');
+  const [customMix, setCustomMix] = useState<Record<string, string>>({});
 
   const updateParam = (key: keyof Parameters, value: any) =>
     onChange({ ...parameters, [key]: value });
@@ -358,33 +360,84 @@ export default function ParameterInputs({
         )}
       </div>
 
-      {/* Cement mix — locked to Sika 733 */}
+      {/* Cement mix selector */}
       <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
         <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-4">Cement Mix</h2>
-        <div className="bg-black rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-white">Sikacrete®-733 W 3D</p>
-            <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 bg-emerald-400/10 rounded-full">Selected</span>
+
+        {/* Mix type toggle */}
+        <div className="flex gap-2 mb-4">
+          {[
+            { id: 'sika733', label: 'Sikacrete®-733 W 3D' },
+            { id: 'custom',  label: 'Custom Mortar' },
+          ].map(opt => (
+            <button key={opt.id}
+              onClick={() => { setMixType(opt.id as any); onCementChange?.(opt.id); }}
+              className={`flex-1 py-2 text-xs font-semibold rounded-xl border transition-all ${
+                mixType === opt.id
+                  ? 'bg-black text-white border-black'
+                  : 'bg-white text-black/40 border-gray-200 hover:border-black/30'
+              }`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {mixType === 'sika733' ? (
+          <div className="bg-black rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-white">Sikacrete®-733 W 3D</p>
+              <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 bg-emerald-400/10 rounded-full">Selected</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-3">
+              {[
+                { label: 'Pot life @ 20°C', value: '60 min' },
+                { label: 'Pot life @ 30°C', value: '40 min' },
+                { label: 'Max grain size',  value: '3 mm' },
+                { label: 'Layer height',    value: '6–20 mm' },
+                { label: 'Spread flow',     value: '130 mm' },
+                { label: 'CO₂ footprint',   value: 'Reduced' },
+              ].map((s, i) => (
+                <div key={i} className="bg-white/5 rounded-lg px-2.5 py-2">
+                  <p className="text-[9px] text-white/30 uppercase tracking-wide mb-0.5">{s.label}</p>
+                  <p className="text-xs font-semibold text-white">{s.value}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-white/25 mt-3">
+              Fiber-reinforced · long interlayer open time · suitable for warm climates
+            </p>
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-3">
+        ) : (
+          <div className="space-y-3">
+            <p className="text-[10px] text-black/40 mb-3">Enter your mortar parameters so the RL optimizer can adapt print speed, wait times, and risk scoring to your mix.</p>
             {[
-              { label: 'Pot life @ 20°C', value: '60 min' },
-              { label: 'Pot life @ 30°C', value: '40 min' },
-              { label: 'Max grain size',  value: '3 mm' },
-              { label: 'Layer height',    value: '6–20 mm' },
-              { label: 'Spread flow',     value: '130 mm' },
-              { label: 'CO₂ footprint',   value: 'Reduced' },
-            ].map((s, i) => (
-              <div key={i} className="bg-white/5 rounded-lg px-2.5 py-2">
-                <p className="text-[9px] text-white/30 uppercase tracking-wide mb-0.5">{s.label}</p>
-                <p className="text-xs font-semibold text-white">{s.value}</p>
+              { key: 'pot_life_20c',     label: 'Pot life @ 20°C (min)',    placeholder: '60',   type: 'number' },
+              { key: 'pot_life_30c',     label: 'Pot life @ 30°C (min)',    placeholder: '40',   type: 'number' },
+              { key: 'layer_height_min', label: 'Min layer height (mm)',     placeholder: '6',    type: 'number' },
+              { key: 'layer_height_max', label: 'Max layer height (mm)',     placeholder: '20',   type: 'number' },
+              { key: 'max_grain_mm',     label: 'Max grain size (mm)',       placeholder: '3',    type: 'number' },
+              { key: 'spread_flow_mm',   label: 'Spread flow (mm)',          placeholder: '130',  type: 'number' },
+              { key: 'w_c_ratio',        label: 'W/C ratio',                 placeholder: '0.45', type: 'number' },
+              { key: 'mix_name',         label: 'Mix name / brand',          placeholder: 'e.g. BASF 3D-Print 100', type: 'text' },
+            ].map(field => (
+              <div key={field.key}>
+                <label className="block text-[11px] font-medium text-black/50 mb-1">{field.label}</label>
+                <input
+                  type={field.type}
+                  placeholder={field.placeholder}
+                  value={customMix[field.key] ?? ''}
+                  onChange={e => {
+                    const updated = { ...customMix, [field.key]: e.target.value };
+                    setCustomMix(updated);
+                    onCementChange?.('custom:' + JSON.stringify(updated));
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black placeholder:text-black/20"
+                />
               </div>
             ))}
           </div>
-          <p className="text-[10px] text-white/25 mt-3">
-            Fiber-reinforced · long interlayer open time · suitable for warm climates
-          </p>
-        </div>
+        )}
+
         <div className="mt-4">
           <label className="block text-xs font-medium text-black mb-1.5">Batch Number</label>
           <input type="text" value={parameters.batchNumber}
