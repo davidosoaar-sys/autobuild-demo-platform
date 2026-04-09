@@ -290,14 +290,12 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
 }) {
   const allSegs = useMemo(() => {
     const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
-    // Slicer coords are in metres, STL models are typically in mm
-    // Multiply by 1000 to align toolpath with model in 3D viewer
-    const scale = 1000;
+    // Use raw coordinates — slicer outputs in metres, Three.js renders in same units
     toolpath.forEach((layer, li) => {
-      const y = (li + 0.5) * layerHeight * scale;
+      const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => out.push({
-        s: [seg.x0 * scale, y, seg.y0 * scale],
-        e: [seg.x1 * scale, y, seg.y1 * scale],
+        s: [seg.x0, y, seg.y0],
+        e: [seg.x1, y, seg.y1],
         layer: li,
       }));
     });
@@ -313,12 +311,12 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
 
   const nozzle: [number,number,number] = [
     cur.s[0] + (cur.e[0]-cur.s[0])*segFrac,
-    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + layerHeight * 1000 * 0.5,
+    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + layerHeight * 0.5,
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Scale layer height to mm to match STL units
-  const lhMM   = layerHeight * 1000;
+  // Bead dimensions in metres (matching slicer output)
+  const lhMM   = layerHeight; // already in metres
   const beadW  = lhMM * 1.4;
   const beadH  = lhMM;
 
@@ -385,18 +383,16 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
     return geo;
   }, [allSegs, beadW, beadH]);
 
-  // Draw range:
-  // - progress = 0 (not started): show ALL beads so user can see the full toolpath
-  // - progress > 0 and < 1 (animating): show only printed segments
-  // - progress = 1 (complete): show ALL beads
-  const totalTriangles = allSegs.length * 36;
-  if (fullGeo) {
+  // Update draw range via effect — don't mutate during render
+  useEffect(() => {
+    if (!fullGeo) return;
+    const totalTriangles = allSegs.length * 36;
     if (progress <= 0 || progress >= 1) {
-      fullGeo.setDrawRange(0, totalTriangles); // show everything
+      fullGeo.setDrawRange(0, Infinity); // show all
     } else {
-      fullGeo.setDrawRange(0, Math.max(segIdx, 0) * 36); // animate
+      fullGeo.setDrawRange(0, Math.max(segIdx, 0) * 36);
     }
-  }
+  }, [fullGeo, progress, segIdx, allSegs.length]);
 
   return (
     <group>

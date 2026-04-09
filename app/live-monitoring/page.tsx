@@ -96,12 +96,42 @@ function ControlSlider({ label, value, min, max, step, unit, onChange, warning }
 
 function CameraView({ camera, onAngleChange }: { camera: Camera; onAngleChange: (id: string, angle: Camera['angle']) => void }) {
   const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError]         = useState('');
+
+  const startCamera = async () => {
+    setError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        setStreaming(true);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Camera access denied');
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+      videoRef.current.srcObject = null;
+      setStreaming(false);
+    }
+  };
+
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
         <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"/>
+          <div className={`w-1.5 h-1.5 rounded-full ${streaming ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}/>
           <span className="text-xs font-semibold text-black">{camera.label}</span>
+          {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">● LIVE</span>}
         </div>
         <div className="flex items-center gap-1">
           {angles.map(a => (
@@ -114,22 +144,40 @@ function CameraView({ camera, onAngleChange }: { camera: Camera; onAngleChange: 
           ))}
         </div>
       </div>
+
       <div className="relative bg-black aspect-video flex items-center justify-center">
-        <div className="absolute inset-0 opacity-5"
-          style={{backgroundImage:'linear-gradient(rgba(255,255,255,0.15) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.15) 1px,transparent 1px)',backgroundSize:'24px 24px'}}/>
-        {/* Angle-specific overlay */}
-        <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg">
-          <span className="text-[9px] text-white/60 font-mono uppercase">{camera.angle} view</span>
-        </div>
-        <div className="text-center z-10">
-          <svg className="w-8 h-8 text-white/20 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-          </svg>
-          <p className="text-white/25 text-[10px] mb-2">{camera.rtspUrl || 'No stream configured'}</p>
-          <button className="text-[10px] text-white/40 border border-white/15 rounded-lg px-2 py-1 hover:border-white/40 transition-all">
-            Connect Stream
+        {/* Actual video element */}
+        <video ref={videoRef} autoPlay playsInline muted
+          className={`absolute inset-0 w-full h-full object-cover ${streaming ? 'block' : 'hidden'}`}/>
+
+        {/* Angle label overlay */}
+        {streaming && (
+          <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg z-10">
+            <span className="text-[9px] text-white/70 font-mono uppercase">{camera.angle} view</span>
+          </div>
+        )}
+
+        {/* Placeholder when not streaming */}
+        {!streaming && (
+          <div className="text-center z-10">
+            <svg className="w-8 h-8 text-white/20 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+            </svg>
+            {error && <p className="text-red-400 text-[10px] mb-2 max-w-[200px] mx-auto">{error}</p>}
+            <button onClick={startCamera}
+              className="text-[11px] font-semibold text-white bg-white/10 border border-white/20 rounded-xl px-4 py-2 hover:bg-white/20 transition-all">
+              Connect Camera
+            </button>
+          </div>
+        )}
+
+        {/* Stop button when streaming */}
+        {streaming && (
+          <button onClick={stopCamera}
+            className="absolute bottom-2 right-2 z-10 text-[10px] text-white/60 border border-white/20 rounded-lg px-2 py-1 hover:bg-white/10 transition-all">
+            Stop
           </button>
-        </div>
+        )}
       </div>
     </div>
   );
