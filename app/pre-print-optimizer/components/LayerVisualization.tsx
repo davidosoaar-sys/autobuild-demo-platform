@@ -296,9 +296,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Concrete bead dimensions
-  const beadW = layerHeight * 1.2;   // bead width ≈ 1.2× layer height
-  const beadH = layerHeight;          // bead height = layer height
+  // Concrete bead dimensions — nozzle width for spread, layer height for thickness
+  // Keep bead width tight to nozzle diameter so it doesn't bleed
+  const beadW = layerHeight * 0.9;   // slightly narrower than layer height
+  const beadH = layerHeight;
 
   // Build geometry for all printed segments as flat boxes (concrete beads)
   const { positions, indices } = useMemo(() => {
@@ -350,17 +351,15 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
     return geo;
   }, [positions, indices]);
 
-  const color = new THREE.Color(pathColor);
-
   return (
     <group>
       {/* Concrete bead mesh — all printed segments */}
       <mesh geometry={beadGeo}>
         <meshStandardMaterial
-          color={color}
-          roughness={0.85}
+          color={new THREE.Color(pathColor).lerp(new THREE.Color('#888888'), 0.4)}
+          roughness={0.95}
           metalness={0.0}
-          transparent opacity={0.9}
+          transparent opacity={0.92}
           side={THREE.DoubleSide}
         />
       </mesh>
