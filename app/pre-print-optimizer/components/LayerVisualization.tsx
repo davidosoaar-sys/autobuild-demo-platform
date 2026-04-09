@@ -290,9 +290,16 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
 }) {
   const allSegs = useMemo(() => {
     const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
+    // Slicer coords are in metres, STL models are typically in mm
+    // Multiply by 1000 to align toolpath with model in 3D viewer
+    const scale = 1000;
     toolpath.forEach((layer, li) => {
-      const y = (li + 0.5) * layerHeight;
-      layer.forEach(seg => out.push({ s:[seg.x0,y,seg.y0], e:[seg.x1,y,seg.y1], layer: li }));
+      const y = (li + 0.5) * layerHeight * scale;
+      layer.forEach(seg => out.push({
+        s: [seg.x0 * scale, y, seg.y0 * scale],
+        e: [seg.x1 * scale, y, seg.y1 * scale],
+        layer: li,
+      }));
     });
     return out;
   }, [toolpath, layerHeight]);
@@ -306,13 +313,14 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
 
   const nozzle: [number,number,number] = [
     cur.s[0] + (cur.e[0]-cur.s[0])*segFrac,
-    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + layerHeight * 0.5,
+    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + layerHeight * 1000 * 0.5,
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Concrete bead dimensions matching real 3DCP
-  const beadW = layerHeight * 1.4;
-  const beadH = layerHeight;
+  // Scale layer height to mm to match STL units
+  const lhMM   = layerHeight * 1000;
+  const beadW  = lhMM * 1.4;
+  const beadH  = lhMM;
 
   // Pre-allocate geometry for ALL segments once — use drawRange for animation
   // This prevents memory allocation crashes during playback
