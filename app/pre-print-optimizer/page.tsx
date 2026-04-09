@@ -8,12 +8,13 @@ import AppNav from '@/components/AppNav';
 import ParameterInputs from './components/ParameterInputs';
 import FileUpload, { SiteDimensions } from './components/FileUpload';
 import LayerVisualization from './components/LayerVisualization';
+import { ScanResult } from './components/ScanBanner';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 type Phase        = 'idle' | 'optimizing' | 'done' | 'error';
 type ActiveTab    = 'setup' | 'results';
-type SidebarPanel = 'results' | 'changes' | 'layers';
+type SidebarPanel = 'results' | 'changes' | 'layers' | 'scan';
 type ViewMode     = 'environment' | 'void-dark' | 'void-light';
 
 interface CementInfo   { display_name: string; open_time_min: number; risk_score: number; }
@@ -55,7 +56,7 @@ function calcEstTime(r: OptimizeResult, speed: number): string {
   return fmtTime(Math.max(r.optimization.total_travel_mm / s / 60 + (r.geometry.num_layers * 2) / 60, 1));
 }
 
-// ── Build factors — properly typed ───────────────────────────────────────────
+// ── Factors ───────────────────────────────────────────────────────────────────
 
 interface Factor { label: string; value: string; impact: string; ok: boolean; }
 
@@ -90,125 +91,56 @@ function buildFactors(result: OptimizeResult, params: Parameters): Factor[] {
   const riskScore  = cement.risk_score    ?? 0;
   const cementName = cement.display_name  ?? params.cementMix;
   factors.push({
-    label: cementName,
-    value: `${openTime} min open time`,
+    label: cementName, value: `${openTime} min open time`,
     impact: `Risk ${riskScore}/100 — ${riskScore < 20 ? 'low risk under current conditions' : 'speed adjusted to compensate'}`,
     ok: riskScore < 20,
   });
-
-  if ((opt.time_saved_pct ?? 0) > 0) {
-    factors.push({
-      label: 'RL Travel Optimisation',
-      value: `${opt.time_saved_pct}% saved`,
-      impact: `Travel reduced from ${opt.naive_travel_mm}mm to ${opt.total_travel_mm}mm`,
-      ok: true,
-    });
-  }
-
-  if ((result.weather?.blocks_used ?? 0) > 1) {
-    factors.push({
-      label: 'Time-Based Weather',
-      value: `${result.weather!.blocks_used} blocks`,
-      impact: 'Print speed varied dynamically across time windows',
-      ok: true,
-    });
-  }
-
+  if ((opt.time_saved_pct ?? 0) > 0) factors.push({ label:'RL Travel Optimisation', value:`${opt.time_saved_pct}% saved`, impact:`Travel reduced from ${opt.naive_travel_mm}mm to ${opt.total_travel_mm}mm`, ok:true });
+  if ((result.weather?.blocks_used ?? 0) > 1) factors.push({ label:'Time-Based Weather', value:`${result.weather!.blocks_used} blocks`, impact:'Print speed varied dynamically across time windows', ok:true });
   return factors;
-}
-
-// ── Particle field ────────────────────────────────────────────────────────────
-
-function ParticleField() {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const c = ref.current; if (!c) return;
-    const ctx = c.getContext('2d')!; let id: number;
-    const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight; };
-    resize(); window.addEventListener('resize', resize);
-    const pts = Array.from({length:55}, () => ({
-      x:Math.random()*c.width, y:Math.random()*c.height,
-      vx:(Math.random()-0.5)*0.35, vy:(Math.random()-0.5)*0.35,
-      r:Math.random()*1.4+0.3, a:Math.random()*0.35+0.05,
-    }));
-    const draw = () => {
-      ctx.clearRect(0,0,c.width,c.height);
-      pts.forEach(p => {
-        p.x+=p.vx; p.y+=p.vy;
-        if(p.x<0)p.x=c.width; if(p.x>c.width)p.x=0;
-        if(p.y<0)p.y=c.height; if(p.y>c.height)p.y=0;
-        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-        ctx.fillStyle=`rgba(255,255,255,${p.a})`; ctx.fill();
-      });
-      for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
-        const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.sqrt(dx*dx+dy*dy);
-        if(d<110){ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);ctx.strokeStyle=`rgba(255,255,255,${0.05*(1-d/110)})`;ctx.lineWidth=0.5;ctx.stroke();}
-      }
-      id=requestAnimationFrame(draw);
-    };
-    draw();
-    return ()=>{cancelAnimationFrame(id);window.removeEventListener('resize',resize);};
-  },[]);
-  return <canvas ref={ref} className="absolute inset-0 w-full h-full"/>;
 }
 
 // ── Loading overlay ───────────────────────────────────────────────────────────
 
 const STEPS = [
-  { label:'Parsing 3D geometry',         detail:'Reading STL/OBJ mesh · computing bounds' },
-  { label:'Slicing into layers',          detail:'Generating printable segments per layer' },
-  { label:'Initialising RL agent',        detail:'Loading trained PPO policy' },
-  { label:'Running agent on each layer',  detail:'Selecting optimal segment order' },
-  { label:'Adapting to conditions',       detail:'Temperature · humidity · wind · slope' },
-  { label:'Generating G-code',           detail:'Converting toolpath to printer commands' },
+  { label:'Parsing 3D geometry',        detail:'Reading STL/OBJ mesh · computing bounds' },
+  { label:'Slicing into layers',         detail:'Generating printable segments per layer' },
+  { label:'Initialising RL agent',       detail:'Loading trained PPO policy' },
+  { label:'Running agent on each layer', detail:'Selecting optimal segment order' },
+  { label:'Adapting to conditions',      detail:'Temperature · humidity · wind · slope' },
+  { label:'Generating G-code',          detail:'Converting toolpath to printer commands' },
 ];
 
 function LoadingOverlay({ fileName, onCancel }: { fileName:string; onCancel:()=>void }) {
   const [pct, setPct] = useState(0);
-
   useEffect(() => {
-    const interval = setInterval(() => {
-      setPct(p => Math.min(p + Math.random() * 12, 95));
-    }, 1400);
-    return () => clearInterval(interval);
+    const iv = setInterval(() => setPct(p => Math.min(p + Math.random() * 12, 95)), 1400);
+    return () => clearInterval(iv);
   }, []);
-
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,transition:{duration:0.3}}}
       className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center">
-
       <div className="flex flex-col items-center w-full max-w-xs px-8">
-        {/* Pulsing dot */}
         <motion.div className="w-3 h-3 rounded-full bg-white mb-10"
           animate={{opacity:[1,0.2,1]}} transition={{duration:1.4,repeat:Infinity}}/>
-
         <p className="text-white text-lg font-semibold tracking-tight mb-1">Optimizing...</p>
         <p className="text-white/30 text-[11px] font-mono mb-8 truncate max-w-full text-center">{fileName}</p>
-
-        {/* Progress bar */}
         <div className="w-full h-0.5 bg-white/10 rounded-full overflow-hidden mb-2">
-          <motion.div className="h-full bg-white rounded-full"
-            animate={{width:`${pct}%`}} transition={{duration:0.9,ease:'easeOut'}}/>
+          <motion.div className="h-full bg-white rounded-full" animate={{width:`${pct}%`}} transition={{duration:0.9,ease:'easeOut'}}/>
         </div>
         <p className="text-white/25 text-[10px] font-mono self-end">{Math.round(pct)}%</p>
-
-        <button onClick={onCancel}
-          className="mt-12 text-white/15 hover:text-white/40 text-[10px] transition-colors tracking-widest uppercase">
-          Cancel
-        </button>
+        <button onClick={onCancel} className="mt-12 text-white/15 hover:text-white/40 text-[10px] transition-colors tracking-widest uppercase">Cancel</button>
       </div>
     </motion.div>
   );
 }
 
-// ── Stat row ──────────────────────────────────────────────────────────────────
+// ── Stat / Factor rows ────────────────────────────────────────────────────────
 
 function StatRow({ label, value, highlight, delay=0 }: { label:string; value:string; highlight?:boolean; delay?:number }) {
   return (
     <motion.div initial={{opacity:0,x:10}} animate={{opacity:1,x:0}} transition={{delay,duration:0.3}}
-      className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${
-        highlight?'bg-white/15 border-white/20':'bg-white/5 hover:bg-white/8 border-white/5'
-      }`}>
+      className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${highlight?'bg-white/15 border-white/20':'bg-white/5 hover:bg-white/8 border-white/5'}`}>
       <span className={`text-[11px] ${highlight?'text-white/70':'text-white/40'}`}>{label}</span>
       <span className={`text-[12px] font-bold font-mono ${highlight?'text-white':'text-white/80'}`}>{value}</span>
     </motion.div>
@@ -227,6 +159,53 @@ function FactorRow({ label, value, impact, ok, delay=0 }: { label:string; value:
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${ok?'bg-emerald-400/15 text-emerald-300':'bg-amber-400/15 text-amber-300'}`}>{value}</span>
       </div>
       <p className="text-[10px] text-white/35 leading-relaxed pl-3.5">{impact}</p>
+    </motion.div>
+  );
+}
+
+// ── Scan issue row ────────────────────────────────────────────────────────────
+
+const SEV_DOT:   Record<string,string> = { error:'bg-red-500', warning:'bg-amber-400', info:'bg-blue-400' };
+const SEV_BADGE: Record<string,string> = {
+  error:   'bg-red-500/10 text-red-400 border-red-500/20',
+  warning: 'bg-amber-400/10 text-amber-300 border-amber-400/20',
+  info:    'bg-blue-400/10 text-blue-300 border-blue-400/20',
+};
+const SEV_WRAP: Record<string,string> = {
+  error:   'border-red-500/15 bg-red-500/5',
+  warning: 'border-amber-400/15 bg-amber-400/4',
+  info:    'border-white/8 bg-white/3',
+};
+
+function ScanIssueRow({ issue, delay=0 }: { issue: any; delay?: number }) {
+  const [open, setOpen] = useState(issue.severity === 'error');
+  return (
+    <motion.div initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} transition={{delay,duration:0.25}}
+      className={`rounded-xl border overflow-hidden ${SEV_WRAP[issue.severity] ?? 'border-white/8 bg-white/3'}`}>
+      <button onClick={()=>setOpen(v=>!v)}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/3 transition-colors">
+        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${SEV_DOT[issue.severity] ?? 'bg-white/30'}`}/>
+        <span className="flex-1 text-[10px] font-semibold text-white/80 leading-tight">{issue.title}</span>
+        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${SEV_BADGE[issue.severity] ?? ''}`}>{issue.severity}</span>
+        <svg className={`w-3 h-3 text-white/20 flex-shrink-0 transition-transform ${open?'rotate-180':''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
+            transition={{duration:0.18}} className="overflow-hidden">
+            <div className="px-3 pb-3 space-y-1.5 border-t border-white/5 pt-2">
+              <p className="text-[9px] text-white/40 leading-relaxed">{issue.detail}</p>
+              <div className="rounded-lg px-2 py-1.5 border border-white/5 bg-white/3">
+                <p className="text-[8px] text-white/25 uppercase tracking-wider mb-0.5">Fix</p>
+                <p className="text-[9px] text-white/50 leading-relaxed">{issue.recommendation}</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -250,6 +229,7 @@ export default function PrePrintOptimizer() {
   const [weatherStart,  setWeatherStart]  = useState(8.0);
   const [city,          setCity]          = useState('');
   const [phase,         setPhase]         = useState<Phase>('idle');
+  const [scanResult,    setScanResult]    = useState<ScanResult | null>(null);
   const [result,        setResult]        = useState<OptimizeResult | null>(null);
   const [errorMsg,      setErrorMsg]      = useState('');
   const [totalLayers,   setTotalLayers]   = useState(activeProject?.totalLayers || 100);
@@ -257,19 +237,41 @@ export default function PrePrintOptimizer() {
   const [showConfirm,   setShowConfirm]   = useState(false);
   const [stepIdx,       setStepIdx]       = useState(0);
 
+  useEffect(() => {
+    setScanResult(null);
+    if (phase === 'error') setPhase('idle');
+  }, [file]);
+
   const handleParamsChange = (p: Parameters) => {
     setParameters(p);
     setSite(s => ({ ...s, slope: p.groundSlope }));
   };
 
+  // ── Optimize — scan fires silently first, result lands in Scan sidebar tab ─
   const handleOptimize = async () => {
     if (!file) return;
     setPhase('optimizing'); setErrorMsg(''); setStepIdx(0);
     const ticker = setInterval(() => setStepIdx(i => Math.min(i+1, STEPS.length-1)), 950);
     try {
+      // Silent scan
+      try {
+        const nozzle = parseFloat(activeProject?.printer?.nozzle ?? '25') || 25;
+        const sf = new FormData();
+        sf.append('file', file);
+        sf.append('nozzle_diameter_mm', String(nozzle));
+        sf.append('layer_height_m', '0.012');
+        const sr = await fetch(`${API}/scan`, { method:'POST', body:sf });
+        if (sr.ok) {
+          const sd: ScanResult = await sr.json();
+          setScanResult(sd);
+          if (sd.info?.layer_count) setTotalLayers(sd.info.layer_count);
+        }
+      } catch { /* silent */ }
+
+      // Optimize
       const form = new FormData();
       form.append('file',             file);
-      form.append('printer_name',     activeProject?.printer.name || 'COBOD BOD2');
+      form.append('printer_name',     activeProject?.printer?.name || 'COBOD BOD2');
       form.append('cement_mix_name',  parameters.cementMix);
       form.append('temperature',      String(parameters.temperature));
       form.append('humidity',         String(parameters.humidity));
@@ -277,7 +279,7 @@ export default function PrePrintOptimizer() {
       form.append('ground_slope',     String(parameters.groundSlope));
       form.append('print_speed',      String(printSpeed));
       form.append('print_start_hour', String(weatherStart));
-      form.append('max_layers',       '150');  // cap for 3D viewer performance
+      form.append('max_layers',       '150');
       if (city) form.append('city', city);
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
 
@@ -286,7 +288,10 @@ export default function PrePrintOptimizer() {
       const data: OptimizeResult = await res.json();
       setResult(data);
       if (data.geometry.num_layers > 0) setTotalLayers(data.geometry.num_layers);
-      setPhase('done'); setActiveTab('results');
+      setPhase('done');
+      setActiveTab('results');
+      // Auto-switch to Scan tab if issues found
+      setSidebarPanel(scanResult && scanResult.counts.total > 0 ? 'scan' : 'results');
     } catch (e: any) {
       setErrorMsg(e.message || 'Optimisation failed');
       setPhase('error');
@@ -298,11 +303,10 @@ export default function PrePrintOptimizer() {
   const downloadGCode = async () => {
     if (!result) return;
     const t = await (await fetch(`${API}/gcode/${result.result_id}`)).text();
-    const a = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(new Blob([t], {type:'text/plain'})),
+    Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([t],{type:'text/plain'})),
       download: `autobuild_${result.result_id.slice(0,8)}.gcode`,
-    });
-    a.click();
+    }).click();
   };
 
   const beginPrint = () => {
@@ -316,32 +320,32 @@ export default function PrePrintOptimizer() {
   const estTime   = result ? calcEstTime(result, printSpeed) : null;
   const factors   = result ? buildFactors(result, parameters) : [];
 
+  const scanBadge = scanResult
+    ? scanResult.counts.errors   > 0 ? { txt: String(scanResult.counts.errors),   cls:'bg-red-500'    }
+    : scanResult.counts.warnings > 0 ? { txt: String(scanResult.counts.warnings), cls:'bg-amber-400'  }
+    : { txt:'✓', cls:'bg-emerald-500' }
+    : null;
+
   return (
     <div className={isResults ? 'fixed inset-0 overflow-hidden' : 'min-h-screen bg-gray-50 pb-24'}>
-      {isResults && (
-        <style>{`footer { display: none !important; }`}</style>
-      )}
+      {isResults && <style>{`footer{display:none!important}`}</style>}
 
       <AnimatePresence>
-        {phase === 'optimizing' && (
+        {phase==='optimizing' && (
           <LoadingOverlay fileName={file?.name??''} onCancel={()=>{setPhase('idle');setStepIdx(0);}}/>
         )}
       </AnimatePresence>
 
-      {/* ── RESULTS — full viewport ── */}
+      {/* ── RESULTS ── */}
       {isResults && result && (
         <motion.div className="absolute inset-0" initial={{opacity:0}} animate={{opacity:1}}>
 
-          {/* 3D canvas */}
           <LayerVisualization
-            file={file}
-            toolpath={result.toolpath}
-            numLayers={result.geometry.num_layers}
-            layerHeight={result.geometry.layer_height}
+            file={file} toolpath={result.toolpath}
+            numLayers={result.geometry.num_layers} layerHeight={result.geometry.layer_height}
             site={resolvedSite} fullscreen
             externalMode={viewMode} onModeChange={setViewMode}
-            modelScale={modelScale}
-            sitePlan={sitePlanData}
+            modelScale={modelScale} sitePlan={sitePlanData}
             modelDimensions={result.geometry.bounds_x && result.geometry.bounds_z ? {
               x: result.geometry.bounds_x[1] - result.geometry.bounds_x[0],
               y: result.geometry.bounds_y[1] - result.geometry.bounds_y[0],
@@ -349,28 +353,26 @@ export default function PrePrintOptimizer() {
             } : undefined}
           />
 
-          {/* ── Thin floating header — does NOT block canvas ── */}
+          {/* Header */}
           <div className="absolute top-0 left-0 right-0 z-30 flex items-center px-4 py-1.5 gap-2"
             style={{background:'linear-gradient(to bottom,rgba(0,0,0,0.55) 0%,transparent 100%)'}}>
             <button onClick={()=>setActiveTab('setup')}
               className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-white/50 hover:text-white transition-colors rounded-lg hover:bg-white/8">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
+              </svg>
               Setup
             </button>
             <div className="w-px h-3 bg-white/15"/>
-            <span className="text-xs font-semibold text-white px-2 py-1 rounded-lg bg-white/10 border border-white/10">
-              Results
-            </span>
+            <span className="text-xs font-semibold text-white px-2 py-1 rounded-lg bg-white/10 border border-white/10">Results</span>
             <div className="flex-1"/>
             <span className="text-[10px] text-white/25 font-mono hidden sm:block">{file?.name}</span>
           </div>
 
-          {/* ── Sidebar toggle button ── */}
-          <button
-            onClick={() => setShowSidebar(v => !v)}
+          {/* Sidebar toggle */}
+          <button onClick={()=>setShowSidebar(v=>!v)}
             className="absolute top-14 right-3 z-30 w-7 h-7 rounded-xl border border-white/15 flex items-center justify-center transition-all hover:bg-white/10"
-            style={{background:'rgba(6,6,10,0.78)',backdropFilter:'blur(12px)'}}
-            title={showSidebar ? 'Hide panel' : 'Show panel'}>
+            style={{background:'rgba(6,6,10,0.78)',backdropFilter:'blur(12px)'}}>
             <svg className="w-3.5 h-3.5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               {showSidebar
                 ? <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
@@ -378,71 +380,68 @@ export default function PrePrintOptimizer() {
             </svg>
           </button>
 
-          {/* ── Glass panel — right, starts just below thin header ── */}
-          <div className={`absolute top-10 right-3 bottom-3 z-20 w-[310px] flex flex-col transition-all duration-300 ${showSidebar ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'}`}
+          {/* Glass sidebar */}
+          <div className={`absolute top-10 right-3 bottom-3 z-20 w-[310px] flex flex-col transition-all duration-300 ${showSidebar?'opacity-100 translate-x-0':'opacity-0 translate-x-full pointer-events-none'}`}
             style={{filter:'drop-shadow(0 0 30px rgba(0,0,0,0.5))'}}>
             <div className="flex flex-col h-full rounded-2xl overflow-hidden border border-white/10"
               style={{background:'rgba(6,6,10,0.78)',backdropFilter:'blur(24px)'}}>
 
-              {/* Panel tabs */}
+              {/* Tabs */}
               <div className="flex items-center p-1.5 gap-1 border-b border-white/8 flex-shrink-0">
                 {([
                   {id:'results' as SidebarPanel, label:'Results'},
-                  {id:'layers'  as SidebarPanel, label:'Layers'},
+                  {id:'layers'  as SidebarPanel, label:'Layers' },
                   {id:'changes' as SidebarPanel, label:'Changes'},
+                  {id:'scan'    as SidebarPanel, label:'Scan'   },
                 ]).map(panel=>(
                   <button key={panel.id} onClick={()=>setSidebarPanel(panel.id)}
-                    className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all ${
-                      sidebarPanel===panel.id
-                        ?'bg-white/12 text-white border border-white/10'
-                        :'text-white/35 hover:text-white/70'
+                    className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all relative ${
+                      sidebarPanel===panel.id?'bg-white/12 text-white border border-white/10':'text-white/35 hover:text-white/70'
                     }`}>
                     {panel.label}
+                    {panel.id==='scan' && scanBadge && (
+                      <span className={`absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-[8px] font-bold text-white flex items-center justify-center ${scanBadge.cls}`}>
+                        {scanBadge.txt}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
 
-              {/* Scrollable content */}
+              {/* Content */}
               <div className="flex-1 overflow-y-auto p-3">
                 <AnimatePresence mode="wait">
 
                   {sidebarPanel==='results' && (
                     <motion.div key="res" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-1.5">
-                      <StatRow label="Est. Print Time"   value={result.estimated_print_time??estTime??'—'}        highlight delay={0.00}/>
-                      <StatRow label="Layers"            value={String(result.geometry.num_layers)}              delay={0.03}/>
-                      <StatRow label="Layer Height"      value={`${result.printer?.layer_height_mm??'—'} mm`}   delay={0.06}/>
-                      <StatRow label="Nozzle"            value={`${result.printer?.nozzle_mm??'—'} mm`}         delay={0.09}/>
-                      <StatRow label="Total Segments"    value={String(result.optimization.total_segments)}      delay={0.12}/>
-                      <StatRow label="Travel Saved"      value={`${result.optimization.time_saved_pct}%`}       delay={0.15}/>
-                      <StatRow label="Env Risk"          value={`${result.optimization.env_risk_score}/100`}    delay={0.18}/>
+                      <StatRow label="Est. Print Time"   value={result.estimated_print_time??estTime??'—'} highlight delay={0.00}/>
+                      <StatRow label="Layers"            value={String(result.geometry.num_layers)}       delay={0.03}/>
+                      <StatRow label="Layer Height"      value={`${result.printer?.layer_height_mm??'—'} mm`} delay={0.06}/>
+                      <StatRow label="Nozzle"            value={`${result.printer?.nozzle_mm??'—'} mm`}  delay={0.09}/>
+                      <StatRow label="Total Segments"    value={String(result.optimization.total_segments)} delay={0.12}/>
+                      <StatRow label="Travel Saved"      value={`${result.optimization.time_saved_pct}%`} delay={0.15}/>
+                      <StatRow label="Env Risk"          value={`${result.optimization.env_risk_score}/100`} delay={0.18}/>
                       <StatRow label="Print Speed"       value={`${result.printer?.effective_speed??printSpeed} mm/s`} delay={0.21}/>
-                      <StatRow label="G-code Lines"      value={String(result.gcode_lines)}                     delay={0.24}/>
-                      <StatRow label="Computed In"       value={`${result.elapsed_seconds}s`}                   delay={0.27}/>
+                      <StatRow label="G-code Lines"      value={String(result.gcode_lines)}              delay={0.24}/>
+                      <StatRow label="Computed In"       value={`${result.elapsed_seconds}s`}            delay={0.27}/>
 
-                      {/* Model scale slider */}
                       <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.30}}
-                        className="rounded-xl p-3 border border-white/8 mt-2"
-                        style={{background:'rgba(255,255,255,0.04)'}}>
+                        className="rounded-xl p-3 border border-white/8 mt-2" style={{background:'rgba(255,255,255,0.04)'}}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[11px] text-white/50">Model Scale</span>
                           <span className="text-[11px] font-mono font-bold text-white">{modelScale.toFixed(2)}×</span>
                         </div>
                         <input type="range" min={0.1} max={3.0} step={0.05} value={modelScale}
-                          onChange={e=>setModelScale(Number(e.target.value))}
-                          className="w-full accent-white mb-1"/>
-                        <div className="flex justify-between text-[9px] text-white/20">
-                          <span>0.1×</span><span>1×</span><span>3×</span>
-                        </div>
+                          onChange={e=>setModelScale(Number(e.target.value))} className="w-full accent-white mb-1"/>
+                        <div className="flex justify-between text-[9px] text-white/20"><span>0.1×</span><span>1×</span><span>3×</span></div>
                         <button onClick={()=>setModelScale(1.0)}
                           className="w-full mt-2 py-1 text-[10px] text-white/30 hover:text-white/60 border border-white/8 rounded-lg transition-colors">
                           Reset to 1×
                         </button>
                       </motion.div>
 
-                      {/* G-code preview */}
                       <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.34}}
-                        className="rounded-xl p-3 border border-white/6"
-                        style={{background:'rgba(255,255,255,0.04)'}}>
+                        className="rounded-xl p-3 border border-white/6" style={{background:'rgba(255,255,255,0.04)'}}>
                         <p className="text-[9px] text-white/25 uppercase tracking-wider mb-1.5">G-code preview</p>
                         <pre className="text-[9px] text-white/40 font-mono leading-relaxed overflow-x-auto max-h-20">{result.gcode_preview}</pre>
                       </motion.div>
@@ -452,51 +451,86 @@ export default function PrePrintOptimizer() {
                   {sidebarPanel==='layers' && (
                     <motion.div key="layers" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-1.5">
                       <p className="text-[9px] text-white/25 uppercase tracking-wider mb-2">Per-Layer Statistics</p>
-                      {(result.layer_stats ?? []).map((ls, i) => (
-                        <motion.div key={i}
-                          initial={{opacity:0, x:8}} animate={{opacity:1, x:0}}
-                          transition={{delay: i * 0.01}}
+                      {(result.layer_stats??[]).map((ls,i)=>(
+                        <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.01}}
                           className="rounded-xl p-2.5 border border-white/5 bg-white/4 hover:bg-white/6 transition-colors">
                           <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10px] font-bold text-white">Layer {ls.layer + 1}</span>
+                            <span className="text-[10px] font-bold text-white">Layer {ls.layer+1}</span>
                             <span className="text-[9px] font-mono text-white/30">{ls.z_height_mm} mm</span>
                           </div>
                           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                            {[
-                              ['Segments',  String(ls.segments)],
-                              ['Perimeter', `${ls.perimeter_mm} mm`],
-                              ['Area',      `${ls.area_cm2} cm²`],
-                              ['Speed',     `${ls.print_speed_mm_s} mm/s`],
-                              ['Risk',      `${ls.risk_score}/100`],
-                              ['Complexity',`${Math.round(ls.complexity * 100)}%`],
-                            ].map(([label, value]) => (
-                              <div key={label} className="flex justify-between">
-                                <span className="text-[9px] text-white/25">{label}</span>
-                                <span className="text-[9px] font-mono text-white/60">{value}</span>
+                            {[['Segments',String(ls.segments)],['Perimeter',`${ls.perimeter_mm}mm`],['Area',`${ls.area_cm2}cm²`],['Speed',`${ls.print_speed_mm_s}mm/s`],['Risk',`${ls.risk_score}/100`],['Complexity',`${Math.round(ls.complexity*100)}%`]].map(([l,v])=>(
+                              <div key={l} className="flex justify-between">
+                                <span className="text-[9px] text-white/25">{l}</span>
+                                <span className="text-[9px] font-mono text-white/60">{v}</span>
                               </div>
                             ))}
                           </div>
-                          {/* Risk bar */}
                           <div className="mt-1.5 h-0.5 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${ls.risk_score}%`,
-                                background: ls.risk_score < 20 ? '#22c55e' : ls.risk_score < 50 ? '#f59e0b' : '#ef4444'
-                              }}/>
+                            <div className="h-full rounded-full" style={{width:`${ls.risk_score}%`,background:ls.risk_score<20?'#22c55e':ls.risk_score<50?'#f59e0b':'#ef4444'}}/>
                           </div>
                         </motion.div>
                       ))}
-                      {(!result.layer_stats || result.layer_stats.length === 0) && (
-                        <p className="text-[11px] text-white/30 text-center py-8">No layer data available</p>
-                      )}
+                      {(!result.layer_stats||result.layer_stats.length===0)&&<p className="text-[11px] text-white/30 text-center py-8">No layer data available</p>}
                     </motion.div>
                   )}
 
                   {sidebarPanel==='changes' && (
                     <motion.div key="chg" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-2">
-                      {factors.map((f,i)=>(
-                        <FactorRow key={i} {...f} delay={i*0.05}/>
-                      ))}
+                      {factors.map((f,i)=><FactorRow key={i} {...f} delay={i*0.05}/>)}
+                    </motion.div>
+                  )}
+
+                  {sidebarPanel==='scan' && (
+                    <motion.div key="scan" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-2">
+                      {scanResult ? (
+                        <>
+                          {/* Score header */}
+                          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-white/8 bg-white/4 mb-1">
+                            <div className="relative flex-shrink-0 w-10 h-10">
+                              <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                                <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3"/>
+                                <circle cx="18" cy="18" r="14" fill="none"
+                                  stroke={scanResult.verdict==='ready'?'#10b981':scanResult.verdict==='caution'?'#fbbf24':'#ef4444'}
+                                  strokeWidth="3" strokeDasharray={`${(scanResult.score/100)*87.96} 87.96`} strokeLinecap="round"/>
+                              </svg>
+                              <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white">{scanResult.score}</span>
+                            </div>
+                            <div>
+                              <p className={`text-[11px] font-bold ${scanResult.verdict==='ready'?'text-emerald-400':scanResult.verdict==='caution'?'text-amber-300':'text-red-400'}`}>
+                                {scanResult.verdict==='ready'?'Printable':scanResult.verdict==='caution'?'Review required':'Issues found'}
+                              </p>
+                              <p className="text-[9px] text-white/30 mt-0.5">{scanResult.verdict_msg}</p>
+                            </div>
+                          </div>
+
+                          {/* Mesh info */}
+                          {scanResult.info?.dimensions_m && (
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 px-1 pb-1">
+                              {[
+                                ['W',`${(scanResult.info.dimensions_m.width*1000).toFixed(0)}mm`],
+                                ['D',`${(scanResult.info.dimensions_m.depth*1000).toFixed(0)}mm`],
+                                ['H',`${(scanResult.info.dimensions_m.height*1000).toFixed(0)}mm`],
+                                ['Layers',String(scanResult.info.layer_count??'—')],
+                                ...(scanResult.info.gap_events?[['Gaps',String(scanResult.info.gap_events)]]:[] as any),
+                                ...(scanResult.info.min_wall_thickness_mm!=null?[['Min wall',`${scanResult.info.min_wall_thickness_mm}mm`]]:[] as any),
+                              ].map(([l,v])=>(
+                                <span key={l} className="text-[9px] font-mono text-white/25">
+                                  <span className="text-white/15">{l} </span>{v}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Issues */}
+                          {scanResult.issues.length > 0
+                            ? scanResult.issues.map((issue,i)=><ScanIssueRow key={issue.id} issue={issue} delay={i*0.04}/>)
+                            : <p className="text-[11px] text-white/30 text-center py-6">No issues found</p>
+                          }
+                        </>
+                      ) : (
+                        <p className="text-[11px] text-white/25 text-center py-8">Scan data unavailable</p>
+                      )}
                     </motion.div>
                   )}
 
@@ -512,14 +546,8 @@ export default function PrePrintOptimizer() {
                 <AnimatePresence mode="wait">
                   {showConfirm ? (
                     <motion.div key="c" initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="flex gap-2">
-                      <button onClick={beginPrint}
-                        className="flex-1 py-2.5 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-colors">
-                        Confirm
-                      </button>
-                      <button onClick={()=>setShowConfirm(false)}
-                        className="flex-1 py-2.5 border border-white/12 text-white/50 text-xs font-semibold rounded-xl hover:text-white transition-colors">
-                        Cancel
-                      </button>
+                      <button onClick={beginPrint} className="flex-1 py-2.5 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-colors">Confirm</button>
+                      <button onClick={()=>setShowConfirm(false)} className="flex-1 py-2.5 border border-white/12 text-white/50 text-xs font-semibold rounded-xl hover:text-white transition-colors">Cancel</button>
                     </motion.div>
                   ) : (
                     <motion.button key="b" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
@@ -531,7 +559,6 @@ export default function PrePrintOptimizer() {
                 </AnimatePresence>
               </div>
 
-              {/* Footer */}
               <div className="px-3 py-2 border-t border-white/5 flex-shrink-0">
                 <p className="text-[9px] text-white/20 font-mono">
                   {result.geometry.num_layers} layers · {estTime} · {resolvedSite.width}m × {resolvedSite.length}m
@@ -542,7 +569,7 @@ export default function PrePrintOptimizer() {
         </motion.div>
       )}
 
-      {/* ── SETUP TAB ── */}
+      {/* ── SETUP ── */}
       {!isResults && (
         <motion.div initial={{opacity:0}} animate={{opacity:1}}>
           <AppNav currentStep="pre-print"/>
@@ -551,9 +578,7 @@ export default function PrePrintOptimizer() {
               <div className="flex items-center gap-1 py-2">
                 <button className="px-4 py-2 text-sm font-medium rounded-xl bg-black text-white">Setup</button>
                 <button onClick={()=>phase==='done'&&setActiveTab('results')} disabled={phase!=='done'}
-                  className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
-                    phase==='done'?'text-black/50 hover:text-black hover:bg-gray-100':'text-black/20 cursor-not-allowed'
-                  }`}>
+                  className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${phase==='done'?'text-black/50 hover:text-black hover:bg-gray-100':'text-black/20 cursor-not-allowed'}`}>
                   Results
                   {phase==='done'&&<span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">Ready</span>}
                 </button>
@@ -605,8 +630,7 @@ export default function PrePrintOptimizer() {
               </div>
               <div>
                 <LayerVisualization file={file} toolpath={[]} numLayers={0}
-                  layerHeight={0.04} site={resolvedSite} modelScale={modelScale}
-                  sitePlan={sitePlanData}/>
+                  layerHeight={0.04} site={resolvedSite} modelScale={modelScale} sitePlan={sitePlanData}/>
               </div>
             </div>
           </div>
