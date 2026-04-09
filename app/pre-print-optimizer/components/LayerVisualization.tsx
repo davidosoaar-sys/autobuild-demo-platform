@@ -275,10 +275,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string;
 }) {
   const allSegs = useMemo(() => {
-    const out: { s:[number,number,number]; e:[number,number,number] }[] = [];
+    const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
     toolpath.forEach((layer, li) => {
       const y = (li + 0.5) * layerHeight;
-      layer.forEach(seg => out.push({ s:[seg.x0,y,seg.y0], e:[seg.x1,y,seg.y1] }));
+      layer.forEach(seg => out.push({ s:[seg.x0,y,seg.y0], e:[seg.x1,y,seg.y1], layer: li }));
     });
     return out;
   }, [toolpath, layerHeight]);
@@ -292,54 +292,91 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
 
   const nozzle: [number,number,number] = [
     cur.s[0] + (cur.e[0]-cur.s[0])*segFrac,
-    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + 0.06,
+    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + layerHeight * 0.5,
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Build single BufferGeometry for ALL printed segments — one draw call
-  const lineGeo = useMemo(() => {
-    const geo      = new THREE.BufferGeometry();
-    const maxSegs  = Math.max(segIdx, 0);
-    const positions = new Float32Array(maxSegs * 6); // 2 points × 3 coords per seg
+  // Concrete bead dimensions
+  const beadW = layerHeight * 1.2;   // bead width ≈ 1.2× layer height
+  const beadH = layerHeight;          // bead height = layer height
+
+  // Build geometry for all printed segments as flat boxes (concrete beads)
+  const { positions, indices } = useMemo(() => {
+    const maxSegs   = Math.max(segIdx, 0);
+    // Each segment = 4 verts × 3 coords, 2 triangles = 6 indices
+    const positions = new Float32Array(maxSegs * 4 * 3);
+    const indices   = new Uint32Array(maxSegs * 6);
+
     for (let i = 0; i < maxSegs; i++) {
-      const s = allSegs[i];
-      positions[i*6+0] = s.s[0]; positions[i*6+1] = s.s[1]; positions[i*6+2] = s.s[2];
-      positions[i*6+3] = s.e[0]; positions[i*6+4] = s.e[1]; positions[i*6+5] = s.e[2];
-    }
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    return geo;
-  }, [allSegs, segIdx]);
+      const s     = allSegs[i];
+      const dx    = s.e[0] - s.s[0];
+      const dz    = s.e[2] - s.s[2];
+      const len   = Math.sqrt(dx*dx + dz*dz);
+      if (len < 0.001) continue;
 
-  const partial: [number,number,number] = [
-    cur.s[0] + (cur.e[0]-cur.s[0])*segFrac,
-    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac,
-    cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
-  ];
+      const nx = -dz / len;  // perpendicular X (in XZ plane)
+      const nz =  dx / len;  // perpendicular Z
+      const hw = beadW * 0.5;
+
+      // 4 corners of the flat bead rectangle (at layer height Y)
+      const y = s.s[1];
+      const verts = [
+        [s.s[0] - nx*hw, y, s.s[2] - nz*hw],
+        [s.s[0] + nx*hw, y, s.s[2] + nz*hw],
+        [s.e[0] + nx*hw, y, s.e[2] + nz*hw],
+        [s.e[0] - nx*hw, y, s.e[2] - nz*hw],
+      ];
+
+      const vBase = i * 4;
+      for (let v = 0; v < 4; v++) {
+        positions[(vBase+v)*3+0] = verts[v][0];
+        positions[(vBase+v)*3+1] = verts[v][1];
+        positions[(vBase+v)*3+2] = verts[v][2];
+      }
+
+      const iBase = i * 6;
+      indices[iBase+0] = vBase+0; indices[iBase+1] = vBase+1; indices[iBase+2] = vBase+2;
+      indices[iBase+3] = vBase+0; indices[iBase+4] = vBase+2; indices[iBase+5] = vBase+3;
+    }
+
+    return { positions, indices };
+  }, [allSegs, segIdx, beadW]);
+
+  const beadGeo = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(new THREE.BufferAttribute(indices, 1));
+    geo.computeVertexNormals();
+    return geo;
+  }, [positions, indices]);
+
+  const color = new THREE.Color(pathColor);
 
   return (
     <group>
-      {/* All printed segments — single draw call */}
-      <lineSegments geometry={lineGeo}>
-        <lineBasicMaterial color={pathColor} transparent opacity={0.85}/>
-      </lineSegments>
-
-      {/* Current partial segment */}
-      {segFrac > 0.01 && (
-        <Line points={[cur.s, partial]} color={pathColor} lineWidth={2.5}/>
-      )}
+      {/* Concrete bead mesh — all printed segments */}
+      <mesh geometry={beadGeo}>
+        <meshStandardMaterial
+          color={color}
+          roughness={0.85}
+          metalness={0.0}
+          transparent opacity={0.9}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
 
       {/* Nozzle head */}
       <group position={nozzle}>
         <mesh rotation={[-Math.PI/2,0,0]}>
-          <ringGeometry args={[0.07,0.14,24]}/>
+          <ringGeometry args={[beadW*0.6, beadW*1.2, 24]}/>
           <meshBasicMaterial color={pathColor} transparent opacity={0.5}/>
         </mesh>
         <mesh>
-          <sphereGeometry args={[0.055,16,16]}/>
+          <sphereGeometry args={[beadW*0.5, 16, 16]}/>
           <meshBasicMaterial color="#ffffff"/>
         </mesh>
-        <mesh position={[0,-0.045,0]}>
-          <sphereGeometry args={[0.032,10,10]}/>
+        <mesh position={[0, -beadH*0.4, 0]}>
+          <sphereGeometry args={[beadW*0.3, 10, 10]}/>
           <meshBasicMaterial color={pathColor} transparent opacity={0.9}/>
         </mesh>
       </group>
