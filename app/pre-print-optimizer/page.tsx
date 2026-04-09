@@ -155,62 +155,117 @@ const STEPS = [
   { label:'Generating G-code',           detail:'Converting toolpath to printer commands' },
 ];
 
-function LoadingOverlay({ stepIdx, fileName, onCancel }: { stepIdx:number; fileName:string; onCancel:()=>void }) {
-  const pct = Math.round(((stepIdx+1)/STEPS.length)*100);
+function PrinterAnimation3D() {
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,transition:{duration:0.5}}}
+    <div className="relative w-32 h-32 mb-8">
+      {/* Gantry frame */}
+      <svg viewBox="0 0 120 120" className="w-full h-full" fill="none">
+        {/* Base platform */}
+        <motion.rect x="10" y="90" width="100" height="6" rx="2" fill="white" opacity={0.15}/>
+        {/* Left column */}
+        <rect x="10" y="20" width="4" height="70" rx="2" fill="white" opacity={0.2}/>
+        {/* Right column */}
+        <rect x="106" y="20" width="4" height="70" rx="2" fill="white" opacity={0.2}/>
+        {/* Top beam */}
+        <rect x="10" y="18" width="100" height="4" rx="2" fill="white" opacity={0.2}/>
+
+        {/* Moving gantry bar */}
+        <motion.rect x="14" y="35" width="92" height="3" rx="1.5" fill="white" opacity={0.5}
+          animate={{ y: [35, 75, 35] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+        />
+
+        {/* Nozzle head */}
+        <motion.g
+          animate={{ x: [-30, 30, -30], y: [35, 75, 35] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          <rect x="53" y="0" width="14" height="10" rx="2" fill="white" opacity={0.6}/>
+          <rect x="57" y="10" width="6" height="6" rx="1" fill="white" opacity={0.8}/>
+          {/* Nozzle tip glow */}
+          <motion.circle cx="60" cy="18" r="3"
+            fill="#22c55e"
+            animate={{ opacity: [0.6, 1, 0.6], r: [2, 3.5, 2] }}
+            transition={{ duration: 0.8, repeat: Infinity }}
+          />
+        </motion.g>
+
+        {/* Printed layers building up */}
+        {[0,1,2,3].map((i) => (
+          <motion.rect key={i}
+            x="20" y={84 - i * 5} width="80" height="4" rx="1"
+            fill="#22c55e" opacity={0.15 + i * 0.08}
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ delay: i * 0.4, duration: 0.5, repeat: Infinity, repeatDelay: 1.6 }}
+            style={{ transformOrigin: '20px center' }}
+          />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function LoadingOverlay({ fileName, onCancel }: { fileName:string; onCancel:()=>void }) {
+  const [pct, setPct] = useState(0);
+  const [status, setStatus] = useState('Initialising slicer…');
+
+  useEffect(() => {
+    const messages = [
+      'Parsing 3D geometry…',
+      'Slicing into layers…',
+      'Computing print paths…',
+      'Running RL optimiser…',
+      'Adapting to weather conditions…',
+      'Generating G-code…',
+      'Finalising…',
+    ];
+    let i = 0;
+    const interval = setInterval(() => {
+      i++;
+      setPct(p => Math.min(p + Math.random() * 18, 95));
+      setStatus(messages[Math.min(i, messages.length - 1)]);
+    }, 1800);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,transition:{duration:0.4}}}
       className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center overflow-hidden">
-      <ParticleField/>
-      <motion.div className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"
-        animate={{top:['0%','100%','0%']}} transition={{duration:4,repeat:Infinity,ease:'linear'}}/>
-      <div className="absolute inset-0" style={{backgroundImage:'linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px)',backgroundSize:'60px 60px'}}/>
-      {[['top-8 left-8','border-t border-l'],['top-8 right-8','border-t border-r'],['bottom-8 left-8','border-b border-l'],['bottom-8 right-8','border-b border-r']].map(([p,b],i)=>(
-        <motion.div key={i} className={`absolute ${p} w-8 h-8 ${b} border-white/15`} initial={{opacity:0,scale:0.5}} animate={{opacity:1,scale:1}} transition={{delay:i*0.1}}/>
+      {/* Subtle grid */}
+      <div className="absolute inset-0 opacity-20"
+        style={{backgroundImage:'linear-gradient(rgba(255,255,255,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.05) 1px,transparent 1px)',backgroundSize:'48px 48px'}}/>
+
+      {/* Corner marks */}
+      {[['top-6 left-6','border-t border-l'],['top-6 right-6','border-t border-r'],['bottom-6 left-6','border-b border-l'],['bottom-6 right-6','border-b border-r']].map(([p,b],i)=>(
+        <motion.div key={i} className={`absolute ${p} w-6 h-6 ${b} border-white/20`}
+          initial={{opacity:0}} animate={{opacity:1}} transition={{delay:i*0.1}}/>
       ))}
-      <div className="relative z-10 flex flex-col items-center w-full max-w-md px-8">
-        <div className="relative mb-10">
-          {[60,90,120].map((sz,i)=>(
-            <motion.div key={i} className="absolute rounded-full border border-white/8"
-              style={{width:sz,height:sz,top:-(sz-40)/2,left:-(sz-40)/2}}
-              animate={{scale:[1,1.12,1],opacity:[0.35,0.08,0.35]}} transition={{duration:2.2,delay:i*0.35,repeat:Infinity}}/>
-          ))}
-          <div className="relative w-10 h-10 rounded-full bg-white/5 border border-white/15 flex items-center justify-center">
-            <motion.div className="w-3.5 h-3.5 rounded-full bg-white" animate={{scale:[0.5,1,0.5]}} transition={{duration:1.5,repeat:Infinity}}/>
-          </div>
-        </div>
-        <p className="text-white/25 text-[10px] uppercase tracking-[0.25em] mb-1">AutoBuild AI · RL Optimiser</p>
-        <h1 className="text-white text-xl font-semibold tracking-tight mb-1">Optimising Print Path</h1>
-        <p className="text-white/25 text-xs mb-10 font-mono truncate max-w-xs">{fileName}</p>
-        <div className="w-full space-y-2.5 mb-8">
-          {STEPS.map((step,i)=>{
-            const done=i<stepIdx,active=i===stepIdx,pending=i>stepIdx;
-            return (
-              <motion.div key={i} initial={{opacity:0,x:-10}} animate={{opacity:pending?0.18:1,x:0}} transition={{delay:i*0.07}} className="flex items-start gap-3">
-                <div className={`w-4 h-4 rounded-full flex-shrink-0 mt-0.5 flex items-center justify-center border transition-all ${done?'bg-white border-white':active?'border-white':'border-white/12'}`}>
-                  {done&&<svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
-                  {active&&<motion.div className="w-1.5 h-1.5 rounded-full bg-white" animate={{scale:[0.5,1,0.5]}} transition={{duration:1,repeat:Infinity}}/>}
-                </div>
-                <div className="flex-1">
-                  <p className={`text-sm transition-colors ${done?'text-white/25 line-through':active?'text-white font-medium':'text-white/18'}`}>{step.label}</p>
-                  <AnimatePresence>
-                    {active&&<motion.p initial={{opacity:0,height:0}} animate={{opacity:1,height:'auto'}} exit={{opacity:0,height:0}} className="text-[10px] text-white/30 mt-0.5 font-mono">{step.detail}</motion.p>}
-                  </AnimatePresence>
-                </div>
-                {done&&<span className="text-[9px] text-white/18 flex-shrink-0 mt-1">✓</span>}
-              </motion.div>
-            );
-          })}
-        </div>
+
+      <div className="relative z-10 flex flex-col items-center px-8 max-w-sm w-full">
+        <PrinterAnimation3D/>
+
+        <p className="text-white/30 text-[10px] uppercase tracking-[0.3em] mb-2">AutoBuild AI</p>
+        <h1 className="text-white text-2xl font-bold tracking-tight mb-1">Optimising</h1>
+        <p className="text-white/30 text-xs mb-1 font-mono truncate max-w-[240px] text-center">{fileName}</p>
+        <p className="text-white/50 text-xs mb-8 h-4">{status}</p>
+
+        {/* Progress bar */}
         <div className="w-full mb-2">
-          <div className="h-px bg-white/8 rounded-full overflow-hidden">
-            <motion.div className="h-full bg-white rounded-full" animate={{width:`${pct}%`}} transition={{duration:0.7,ease:'easeOut'}}/>
+          <div className="h-1 bg-white/8 rounded-full overflow-hidden">
+            <motion.div className="h-full bg-emerald-400 rounded-full"
+              animate={{width:`${pct}%`}} transition={{duration:0.8,ease:'easeOut'}}/>
           </div>
         </div>
-        <div className="flex justify-between w-full mb-8">
-          <p className="text-[9px] text-white/15 font-mono">{API}</p>
-          <p className="text-[10px] text-white/35 font-mono">{pct}%</p>
+        <div className="flex justify-between w-full mb-10">
+          <span className="text-[10px] text-white/20 font-mono">Sikacrete®-733 W 3D</span>
+          <span className="text-[10px] text-white/40 font-mono">{Math.round(pct)}%</span>
         </div>
-        <button onClick={onCancel} className="text-white/15 hover:text-white/40 text-[11px] transition-colors tracking-widest uppercase">Cancel</button>
+
+        <button onClick={onCancel}
+          className="text-white/15 hover:text-white/40 text-[10px] transition-colors tracking-widest uppercase">
+          Cancel
+        </button>
       </div>
     </motion.div>
   );
@@ -291,6 +346,7 @@ export default function PrePrintOptimizer() {
       form.append('ground_slope',     String(parameters.groundSlope));
       form.append('print_speed',      String(printSpeed));
       form.append('print_start_hour', String(weatherStart));
+      form.append('max_layers',       '150');  // cap for 3D viewer performance
       if (city) form.append('city', city);
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
 
@@ -334,7 +390,7 @@ export default function PrePrintOptimizer() {
 
       <AnimatePresence>
         {phase === 'optimizing' && (
-          <LoadingOverlay stepIdx={stepIdx} fileName={file?.name??''} onCancel={()=>{setPhase('idle');setStepIdx(0);}}/>
+          <LoadingOverlay fileName={file?.name??''} onCancel={()=>{setPhase('idle');setStepIdx(0);}}/>
         )}
       </AnimatePresence>
 

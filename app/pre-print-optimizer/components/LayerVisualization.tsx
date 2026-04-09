@@ -24,6 +24,7 @@ interface LayerVisualizationProps {
   onModeChange?: (m: ViewMode) => void;
   modelScale?:   number;
   sitePlan?:     import('./SitePlanReader').SitePlanData | null;
+  pathColor?:    string;
 }
 
 // ── Sky ───────────────────────────────────────────────────────────────────────
@@ -154,14 +155,12 @@ function SiteGround({ site, mode, sitePlan }: {
 // ── Void grid ─────────────────────────────────────────────────────────────────
 
 function VoidGrid({ dark }: { dark: boolean }) {
-  const gridColor     = dark ? '#1a1a1a' : '#cccccc';
-  const gridColorSub  = dark ? '#111111' : '#e0e0e0';
   return (
     <>
-      <gridHelper args={[200, 40, gridColor, gridColorSub]} position={[0, 0.01, 0]} />
-      <gridHelper args={[200, 160, dark?'#0f0f0f':'#d8d8d8', dark?'#0a0a0a':'#e8e8e8']} position={[0, 0.008, 0]} />
-      <Line points={[[-100,0.02,0],[100,0.02,0]] as [number,number,number][]} color={dark?'#22c55e':'#16a34a'} lineWidth={1} transparent opacity={0.35}/>
-      <Line points={[[0,0.02,-100],[0,0.02,100]] as [number,number,number][]} color={dark?'#3b82f6':'#2563eb'} lineWidth={1} transparent opacity={0.35}/>
+      <gridHelper args={[200, 40, dark ? '#2a2a2a' : '#bbbbbb', dark ? '#1a1a1a' : '#cccccc']} position={[0, 0.01, 0]} />
+      <gridHelper args={[200, 160, dark ? '#161616' : '#dddddd', dark ? '#111111' : '#e8e8e8']} position={[0, 0.008, 0]} />
+      <Line points={[[-100,0.02,0],[100,0.02,0]] as [number,number,number][]} color={dark?'#22c55e':'#16a34a'} lineWidth={1.5} transparent opacity={0.5}/>
+      <Line points={[[0,0.02,-100],[0,0.02,100]] as [number,number,number][]} color={dark?'#3b82f6':'#2563eb'} lineWidth={1.5} transparent opacity={0.5}/>
     </>
   );
 }
@@ -272,8 +271,8 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
 
 // ── Printer nozzle animation ──────────────────────────────────────────────────
 
-function PrinterAnimation({ toolpath, layerHeight, progress }: {
-  toolpath: Layer[]; layerHeight: number; progress: number;
+function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55e' }: {
+  toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string;
 }) {
   const allSegs = useMemo(() => {
     const out: { s:[number,number,number]; e:[number,number,number] }[] = [];
@@ -296,6 +295,21 @@ function PrinterAnimation({ toolpath, layerHeight, progress }: {
     cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + 0.06,
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
+
+  // Build single BufferGeometry for ALL printed segments — one draw call
+  const lineGeo = useMemo(() => {
+    const geo      = new THREE.BufferGeometry();
+    const maxSegs  = Math.max(segIdx, 0);
+    const positions = new Float32Array(maxSegs * 6); // 2 points × 3 coords per seg
+    for (let i = 0; i < maxSegs; i++) {
+      const s = allSegs[i];
+      positions[i*6+0] = s.s[0]; positions[i*6+1] = s.s[1]; positions[i*6+2] = s.s[2];
+      positions[i*6+3] = s.e[0]; positions[i*6+4] = s.e[1]; positions[i*6+5] = s.e[2];
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    return geo;
+  }, [allSegs, segIdx]);
+
   const partial: [number,number,number] = [
     cur.s[0] + (cur.e[0]-cur.s[0])*segFrac,
     cur.s[1] + (cur.e[1]-cur.s[1])*segFrac,
@@ -304,15 +318,21 @@ function PrinterAnimation({ toolpath, layerHeight, progress }: {
 
   return (
     <group>
-      {allSegs.slice(0, segIdx).map((s, i) => {
-        const alpha = Math.max(0.12, 1-(segIdx-i)/Math.max(segIdx,1)*0.78);
-        return <Line key={i} points={[s.s, s.e]} color="#22c55e" lineWidth={2} transparent opacity={alpha}/>;
-      })}
-      {segFrac > 0.01 && <Line points={[cur.s, partial]} color="#4ade80" lineWidth={2.5}/>}
+      {/* All printed segments — single draw call */}
+      <lineSegments geometry={lineGeo}>
+        <lineBasicMaterial color={pathColor} transparent opacity={0.85}/>
+      </lineSegments>
+
+      {/* Current partial segment */}
+      {segFrac > 0.01 && (
+        <Line points={[cur.s, partial]} color={pathColor} lineWidth={2.5}/>
+      )}
+
+      {/* Nozzle head */}
       <group position={nozzle}>
         <mesh rotation={[-Math.PI/2,0,0]}>
           <ringGeometry args={[0.07,0.14,24]}/>
-          <meshBasicMaterial color="#4ade80" transparent opacity={0.5}/>
+          <meshBasicMaterial color={pathColor} transparent opacity={0.5}/>
         </mesh>
         <mesh>
           <sphereGeometry args={[0.055,16,16]}/>
@@ -320,7 +340,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress }: {
         </mesh>
         <mesh position={[0,-0.045,0]}>
           <sphereGeometry args={[0.032,10,10]}/>
-          <meshBasicMaterial color="#86efac" transparent opacity={0.9}/>
+          <meshBasicMaterial color={pathColor} transparent opacity={0.9}/>
         </mesh>
       </group>
     </group>
@@ -347,12 +367,13 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
 function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, site, modelScale,
-  snap, enableTransform, transformMode, orbitRef, sitePlan }: {
+  snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor }: {
   fileUrl: string|null; fileExt: string; toolpath: Layer[];
   layerHeight: number; animProgress: number; mode: ViewMode;
   site: SiteDimensions; modelScale: number; snap: string|null;
   enableTransform: boolean; transformMode: TransformMode; orbitRef: React.RefObject<any>;
   sitePlan?: import('./SitePlanReader').SitePlanData | null;
+  pathColor?: string;
 }) {
   const isVoid = mode !== 'environment';
   const isDark = mode === 'void-dark';
@@ -380,7 +401,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
       {fileUrl && (
         <ModelLoader
           fileUrl={fileUrl} fileExt={fileExt}
-          opacity={toolpath.length > 0 ? 0.35 : 1.0}
+          opacity={toolpath.length > 0 && animProgress < 1 ? 0 : 1.0}
           scale={modelScale}
           enableTransform={enableTransform} transformMode={transformMode}
           orbitRef={orbitRef}
@@ -388,7 +409,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
       )}
 
       {toolpath.length > 0 && (
-        <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} progress={animProgress}/>
+        <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} progress={animProgress} pathColor={pathColor}/>
       )}
 
       <CameraController snap={snap} site={site}/>
@@ -408,11 +429,12 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
 function PlaybackBar({
   progress, isPlaying, totalSegs, animProgress,
   onReset, onToggle, onEnd, onScrub,
-  mode, onModeChange,
+  mode, onModeChange, pathColor, onPathColorChange,
 }: {
   progress: number; isPlaying: boolean; totalSegs: number; animProgress: number;
   onReset: ()=>void; onToggle: ()=>void; onEnd: ()=>void; onScrub:(v:number)=>void;
   mode: ViewMode; onModeChange:(m:ViewMode)=>void;
+  pathColor: string; onPathColorChange:(c:string)=>void;
 }) {
   const doneSegs = Math.round(animProgress * totalSegs);
 
@@ -422,7 +444,7 @@ function PlaybackBar({
 
       {/* Thin progress strip at very top */}
       <div className="h-0.5 bg-white/5">
-        <div className="h-full bg-emerald-400 transition-all duration-75" style={{width:`${progress}%`}}/>
+        <div className="h-full transition-all duration-75" style={{width:`${progress}%`, background: pathColor}}/>
       </div>
 
       <div className="px-4 py-3">
@@ -489,9 +511,9 @@ function PlaybackBar({
           </button>
         </div>
 
-        {/* Row 3: mode toggle (env/void) + legend */}
+        {/* Row 3: mode toggle + color picker + legend */}
         <div className="flex items-center justify-between">
-          {/* View mode — 3 options now */}
+          {/* View mode toggle */}
           <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-white/8 bg-white/4">
             {([
               {id:'environment' as ViewMode, label:'Env'},
@@ -507,11 +529,22 @@ function PlaybackBar({
             ))}
           </div>
 
+          {/* Path color picker */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-white/25">Path colour</span>
+            <label className="relative cursor-pointer group">
+              <div className="w-5 h-5 rounded-full border-2 border-white/25 group-hover:border-white/50 transition-colors"
+                style={{background: pathColor}}/>
+              <input type="color" value={pathColor}
+                onChange={e => onPathColorChange(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"/>
+            </label>
+          </div>
+
           {/* Legend */}
           <div className="flex items-center gap-3 text-[10px] text-white/20">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-white inline-block"/>Nozzle</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-px bg-emerald-400 inline-block"/>Path</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-white/15 inline-block"/>Model</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-px inline-block rounded" style={{background:pathColor}}/>Path</span>
           </div>
         </div>
       </div>
@@ -533,6 +566,7 @@ export default function LayerVisualization({
   const [internalScale,   setInternalScale]   = useState(1.0);
   const [enableTransform, setEnableTransform] = useState(false);
   const [transformMode,   setTransformMode]   = useState<TransformMode>('translate');
+  const [pathColor,       setPathColor]       = useState('#22c55e');
   const orbitRef = useRef<any>(null);
   const rafRef   = useRef<number|null>(null);
   const lastTRef = useRef<number|null>(null);
@@ -638,7 +672,7 @@ export default function LayerVisualization({
           <Canvas shadows gl={{antialias:true}}>
             <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={[]} layerHeight={0.04}
               animProgress={0} mode={mode} site={resolvedSite} modelScale={modelScale}
-              snap={null} enableTransform={false} transformMode="translate" orbitRef={orbitRef} sitePlan={sitePlan}/>
+              snap={null} enableTransform={false} transformMode="translate" orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}/>
           </Canvas>
           <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg">
             <span className="text-white/40 text-[10px]">Drag · scroll</span>
@@ -660,7 +694,7 @@ export default function LayerVisualization({
         <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={toolpath} layerHeight={layerHeight||0.04}
           animProgress={animProgress} mode={mode} site={resolvedSite} modelScale={modelScale}
           snap={snap} enableTransform={enableTransform} transformMode={transformMode}
-          orbitRef={orbitRef} sitePlan={sitePlan}/>
+          orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}/>
       </Canvas>
 
       {/* ── Top-left: mode toggle + site info (clean, small) ── */}
@@ -750,6 +784,7 @@ export default function LayerVisualization({
             onEnd={()=>{setIsPlaying(false);setAnimProgress(1);}}
             onScrub={v=>{setIsPlaying(false);setAnimProgress(v);}}
             mode={mode} onModeChange={setMode}
+            pathColor={pathColor} onPathColorChange={setPathColor}
           />
         </div>
       )}
