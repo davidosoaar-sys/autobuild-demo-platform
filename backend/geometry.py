@@ -173,8 +173,8 @@ def _slice_at_z(
 
     segments: Layer = []
 
-    # ── 1. Perimeter (concrete wall outline) ─────────────────────────────────
-    # For each polygon, trace the EXTERIOR ring only
+    # ── 1. Perimeter only — real 3DCP prints walls, not solid infill ─────────
+    # Trace exterior ring of each wall polygon
     def _trace_ring(ring):
         coords = list(ring.coords)
         segs = []
@@ -192,15 +192,9 @@ def _slice_at_z(
 
     for poly in polys_list:
         segments.extend(_trace_ring(poly.exterior))
-
-    # ── 2. Infill strictly clipped to wall polygon ────────────────────────────
-    # Inset the polygon by half nozzle width so infill stays inside wall
-    inset = wall_union.buffer(-nozzle_width * 0.5)
-    if inset.is_empty or inset.area < nozzle_width ** 2:
-        return segments
-
-    infill = _raster_infill(inset, nozzle_width)
-    segments.extend(infill)
+        # Also trace interior rings (holes = windows, doors)
+        for interior in poly.interiors:
+            segments.extend(_trace_ring(interior))
 
     return segments
 

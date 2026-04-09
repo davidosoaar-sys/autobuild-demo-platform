@@ -20,7 +20,7 @@ interface CementInfo   { display_name: string; open_time_min: number; risk_score
 interface PrinterInfo  { name: string; nozzle_mm: number; layer_height_mm: number; effective_speed: number; mix_compatible: boolean; }
 interface WeatherInfo  { blocks_used: number; avg_conditions: Record<string,number>; worst_block: Record<string,number>; }
 interface OptInfo      { time_saved_pct: number; env_risk_score: number; total_travel_mm: number; naive_travel_mm: number; total_segments: number; }
-interface GeoInfo      { num_layers: number; layer_height: number; total_segments: number; file_name: string; }
+interface GeoInfo      { num_layers: number; layer_height: number; total_segments: number; file_name: string; total_height_m: number; bounds_x: [number,number]; bounds_y: [number,number]; bounds_z: [number,number]; }
 
 interface LayerStat {
   layer: number; z_height_mm: number; segments: number;
@@ -341,6 +341,11 @@ export default function PrePrintOptimizer() {
             externalMode={viewMode} onModeChange={setViewMode}
             modelScale={modelScale}
             sitePlan={sitePlanData}
+            modelDimensions={result.geometry.bounds_x && result.geometry.bounds_z ? {
+              x: result.geometry.bounds_x[1] - result.geometry.bounds_x[0],
+              y: result.geometry.bounds_y[1] - result.geometry.bounds_y[0],
+              z: result.geometry.total_height_m,
+            } : undefined}
           />
 
           {/* ── Thin floating header — does NOT block canvas ── */}

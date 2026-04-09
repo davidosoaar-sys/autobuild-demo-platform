@@ -14,17 +14,18 @@ type TransformMode = 'translate' | 'rotate' | 'scale';
 export interface SiteDimensions { width: number; length: number; slope: number; }
 
 interface LayerVisualizationProps {
-  file:          File | null;
-  toolpath:      Layer[];
-  numLayers:     number;
-  layerHeight:   number;
-  site?:         SiteDimensions;
-  fullscreen?:   boolean;
-  externalMode?: ViewMode;
-  onModeChange?: (m: ViewMode) => void;
-  modelScale?:   number;
-  sitePlan?:     import('./SitePlanReader').SitePlanData | null;
-  pathColor?:    string;
+  file:             File | null;
+  toolpath:         Layer[];
+  numLayers:        number;
+  layerHeight:      number;
+  site?:            SiteDimensions;
+  fullscreen?:      boolean;
+  externalMode?:    ViewMode;
+  onModeChange?:    (m: ViewMode) => void;
+  modelScale?:      number;
+  sitePlan?:        import('./SitePlanReader').SitePlanData | null;
+  pathColor?:       string;
+  modelDimensions?: { x: number; y: number; z: number }; // metres
 }
 
 // ── Sky ───────────────────────────────────────────────────────────────────────
@@ -296,70 +297,82 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Concrete bead dimensions — nozzle width for spread, layer height for thickness
-  // Keep bead width tight to nozzle diameter so it doesn't bleed
-  const beadW = layerHeight * 0.9;   // slightly narrower than layer height
+  // Concrete bead dimensions matching real 3DCP
+  const beadW = layerHeight * 1.4;  // wider than tall (squished oval cross-section)
   const beadH = layerHeight;
 
-  // Build geometry for all printed segments as flat boxes (concrete beads)
-  const { positions, indices } = useMemo(() => {
+  // Build raised trapezoid beads — 8 verts per segment, 12 triangles
+  const { positions, indices, normals } = useMemo(() => {
     const maxSegs   = Math.max(segIdx, 0);
-    // Each segment = 4 verts × 3 coords, 2 triangles = 6 indices
-    const positions = new Float32Array(maxSegs * 4 * 3);
-    const indices   = new Uint32Array(maxSegs * 6);
+    const positions = new Float32Array(maxSegs * 8 * 3);
+    const normals   = new Float32Array(maxSegs * 8 * 3);
+    const indices   = new Uint32Array(maxSegs * 36);
 
     for (let i = 0; i < maxSegs; i++) {
-      const s     = allSegs[i];
-      const dx    = s.e[0] - s.s[0];
-      const dz    = s.e[2] - s.s[2];
-      const len   = Math.sqrt(dx*dx + dz*dz);
+      const s   = allSegs[i];
+      const dx  = s.e[0] - s.s[0];
+      const dz  = s.e[2] - s.s[2];
+      const len = Math.sqrt(dx*dx + dz*dz);
       if (len < 0.001) continue;
 
-      const nx = -dz / len;  // perpendicular X (in XZ plane)
-      const nz =  dx / len;  // perpendicular Z
-      const hw = beadW * 0.5;
+      const nx  = -dz / len;
+      const nz  =  dx / len;
+      const hw  = beadW * 0.5;
+      const th  = beadH;
+      const y0  = s.s[1] - th * 0.05;   // base
+      const y1  = s.s[1] + th * 0.95;   // top
+      const ins = hw * 0.18;             // top inset → rounded trapezoid look
 
-      // 4 corners of the flat bead rectangle (at layer height Y)
-      const y = s.s[1];
-      const verts = [
-        [s.s[0] - nx*hw, y, s.s[2] - nz*hw],
-        [s.s[0] + nx*hw, y, s.s[2] + nz*hw],
-        [s.e[0] + nx*hw, y, s.e[2] + nz*hw],
-        [s.e[0] - nx*hw, y, s.e[2] - nz*hw],
+      const vb = i * 8;
+      const verts: [number,number,number][] = [
+        [s.s[0]-nx*hw,      y0, s.s[2]-nz*hw],       // 0 base start left
+        [s.s[0]+nx*hw,      y0, s.s[2]+nz*hw],       // 1 base start right
+        [s.e[0]+nx*hw,      y0, s.e[2]+nz*hw],       // 2 base end right
+        [s.e[0]-nx*hw,      y0, s.e[2]-nz*hw],       // 3 base end left
+        [s.s[0]-nx*(hw-ins),y1, s.s[2]-nz*(hw-ins)], // 4 top start left
+        [s.s[0]+nx*(hw-ins),y1, s.s[2]+nz*(hw-ins)], // 5 top start right
+        [s.e[0]+nx*(hw-ins),y1, s.e[2]+nz*(hw-ins)], // 6 top end right
+        [s.e[0]-nx*(hw-ins),y1, s.e[2]-nz*(hw-ins)], // 7 top end left
       ];
 
-      const vBase = i * 4;
-      for (let v = 0; v < 4; v++) {
-        positions[(vBase+v)*3+0] = verts[v][0];
-        positions[(vBase+v)*3+1] = verts[v][1];
-        positions[(vBase+v)*3+2] = verts[v][2];
+      for (let v = 0; v < 8; v++) {
+        positions[(vb+v)*3+0] = verts[v][0];
+        positions[(vb+v)*3+1] = verts[v][1];
+        positions[(vb+v)*3+2] = verts[v][2];
+        normals[(vb+v)*3+1]   = v >= 4 ? 1 : -1;
       }
 
-      const iBase = i * 6;
-      indices[iBase+0] = vBase+0; indices[iBase+1] = vBase+1; indices[iBase+2] = vBase+2;
-      indices[iBase+3] = vBase+0; indices[iBase+4] = vBase+2; indices[iBase+5] = vBase+3;
+      const ib = i * 36;
+      const tris = [
+        vb+4,vb+5,vb+6, vb+4,vb+6,vb+7,  // top
+        vb+0,vb+2,vb+1, vb+0,vb+3,vb+2,  // bottom
+        vb+0,vb+1,vb+5, vb+0,vb+5,vb+4,  // front
+        vb+2,vb+3,vb+7, vb+2,vb+7,vb+6,  // back
+        vb+3,vb+0,vb+4, vb+3,vb+4,vb+7,  // left
+        vb+1,vb+2,vb+6, vb+1,vb+6,vb+5,  // right
+      ];
+      for (let ti = 0; ti < 36; ti++) indices[ib+ti] = tris[ti];
     }
-
-    return { positions, indices };
-  }, [allSegs, segIdx, beadW]);
+    return { positions, indices, normals };
+  }, [allSegs, segIdx, beadW, beadH]);
 
   const beadGeo = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('normal',   new THREE.BufferAttribute(normals,   3));
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
     geo.computeVertexNormals();
     return geo;
-  }, [positions, indices]);
+  }, [positions, normals, indices]);
 
   return (
     <group>
-      {/* Concrete bead mesh — all printed segments */}
+      {/* Concrete bead mesh — raised trapezoid beads */}
       <mesh geometry={beadGeo}>
         <meshStandardMaterial
-          color={new THREE.Color(pathColor).lerp(new THREE.Color('#888888'), 0.4)}
-          roughness={0.95}
+          color={new THREE.Color(pathColor).lerp(new THREE.Color('#9a9a96'), 0.45)}
+          roughness={0.97}
           metalness={0.0}
-          transparent opacity={0.92}
           side={THREE.DoubleSide}
         />
       </mesh>
@@ -614,7 +627,7 @@ function PlaybackBar({
 
 export default function LayerVisualization({
   file, toolpath, numLayers, layerHeight, site, fullscreen,
-  externalMode, onModeChange, modelScale: extScale, sitePlan,
+  externalMode, onModeChange, modelScale: extScale, sitePlan, modelDimensions,
 }: LayerVisualizationProps) {
   const [internalMode,    setInternalMode]    = useState<ViewMode>('environment');
   const [animProgress,    setAnimProgress]    = useState(0);
@@ -775,13 +788,20 @@ export default function LayerVisualization({
           ))}
         </div>
 
-        {/* Site info */}
-        <div className="px-3 py-1 rounded-xl border border-white/8"
+        {/* Site info + model dimensions */}
+        <div className="px-3 py-1.5 rounded-xl border border-white/8 space-y-0.5"
           style={{background:'rgba(0,0,0,0.4)',backdropFilter:'blur(10px)'}}>
-          <span className="text-white/40 text-[10px] font-mono">
+          <span className="text-white/40 text-[10px] font-mono block">
             {resolvedSite.width}m × {resolvedSite.length}m
             {resolvedSite.slope>0?` · ${resolvedSite.slope}°`:''}
           </span>
+          {modelDimensions && (
+            <span className="text-white/60 text-[10px] font-mono block">
+              L {(modelDimensions.x*1000).toFixed(0)}mm ·{' '}
+              W {(modelDimensions.y*1000).toFixed(0)}mm ·{' '}
+              H {(modelDimensions.z*1000).toFixed(0)}mm
+            </span>
+          )}
         </div>
 
         {/* Model / Toolpath visibility toggles */}
