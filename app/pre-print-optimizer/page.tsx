@@ -27,6 +27,7 @@ interface LayerStat {
   layer: number; z_height_mm: number; segments: number;
   perimeter_mm: number; area_cm2: number; complexity: number;
   print_speed_mm_s: number; risk_score: number;
+  temperature_c?: number;
 }
 
 interface OptimizeResult {
@@ -449,29 +450,152 @@ export default function PrePrintOptimizer() {
                   )}
 
                   {sidebarPanel==='layers' && (
-                    <motion.div key="layers" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-1.5">
-                      <p className="text-[9px] text-white/25 uppercase tracking-wider mb-2">Per-Layer Statistics</p>
-                      {(result.layer_stats??[]).map((ls,i)=>(
-                        <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.01}}
-                          className="rounded-xl p-2.5 border border-white/5 bg-white/4 hover:bg-white/6 transition-colors">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[10px] font-bold text-white">Layer {ls.layer+1}</span>
-                            <span className="text-[9px] font-mono text-white/30">{ls.z_height_mm} mm</span>
+                    <motion.div key="layers" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-2">
+
+                      {/* ── Speed profile chart ── */}
+                      {(result.layer_stats??[]).length > 0 && (() => {
+                        const stats = result.layer_stats!;
+                        const speeds = stats.map(ls => ls.print_speed_mm_s);
+                        const temps  = stats.map(ls => ls.temperature_c ?? 20);
+                        const minS   = Math.min(...speeds);
+                        const maxS   = Math.max(...speeds);
+                        const minT   = Math.min(...temps);
+                        const maxT   = Math.max(...temps);
+                        const barW   = Math.max(2, Math.floor(270 / stats.length));
+
+                        // colour bar by temperature: cool=blue, ideal=white, hot=amber
+                        const tempColor = (t: number) => {
+                          if (t < 15) return '#60a5fa';       // blue — cool
+                          if (t <= 25) return '#e5e5e5';      // white — ideal
+                          if (t <= 30) return '#fbbf24';      // amber — warm
+                          return '#f87171';                   // red — hot
+                        };
+
+                        return (
+                          <div className="rounded-xl border border-white/8 p-3" style={{background:'rgba(255,255,255,0.04)'}}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[9px] text-white/40 uppercase tracking-wider">Speed profile</span>
+                              <span className="text-[9px] font-mono text-white/25">{minS}–{maxS} mm/s</span>
+                            </div>
+
+                            {/* Bar chart */}
+                            <div className="flex items-end gap-px h-16 w-full overflow-hidden rounded-lg">
+                              {stats.map((ls, i) => {
+                                const h  = maxS === minS ? 50 : ((ls.print_speed_mm_s - minS) / (maxS - minS)) * 100;
+                                const cl = tempColor(ls.temperature_c ?? 20);
+                                return (
+                                  <div key={i} className="flex-1 flex flex-col justify-end group relative">
+                                    <div
+                                      className="rounded-sm transition-opacity group-hover:opacity-100 opacity-80"
+                                      style={{ height: `${Math.max(8, h)}%`, background: cl }}
+                                    />
+                                    {/* Tooltip on hover */}
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:flex flex-col items-center z-10 pointer-events-none">
+                                      <div className="rounded-lg px-2 py-1 text-[8px] font-mono text-white whitespace-nowrap"
+                                        style={{background:'rgba(0,0,0,0.85)'}}>
+                                        L{ls.layer+1} · {ls.print_speed_mm_s}mm/s · {ls.temperature_c??'—'}°C
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Legend */}
+                            <div className="flex items-center gap-3 mt-2">
+                              {[
+                                {color:'#60a5fa', label:'< 15°C'},
+                                {color:'#e5e5e5', label:'15–25°C'},
+                                {color:'#fbbf24', label:'25–30°C'},
+                                {color:'#f87171', label:'> 30°C'},
+                              ].map(l => (
+                                <div key={l.label} className="flex items-center gap-1">
+                                  <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{background:l.color}}/>
+                                  <span className="text-[8px] text-white/25">{l.label}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Speed range annotation */}
+                            <div className="flex justify-between mt-1.5">
+                              <span className="text-[8px] text-white/15 font-mono">Layer 1</span>
+                              <span className="text-[8px] text-white/15 font-mono">Layer {stats.length}</span>
+                            </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                            {[['Segments',String(ls.segments)],['Perimeter',`${ls.perimeter_mm}mm`],['Area',`${ls.area_cm2}cm²`],['Speed',`${ls.print_speed_mm_s}mm/s`],['Risk',`${ls.risk_score}/100`],['Complexity',`${Math.round(ls.complexity*100)}%`]].map(([l,v])=>(
-                              <div key={l} className="flex justify-between">
-                                <span className="text-[9px] text-white/25">{l}</span>
-                                <span className="text-[9px] font-mono text-white/60">{v}</span>
+                        );
+                      })()}
+
+                      {/* ── Per-layer cards ── */}
+                      <p className="text-[9px] text-white/25 uppercase tracking-wider pt-1">Per-layer detail</p>
+                      {(result.layer_stats??[]).map((ls,i)=>{
+                        // Estimate time for this layer: perimeter / speed
+                        const layerTimeSec = ls.print_speed_mm_s > 0
+                          ? ls.perimeter_mm / ls.print_speed_mm_s
+                          : 0;
+                        const layerTimeStr = layerTimeSec < 60
+                          ? `${Math.round(layerTimeSec)}s`
+                          : `${Math.floor(layerTimeSec/60)}m ${Math.round(layerTimeSec%60)}s`;
+                        const temp = ls.temperature_c ?? '—';
+                        const tempColor =
+                          typeof temp === 'number' && temp > 30 ? 'text-red-400'
+                          : typeof temp === 'number' && temp > 25 ? 'text-amber-300'
+                          : typeof temp === 'number' && temp < 15 ? 'text-blue-400'
+                          : 'text-white/60';
+
+                        return (
+                          <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.008}}
+                            className="rounded-xl p-2.5 border border-white/5 bg-white/4 hover:bg-white/6 transition-colors">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[10px] font-bold text-white">Layer {ls.layer+1}</span>
+                              <span className="text-[9px] font-mono text-white/30">{ls.z_height_mm}mm</span>
+                            </div>
+
+                            {/* Key stats: time, temp, speed — prominent */}
+                            <div className="grid grid-cols-3 gap-1 mb-2">
+                              <div className="rounded-lg px-2 py-1.5 border border-white/6 bg-white/3 text-center">
+                                <p className="text-[8px] text-white/25 mb-0.5">Est. time</p>
+                                <p className="text-[10px] font-bold font-mono text-white">{layerTimeStr}</p>
                               </div>
-                            ))}
-                          </div>
-                          <div className="mt-1.5 h-0.5 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{width:`${ls.risk_score}%`,background:ls.risk_score<20?'#22c55e':ls.risk_score<50?'#f59e0b':'#ef4444'}}/>
-                          </div>
-                        </motion.div>
-                      ))}
-                      {(!result.layer_stats||result.layer_stats.length===0)&&<p className="text-[11px] text-white/30 text-center py-8">No layer data available</p>}
+                              <div className="rounded-lg px-2 py-1.5 border border-white/6 bg-white/3 text-center">
+                                <p className="text-[8px] text-white/25 mb-0.5">Temp</p>
+                                <p className={`text-[10px] font-bold font-mono ${tempColor}`}>
+                                  {typeof temp === 'number' ? `${temp}°C` : '—'}
+                                </p>
+                              </div>
+                              <div className="rounded-lg px-2 py-1.5 border border-white/6 bg-white/3 text-center">
+                                <p className="text-[8px] text-white/25 mb-0.5">Speed</p>
+                                <p className="text-[10px] font-bold font-mono text-white">{ls.print_speed_mm_s}<span className="text-[7px] text-white/30">mm/s</span></p>
+                              </div>
+                            </div>
+
+                            {/* Secondary stats */}
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                              {[
+                                ['Segments',  String(ls.segments)],
+                                ['Perimeter', `${ls.perimeter_mm}mm`],
+                                ['Area',      `${ls.area_cm2}cm²`],
+                                ['Risk',      `${ls.risk_score}/100`],
+                              ].map(([l,v])=>(
+                                <div key={l} className="flex justify-between">
+                                  <span className="text-[9px] text-white/25">{l}</span>
+                                  <span className="text-[9px] font-mono text-white/60">{v}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Risk bar */}
+                            <div className="mt-1.5 h-0.5 bg-white/5 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full" style={{
+                                width:`${ls.risk_score}%`,
+                                background:ls.risk_score<20?'#22c55e':ls.risk_score<50?'#f59e0b':'#ef4444'
+                              }}/>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                      {(!result.layer_stats||result.layer_stats.length===0)&&(
+                        <p className="text-[11px] text-white/30 text-center py-8">No layer data available</p>
+                      )}
                     </motion.div>
                   )}
 

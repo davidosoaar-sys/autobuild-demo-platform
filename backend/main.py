@@ -24,6 +24,7 @@ from sika733    import (
     pot_life_at_temp, composite_risk_score, estimated_print_time_seconds,
     PRODUCT_NAME, LAYER_HEIGHT_DEF_M,
 )
+from scan       import scan_mesh
 from environment import DEFAULT_PRINTER
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -31,7 +32,7 @@ from environment import DEFAULT_PRINTER
 app = FastAPI(
     title       = "AutoBuild AI — Adaptive 3DCP Slicer",
     description = "RL-powered adaptive slicer for Sikacrete-733 W 3D",
-    version     = "3.0.0",
+    version     = "3.1.0",
 )
 
 app.add_middleware(
@@ -60,6 +61,52 @@ def health():
         "weather_api": True,
         "material":    PRODUCT_NAME,
     }
+
+
+# ── Scan endpoint ─────────────────────────────────────────────────────────────
+
+@app.post("/scan")
+async def scan_endpoint(
+    file:               UploadFile = File(...),
+    nozzle_diameter_mm: float      = Form(25.0),
+    layer_height_m:     float      = Form(0.012),
+):
+    """
+    Analyse an STL/OBJ for 3DCP printability issues.
+    Fast — no RL, no slicing. Returns in ~0.5–2s.
+
+    Checks:
+      - Non-manifold edges
+      - Wall thickness vs nozzle diameter
+      - Overhangs > 45°
+      - Floating geometry / disconnected islands
+      - Height vs layer height mismatch
+      - Extrusion gaps (windows, doors, voids)
+    """
+    fname = file.filename or ""
+    if not fname.lower().endswith((".stl", ".obj")):
+        raise HTTPException(400, "Only STL and OBJ files supported")
+
+    try:
+        file_bytes = await file.read()
+    except Exception as e:
+        raise HTTPException(400, f"Could not read file: {e}")
+
+    try:
+        result = scan_mesh(
+            file_bytes      = file_bytes,
+            filename        = fname,
+            nozzle_diam_mm  = nozzle_diameter_mm,
+            layer_height_m  = layer_height_m,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Scan failed: {e}")
+
+    if not result["ok"]:
+        # Still return 200 — the scan ran, it just found blocking issues
+        return result
+
+    return result
 
 
 # ── Weather endpoints ─────────────────────────────────────────────────────────
@@ -166,12 +213,19 @@ async def optimize_endpoint(
     print_start_hour:  float         = Form(8.0),
     # Max layers (for testing)
     max_layers:        Optional[int] = Form(None),
+    # Deprecated — kept for backwards compat
+    cement_mix_name:   Optional[str] = Form(None),
+    print_speed:       Optional[float] = Form(None),
 ):
     fname = file.filename or ""
     if not fname.lower().endswith((".stl", ".obj")):
         raise HTTPException(400, "Only STL and OBJ files supported")
     if not os.path.exists(MODEL_PATH):
         raise HTTPException(503, "RL model not found — run python train.py first")
+
+    # Compat: print_speed form field → base_speed_mm_s
+    if print_speed is not None and base_speed_mm_s == 60.0:
+        base_speed_mm_s = print_speed
 
     start = time.time()
 
@@ -263,8 +317,6 @@ async def optimize_endpoint(
         f.write(gcode_str)
 
     # Save toolpath JSON — include gap markers for window/door openings
-    # A gap > 2mm between consecutive segments = travel move (window/door)
-    # Mark with {"gap": true} so the 3D viewer skips drawing beads across the gap
     import math as _math
     GAP_THRESHOLD_M = 0.002  # 2mm in metres
 
@@ -278,7 +330,7 @@ async def optimize_endpoint(
                     s[0][1] - prev[1][1],
                 )
                 if gap > GAP_THRESHOLD_M:
-                    out.append({"gap": True})  # window/door marker
+                    out.append({"gap": True})
             out.append({"x0": s[0][0], "y0": s[0][1], "x1": s[1][0], "y1": s[1][1]})
         return out
 
@@ -286,14 +338,12 @@ async def optimize_endpoint(
     with open(f"{RESULTS_DIR}/{result_id}.json", "w") as f:
         json.dump({"toolpath": toolpath_json, "layer_params": [lp.to_dict() for lp in layer_params]}, f)
 
-    # Format estimated print time
     est_s    = stats.get("estimated_print_time_s", 0)
     est_str  = format_print_time(est_s)
 
-    # Per-layer speed summary (for frontend visualisation)
     speed_profile = [
         {"layer": lp.layer_idx, "speed_mm_s": lp.print_speed_mm_s, "risk": lp.risk_score}
-        for lp in layer_params[:20]   # first 20 layers for preview
+        for lp in layer_params[:20]
     ]
 
     return {
@@ -327,14 +377,15 @@ async def optimize_endpoint(
         "gcode_preview":   "\n".join(gcode_str.splitlines()[:40]),
         "layer_stats":     [
             {
-                "layer":          lm["index"],
-                "z_height_mm":    round(lm["z_height_m"] * 1000, 1),
-                "segments":       lm["segment_count"],
-                "perimeter_mm":   round(lm["perimeter_m"] * 1000, 1),
-                "area_cm2":       round(lm["area_m2"] * 10000, 2),
-                "complexity":     lm["complexity"],
+                "layer":            lm["index"],
+                "z_height_mm":      round(lm["z_height_m"] * 1000, 1),
+                "segments":         lm["segment_count"],
+                "perimeter_mm":     round(lm["perimeter_m"] * 1000, 1),
+                "area_cm2":         round(lm["area_m2"] * 10000, 2),
+                "complexity":       lm["complexity"],
                 "print_speed_mm_s": layer_params[lm["index"]].print_speed_mm_s if lm["index"] < len(layer_params) else 0,
-                "risk_score":     layer_params[lm["index"]].risk_score if lm["index"] < len(layer_params) else 0,
+                "risk_score":       layer_params[lm["index"]].risk_score        if lm["index"] < len(layer_params) else 0,
+                "temperature_c":    layer_params[lm["index"]].weather_snapshot.get("temperature", 20.0) if lm["index"] < len(layer_params) else None,
             }
             for lm in layer_metas[:max_layers or len(layer_metas)]
         ],
@@ -377,7 +428,6 @@ def _manual_schedule(
             return build_schedule_from_blocks(blocks_data, print_start_hour)
         except Exception:
             pass
-    # Single reading fallback
     from weather import WeatherSnapshot, WeatherSchedule
     sched = WeatherSchedule()
     sched.snapshots = [WeatherSnapshot(
