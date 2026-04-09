@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Line, TransformControls, GizmoHelper, GizmoViewport } from '@react-three/drei';
 import * as THREE from 'three';
@@ -270,6 +270,19 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
   );
 }
 
+// ── Error boundary for 3D viewer ──────────────────────────────────────────────
+class ThreeErrorBoundary extends React.Component<
+  {children: React.ReactNode; fallback?: React.ReactNode},
+  {hasError: boolean}
+> {
+  constructor(props: any) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) return this.props.fallback ?? null;
+    return this.props.children;
+  }
+}
+
 // ── Printer nozzle animation ──────────────────────────────────────────────────
 
 function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55e' }: {
@@ -298,17 +311,20 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
   ];
 
   // Concrete bead dimensions matching real 3DCP
-  const beadW = layerHeight * 1.4;  // wider than tall (squished oval cross-section)
+  const beadW = layerHeight * 1.4;
   const beadH = layerHeight;
 
-  // Build raised trapezoid beads — 8 verts per segment, 12 triangles
-  const { positions, indices, normals } = useMemo(() => {
-    const maxSegs   = Math.max(segIdx, 0);
-    const positions = new Float32Array(maxSegs * 8 * 3);
-    const normals   = new Float32Array(maxSegs * 8 * 3);
-    const indices   = new Uint32Array(maxSegs * 36);
+  // Pre-allocate geometry for ALL segments once — use drawRange for animation
+  // This prevents memory allocation crashes during playback
+  const fullGeo = useMemo(() => {
+    const total     = allSegs.length;
+    if (total === 0) return null;
 
-    for (let i = 0; i < maxSegs; i++) {
+    const positions = new Float32Array(total * 8 * 3);
+    const normals   = new Float32Array(total * 8 * 3);
+    const indices   = new Uint32Array(total * 36);
+
+    for (let i = 0; i < total; i++) {
       const s   = allSegs[i];
       const dx  = s.e[0] - s.s[0];
       const dz  = s.e[2] - s.s[2];
@@ -318,21 +334,20 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
       const nx  = -dz / len;
       const nz  =  dx / len;
       const hw  = beadW * 0.5;
-      const th  = beadH;
-      const y0  = s.s[1] - th * 0.05;   // base
-      const y1  = s.s[1] + th * 0.95;   // top
-      const ins = hw * 0.18;             // top inset → rounded trapezoid look
+      const y0  = s.s[1] - beadH * 0.05;
+      const y1  = s.s[1] + beadH * 0.95;
+      const ins = hw * 0.18;
 
-      const vb = i * 8;
+      const vb    = i * 8;
       const verts: [number,number,number][] = [
-        [s.s[0]-nx*hw,      y0, s.s[2]-nz*hw],       // 0 base start left
-        [s.s[0]+nx*hw,      y0, s.s[2]+nz*hw],       // 1 base start right
-        [s.e[0]+nx*hw,      y0, s.e[2]+nz*hw],       // 2 base end right
-        [s.e[0]-nx*hw,      y0, s.e[2]-nz*hw],       // 3 base end left
-        [s.s[0]-nx*(hw-ins),y1, s.s[2]-nz*(hw-ins)], // 4 top start left
-        [s.s[0]+nx*(hw-ins),y1, s.s[2]+nz*(hw-ins)], // 5 top start right
-        [s.e[0]+nx*(hw-ins),y1, s.e[2]+nz*(hw-ins)], // 6 top end right
-        [s.e[0]-nx*(hw-ins),y1, s.e[2]-nz*(hw-ins)], // 7 top end left
+        [s.s[0]-nx*hw,       y0, s.s[2]-nz*hw],
+        [s.s[0]+nx*hw,       y0, s.s[2]+nz*hw],
+        [s.e[0]+nx*hw,       y0, s.e[2]+nz*hw],
+        [s.e[0]-nx*hw,       y0, s.e[2]-nz*hw],
+        [s.s[0]-nx*(hw-ins), y1, s.s[2]-nz*(hw-ins)],
+        [s.s[0]+nx*(hw-ins), y1, s.s[2]+nz*(hw-ins)],
+        [s.e[0]+nx*(hw-ins), y1, s.e[2]+nz*(hw-ins)],
+        [s.e[0]-nx*(hw-ins), y1, s.e[2]-nz*(hw-ins)],
       ];
 
       for (let v = 0; v < 8; v++) {
@@ -342,40 +357,43 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
         normals[(vb+v)*3+1]   = v >= 4 ? 1 : -1;
       }
 
-      const ib = i * 36;
+      const ib   = i * 36;
       const tris = [
-        vb+4,vb+5,vb+6, vb+4,vb+6,vb+7,  // top
-        vb+0,vb+2,vb+1, vb+0,vb+3,vb+2,  // bottom
-        vb+0,vb+1,vb+5, vb+0,vb+5,vb+4,  // front
-        vb+2,vb+3,vb+7, vb+2,vb+7,vb+6,  // back
-        vb+3,vb+0,vb+4, vb+3,vb+4,vb+7,  // left
-        vb+1,vb+2,vb+6, vb+1,vb+6,vb+5,  // right
+        vb+4,vb+5,vb+6, vb+4,vb+6,vb+7,
+        vb+0,vb+2,vb+1, vb+0,vb+3,vb+2,
+        vb+0,vb+1,vb+5, vb+0,vb+5,vb+4,
+        vb+2,vb+3,vb+7, vb+2,vb+7,vb+6,
+        vb+3,vb+0,vb+4, vb+3,vb+4,vb+7,
+        vb+1,vb+2,vb+6, vb+1,vb+6,vb+5,
       ];
       for (let ti = 0; ti < 36; ti++) indices[ib+ti] = tris[ti];
     }
-    return { positions, indices, normals };
-  }, [allSegs, segIdx, beadW, beadH]);
 
-  const beadGeo = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('normal',   new THREE.BufferAttribute(normals,   3));
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
     geo.computeVertexNormals();
     return geo;
-  }, [positions, normals, indices]);
+  }, [allSegs, beadW, beadH]);
+
+  // Update draw range based on animation progress — no reallocation
+  if (fullGeo) {
+    fullGeo.setDrawRange(0, Math.max(segIdx, 0) * 36);
+  }
 
   return (
     <group>
-      {/* Concrete bead mesh — raised trapezoid beads */}
-      <mesh geometry={beadGeo}>
-        <meshStandardMaterial
-          color={new THREE.Color(pathColor).lerp(new THREE.Color('#9a9a96'), 0.45)}
-          roughness={0.97}
-          metalness={0.0}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+      {fullGeo && (
+        <mesh geometry={fullGeo}>
+          <meshStandardMaterial
+            color={new THREE.Color(pathColor).lerp(new THREE.Color('#9a9a96'), 0.45)}
+            roughness={0.97}
+            metalness={0.0}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
 
       {/* Nozzle head */}
       <group position={nozzle}>
@@ -761,6 +779,11 @@ export default function LayerVisualization({
 
   return (
     <div className="absolute inset-0">
+      <ThreeErrorBoundary fallback={
+        <div className="absolute inset-0 flex items-center justify-center bg-black">
+          <p className="text-white/40 text-sm">3D viewer encountered an error. Try refreshing.</p>
+        </div>
+      }>
       <Canvas shadows
         gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:1.1}}
         style={{background:bg}}>
@@ -770,6 +793,7 @@ export default function LayerVisualization({
           orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}
           showModel={showModel} showToolpath={showToolpath}/>
       </Canvas>
+      </ThreeErrorBoundary>
 
       {/* ── Top-left: mode toggle + site info (clean, small) ── */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-1.5">
