@@ -1,26 +1,32 @@
 """
 geometry.py — 3DCP Adaptive Slicer
 
-How it works:
-  1. Load mesh. OBJ files get Y-up → Z-up rotation applied.
-  2. At each layer Z, slice the FULL mesh (not wall-filtered) using
-     trimesh.intersections.mesh_plane → raw 3D line segments.
-  3. Polygonize those segments using Shapely → clean closed polygons
-     representing the actual cross-section of the building.
-  4. Inward-offset each polygon by nozzle_width/2 → print centreline.
-  5. Walk polygon.exterior.coords → ordered print segments.
-     Interior rings (holes = rooms) are also walked → inner wall passes.
-  6. Gaps between consecutive exterior coord pairs that are larger than
-     the nozzle width signal window/door openings — these are left as
-     coordinate jumps. main.py's serialiser detects them and inserts
-     {"gap": true} so the 3D viewer and G-code both handle them correctly.
+Handles both solid meshes and thin-surface architectural STL/OBJ files.
+
+Pipeline per layer:
+  1. Slice wall mesh at height Z → raw 3D line segments (trimesh)
+  2. Project to 2D XY
+  3. Buffer each segment by nozzle_width/2 → concrete bead footprint
+  4. Merge overlapping bead footprints → printable wall regions
+  5. Walk exterior of each region → ordered print segments
+  6. Large gaps between consecutive segments = door/window openings
+     → left as coordinate jumps; main.py serialiser marks them {"gap":true}
+
+Why this works for thin-surface meshes:
+  Architectural STL files represent walls as zero-thickness surfaces.
+  Cross-section slicing gives line segments (wall faces), not closed polygons.
+  Buffering each segment by nozzle_width/2 reconstructs the concrete bead
+  footprint exactly as the printer would lay it. No ring tracing, no
+  polygonize, no closed-ring assumptions.
+
+OBJ files get Y-up → Z-up rotation applied automatically.
 """
 
 import io
 import numpy as np
 import trimesh
-from shapely.geometry import MultiLineString, MultiPolygon, Polygon
-from shapely.ops import polygonize, unary_union
+from shapely.geometry import LineString
+from shapely.ops import unary_union
 from typing import List, Optional, Tuple
 
 from sika733 import (
@@ -62,7 +68,7 @@ def parse_and_slice(
         except Exception as e:
             raise ValueError(f"Could not merge mesh: {e}")
 
-    # ── OBJ: Y-up → Z-up ─────────────────────────────────────────────────────
+    # ── OBJ Y-up → Z-up ───────────────────────────────────────────────────────
     if ext == "obj":
         mesh.apply_transform(
             trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
@@ -75,7 +81,7 @@ def parse_and_slice(
     except Exception:
         pass
 
-    # ── Centre on origin, sit on Z=0 ─────────────────────────────────────────
+    # ── Centre: sit on Z=0, centre X/Y ───────────────────────────────────────
     b = mesh.bounds
     mesh.apply_translation([
         -(b[0][0] + b[1][0]) / 2.0,
@@ -83,8 +89,7 @@ def parse_and_slice(
         -b[0][2],
     ])
 
-    # Apply uniform print scale — all geometry, segments, perimeter, and
-    # estimated time scale correctly because the mesh itself is transformed.
+    # ── Apply print scale ─────────────────────────────────────────────────────
     if abs(print_scale - 1.0) > 1e-6:
         mesh.apply_scale(float(print_scale))
 
@@ -97,6 +102,22 @@ def parse_and_slice(
             f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm"
         )
 
+    # ── Wall-only submesh ─────────────────────────────────────────────────────
+    # Keep only faces whose normal is mostly horizontal (|nz| < 0.55).
+    # This removes roofs and floors which add spurious cross-section segments.
+    try:
+        normals    = mesh.face_normals
+        wall_mask  = np.abs(normals[:, 2]) < 0.55
+        wall_faces = mesh.faces[wall_mask]
+        wall_mesh  = (
+            trimesh.Trimesh(vertices=mesh.vertices.copy(), faces=wall_faces, process=False)
+            if len(wall_faces) >= 4
+            else mesh
+        )
+    except Exception:
+        wall_mesh = mesh
+
+    # ── Layer count ───────────────────────────────────────────────────────────
     num_layers = max(1, int(total_height / layer_height))
     if max_layers:
         num_layers = min(num_layers, max_layers)
@@ -107,7 +128,7 @@ def parse_and_slice(
 
     for i in range(num_layers):
         z        = (i + 0.5) * layer_height
-        segments = _slice_layer(mesh, z, nozzle_width)
+        segments = _slice_layer(wall_mesh, z, nozzle_width)
         geometry.append(segments)
 
         n = len(segments)
@@ -152,15 +173,21 @@ def parse_and_slice(
     return geometry, layer_metas, meta
 
 
-def _slice_layer(mesh: trimesh.Trimesh, z: float, nozzle_width: float) -> Layer:
+def _slice_layer(
+    mesh:         trimesh.Trimesh,
+    z:            float,
+    nozzle_width: float,
+) -> Layer:
     """
-    Slice the mesh at height z and return ordered print segments.
+    Slice the wall mesh at height z and return ordered print segments.
 
-    Pipeline:
-      mesh_plane() → 2D line segments → polygonize → inward offset →
-      walk exterior + interiors → ordered segments with implicit gap markers
+    Works correctly for both:
+    - Solid (watertight) meshes: bead regions will be thick wall annuli
+    - Thin-surface (open) meshes: bead regions reconstructed from face segments
+
+    Returns segments ordered by nearest-neighbour chaining.
+    Large gaps between chained segments = door/window openings.
     """
-    # Step 1: get raw 3D cross-section segments from trimesh
     try:
         lines = trimesh.intersections.mesh_plane(
             mesh,
@@ -173,105 +200,116 @@ def _slice_layer(mesh: trimesh.Trimesh, z: float, nozzle_width: float) -> Layer:
     if lines is None or len(lines) == 0:
         return []
 
-    # Step 2: build 2D MultiLineString from the segments
-    line_list = []
+    # Build 2D LineString list, filter micro-segments
+    min_len = nozzle_width * 0.1
+    shapely_segs: List[LineString] = []
     for seg in lines:
         x0, y0 = float(seg[0][0]), float(seg[0][1])
         x1, y1 = float(seg[1][0]), float(seg[1][1])
-        if abs(x1 - x0) > 1e-9 or abs(y1 - y0) > 1e-9:
-            line_list.append(((x0, y0), (x1, y1)))
+        length  = np.hypot(x1 - x0, y1 - y0)
+        if length > min_len:
+            shapely_segs.append(LineString([(x0, y0), (x1, y1)]))
 
-    if not line_list:
+    if not shapely_segs:
         return []
 
-    mls = MultiLineString(line_list)
-
-    # Step 3: polygonize — Shapely finds all closed rings in the line soup
-    polys = list(polygonize(mls))
-
-    # If polygonize finds nothing, try buffering the lines slightly to close gaps
-    if not polys:
-        try:
-            buffered = mls.buffer(nozzle_width * 0.1)
-            if buffered.geom_type == "Polygon":
-                polys = [buffered]
-            elif hasattr(buffered, "geoms"):
-                polys = [g for g in buffered.geoms if g.geom_type == "Polygon"]
-        except Exception:
-            pass
-
-    if not polys:
-        return []
-
-    # Step 4: merge overlapping polygons, keep only significant ones
+    # ── Buffer → merge → walk ─────────────────────────────────────────────────
+    # Buffer each segment by nozzle_width/2 (cap_style=2 = flat ends).
+    # This reconstructs the concrete bead footprint for each wall face.
+    # Overlapping beads merge into continuous wall regions.
     try:
-        merged = unary_union(polys)
+        bead_union = unary_union([
+            s.buffer(nozzle_width / 2, cap_style=2, join_style=2)
+            for s in shapely_segs
+        ])
     except Exception:
-        merged = polys[0] if polys else None
+        # Fallback: nearest-neighbour on raw segments
+        return _nn_chain([(
+            (float(s.coords[0][0]), float(s.coords[0][1])),
+            (float(s.coords[1][0]), float(s.coords[1][1])),
+        ) for s in shapely_segs])
 
-    if merged is None or merged.is_empty:
-        return []
-
-    poly_list: List[Polygon] = (
-        [g for g in merged.geoms if g.geom_type == "Polygon"]
-        if hasattr(merged, "geoms")
-        else [merged] if merged.geom_type == "Polygon"
-        else []
+    # Extract individual printable regions
+    regions = (
+        list(bead_union.geoms)
+        if hasattr(bead_union, 'geoms')
+        else [bead_union]
     )
 
-    # Filter tiny noise polygons (< 4× nozzle area)
-    min_area = (nozzle_width * 2) ** 2
-    poly_list = [p for p in poly_list if p.area > min_area]
+    # Filter noise: region must be large enough to be a real wall section
+    # Minimum area = circle of diameter nozzle_width
+    min_area = np.pi * (nozzle_width / 2) ** 2
+    regions  = [r for r in regions if r.geom_type == 'Polygon' and r.area > min_area]
 
-    if not poly_list:
+    if not regions:
+        return _nn_chain([(
+            (float(s.coords[0][0]), float(s.coords[0][1])),
+            (float(s.coords[1][0]), float(s.coords[1][1])),
+        ) for s in shapely_segs])
+
+    # Sort largest first — outer wall prints before inner details
+    regions.sort(key=lambda r: r.area, reverse=True)
+
+    # Walk each region's exterior (and interiors for thick walls)
+    # to produce ordered print segments.
+    raw_segments: List[Segment] = []
+    for region in regions:
+        raw_segments.extend(_walk_ring(region.exterior.coords))
+        for interior in region.interiors:
+            raw_segments.extend(_walk_ring(interior.coords))
+
+    if not raw_segments:
         return []
 
-    # Step 5: inward offset by nozzle_width/2 → print centreline
-    # Use join_style=2 (flat) to avoid artefacts at corners
-    offset_polys: List[Polygon] = []
-    for poly in poly_list:
-        try:
-            shrunk = poly.buffer(-nozzle_width / 2, join_style=2)
-            if shrunk.is_empty:
-                # Wall is thinner than nozzle — use original perimeter
-                shrunk = poly
-            if shrunk.geom_type == "Polygon":
-                offset_polys.append(shrunk)
-            elif hasattr(shrunk, "geoms"):
-                offset_polys.extend(g for g in shrunk.geoms if g.geom_type == "Polygon")
-        except Exception:
-            offset_polys.append(poly)
+    # Nearest-neighbour chain across regions for continuous travel path
+    return _nn_chain(raw_segments)
 
-    if not offset_polys:
+
+def _walk_ring(coords) -> List[Segment]:
+    """Convert a ring's coordinate sequence into (p0, p1) segments."""
+    pts = list(coords)
+    out = []
+    for j in range(len(pts) - 1):
+        p0 = (float(pts[j][0]),   float(pts[j][1]))
+        p1 = (float(pts[j+1][0]), float(pts[j+1][1]))
+        if _seg_len(p0, p1) > 1e-9:
+            out.append((p0, p1))
+    return out
+
+
+def _nn_chain(segs: List[Segment]) -> List[Segment]:
+    """
+    Nearest-neighbour segment ordering.
+    Greedy: always go to the closest unvisited segment start or end.
+    O(n²) but n < 500 per layer — fast enough.
+    """
+    if not segs:
         return []
+    remaining = list(segs)
+    ordered   = [remaining.pop(0)]
+    cur       = ordered[0][1]
 
-    # Step 6: walk each polygon's exterior (and interiors for thick walls)
-    # producing ordered (p0, p1) segments.
-    # Coordinate jumps > nozzle_width between consecutive coords = gap
-    # (window/door opening). We leave those jumps in place — main.py
-    # serialiser detects gap > GAP_THRESHOLD_M and inserts {"gap": true}.
-    segments: Layer = []
+    while remaining:
+        best_i, best_d, best_flip = 0, float('inf'), False
+        for i, s in enumerate(remaining):
+            d_fwd = _dist(cur, s[0])
+            d_rev = _dist(cur, s[1])
+            if d_fwd < best_d:
+                best_d, best_i, best_flip = d_fwd, i, False
+            if d_rev < best_d:
+                best_d, best_i, best_flip = d_rev, i, True
 
-    def walk_ring(coords) -> List[Segment]:
-        pts = list(coords)
-        out = []
-        for j in range(len(pts) - 1):
-            p0 = (float(pts[j][0]),   float(pts[j][1]))
-            p1 = (float(pts[j+1][0]), float(pts[j+1][1]))
-            # Only skip true zero-length duplicates
-            if _seg_len(p0, p1) > 1e-9:
-                out.append((p0, p1))
-        return out
+        seg = remaining.pop(best_i)
+        if best_flip:
+            seg = (seg[1], seg[0])
+        ordered.append(seg)
+        cur = seg[1]
 
-    # Sort polygons largest-first so outer wall prints before inner passes
-    offset_polys.sort(key=lambda p: p.area, reverse=True)
+    return ordered
 
-    for poly in offset_polys:
-        segments.extend(walk_ring(poly.exterior.coords))
-        for interior in poly.interiors:
-            segments.extend(walk_ring(interior.coords))
 
-    return segments
+def _dist(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    return float(np.hypot(b[0] - a[0], b[1] - a[1]))
 
 
 def _seg_len(p0: Tuple[float, float], p1: Tuple[float, float]) -> float:
