@@ -95,8 +95,7 @@ function CameraView({
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const timerRef   = useRef<number | null>(null);
 
-  const lockedX    = useRef<number | null>(null); // 0–1 normalised X position of locked line
-  const tiltAngle  = useRef<number>(0);
+  const lockedX   = useRef<number | null>(null);
 
   const [streaming, setStreaming] = useState(false);
   const [error,     setError]     = useState('');
@@ -109,125 +108,49 @@ function CameraView({
 
   const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
 
-  // Device orientation → tilt
-  useEffect(() => {
-    const handler = (e: DeviceOrientationEvent) => {
-      const g = e.gamma ?? 0;
-      const b = e.beta  ?? 0;
-      tiltAngle.current = Math.abs(g) < Math.abs(b) ? g : (b - 90);
-    };
-    window.addEventListener('deviceorientation', handler);
-    return () => window.removeEventListener('deviceorientation', handler);
-  }, []);
-
-  // Detect dominant object via Sobel edge energy grid
-  const detectDominantObject = (grey: Float32Array, w: number, h: number) => {
-    const edges = new Float32Array(w * h);
-    let maxE = 0;
-    for (let y = 1; y < h-1; y++) {
-      for (let x = 1; x < w-1; x++) {
-        const i = y*w+x;
-        const gx = Math.abs(-grey[(y-1)*w+(x-1)]+grey[(y-1)*w+(x+1)]-2*grey[y*w+(x-1)]+2*grey[y*w+(x+1)]-grey[(y+1)*w+(x-1)]+grey[(y+1)*w+(x+1)]);
-        const gy = Math.abs(-grey[(y-1)*w+(x-1)]-2*grey[(y-1)*w+x]-grey[(y-1)*w+(x+1)]+grey[(y+1)*w+(x-1)]+2*grey[(y+1)*w+x]+grey[(y+1)*w+(x+1)]);
-        edges[i] = gx + gy;
-        if (edges[i] > maxE) maxE = edges[i];
-      }
-    }
-    const gridX = 4, gridY = 4;
-    const cellW = Math.floor(w/gridX), cellH = Math.floor(h/gridY);
-    let bestCell = 0, bestEnergy = 0;
-    const threshold = maxE * 0.3;
-    for (let gy = 0; gy < gridY; gy++)
-      for (let gx2 = 0; gx2 < gridX; gx2++) {
-        let energy = 0;
-        for (let py = gy*cellH; py < (gy+1)*cellH; py++)
-          for (let px = gx2*cellW; px < (gx2+1)*cellW; px++)
-            if (edges[py*w+px] > threshold) energy++;
-        if (energy > bestEnergy) { bestEnergy = energy; bestCell = gy*gridX+gx2; }
-      }
-    if (bestEnergy === 0) return null;
-    const bx = (bestCell%gridX)*cellW, by = Math.floor(bestCell/gridX)*cellH;
-    const padX = cellW*0.5, padY = cellH*0.5;
-    return {
-      x: Math.max(0, bx-padX), y: Math.max(0, by-padY),
-      w: Math.min(w-(bx-padX), cellW*2+padX), h: Math.min(h-(by-padY), cellH*2+padY),
-    };
-  };
-
-  // Analyse layer straightness within box
-  const analyseBoxStraightness = (grey: Float32Array, w: number, box: {x:number;y:number;w:number;h:number}) => {
-    const xS = Math.floor(box.x), xE = Math.floor(box.x+box.w);
-    const yS = Math.floor(box.y), yE = Math.floor(box.y+box.h);
-    const edgeRows: number[] = [];
-    for (let y = yS+1; y < yE-1; y++) {
-      let sum = 0;
-      for (let x = xS; x < xE; x++)
-        sum += Math.abs(-grey[(y-1)*w+x-1]-2*grey[(y-1)*w+x]-grey[(y-1)*w+x+1]+grey[(y+1)*w+x-1]+2*grey[(y+1)*w+x]+grey[(y+1)*w+x+1]);
-      if (sum/(xE-xS) > 0.06) edgeRows.push(y);
-    }
-    const clusters: number[][] = [];
-    let cur: number[] = [];
-    for (const r of edgeRows) {
-      if (cur.length===0 || r-cur[cur.length-1]<8) cur.push(r);
-      else { if (cur.length>1) clusters.push(cur); cur=[r]; }
-    }
-    if (cur.length>1) clusters.push(cur);
-    if (clusters.length<2) return { straight: true, score: 100 };
-    const centres = clusters.map(c=>c.reduce((a,b)=>a+b,0)/c.length);
-    const gaps = centres.slice(1).map((c,i)=>c-centres[i]);
-    const avgGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
-    const std = Math.sqrt(gaps.reduce((a,b)=>a+Math.pow(b-avgGap,2),0)/gaps.length);
-    const score = Math.round(Math.max(0, 100-std/Math.max(avgGap,1)*200));
-    return { straight: score>70, score };
-  };
-
   const analyseFrame = () => {
     const video   = videoRef.current;
     const canvas  = canvasRef.current;
     const overlay = overlayRef.current;
     if (!video || !canvas || !overlay || video.readyState < 2) return;
 
+    const ow = overlay.offsetWidth;
+    const oh = overlay.offsetHeight;
+    overlay.width = ow; overlay.height = oh;
+    const octx = overlay.getContext('2d')!;
+    octx.clearRect(0, 0, ow, oh);
+
+    // Not locked — show tap hint only
+    if (lockedX.current === null) {
+      const hint = 'Tap the edge you want to measure';
+      octx.font  = '12px sans-serif';
+      const hw   = octx.measureText(hint).width + 20;
+      octx.fillStyle = 'rgba(0,0,0,0.55)';
+      octx.beginPath(); octx.roundRect(ow/2-hw/2, oh/2-14, hw, 26, 6); octx.fill();
+      octx.fillStyle = 'rgba(255,255,255,0.9)';
+      octx.fillText(hint, ow/2-hw/2+10, oh/2+3);
+      return;
+    }
+
+    // Capture frame
     const vw = video.videoWidth  || 640;
     const vh = video.videoHeight || 360;
     canvas.width = vw; canvas.height = vh;
-
     const ctx = canvas.getContext('2d')!;
     ctx.drawImage(video, 0, 0, vw, vh);
     const { data } = ctx.getImageData(0, 0, vw, vh);
 
-    // Greyscale
     const grey = new Float32Array(vw * vh);
-    for (let i = 0; i < vw * vh; i++)
+    for (let i = 0; i < vw*vh; i++)
       grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
 
-    // ── Auto-detect dominant vertical edge column ─────────────────────────
-    const colEnergy = new Float32Array(vw);
-    for (let x = 1; x < vw-1; x++) {
-      let sum = 0;
-      for (let y = 1; y < vh-1; y++) {
-        sum += Math.abs(
-          -grey[(y-1)*vw+(x-1)] + grey[(y-1)*vw+(x+1)]
-          -2*grey[y*vw+(x-1)]   + 2*grey[y*vw+(x+1)]
-          -grey[(y+1)*vw+(x-1)] + grey[(y+1)*vw+(x+1)]
-        );
-      }
-      colEnergy[x] = sum;
-    }
-    let bestCol = Math.floor(vw / 2), bestE = 0;
-    for (let x = 1; x < vw-1; x++)
-      if (colEnergy[x] > bestE) { bestE = colEnergy[x]; bestCol = x; }
-
-    // Use locked X if user tapped, else auto
-    const activeCol = lockedX.current !== null
-      ? Math.round(lockedX.current * vw)
-      : bestCol;
-
-    // ── CV angle: linear regression on edge points in strip ───────────────
-    const stripW = Math.max(8, Math.floor(vw * 0.04));
+    // Narrow strip around tapped X only
+    const activeCol = Math.round(lockedX.current * vw);
+    const stripW    = Math.max(12, Math.floor(vw * 0.05));
     const x0 = Math.max(0, activeCol - stripW);
     const x1 = Math.min(vw-1, activeCol + stripW);
-    const pts: {x:number; y:number}[] = [];
 
+    const pts: {x:number; y:number}[] = [];
     for (let y = 1; y < vh-1; y++) {
       let maxGx = 0, maxX = -1;
       for (let x = x0; x <= x1; x++) {
@@ -238,109 +161,90 @@ function CameraView({
         );
         if (gx > maxGx) { maxGx = gx; maxX = x; }
       }
-      if (maxGx > 0.08 && maxX >= 0) pts.push({ x: maxX, y });
+      if (maxGx > 0.06 && maxX >= 0) pts.push({ x: maxX, y });
     }
 
-    // Linear regression: x = a*y + b → angle from vertical = atan(a)
-    let cvAngle = 0;
+    // Linear regression → tilt from vertical
+    let tilt = 0;
     if (pts.length > 20) {
       const n     = pts.length;
-      const sumY  = pts.reduce((s,p) => s+p.y, 0);
-      const sumX  = pts.reduce((s,p) => s+p.x, 0);
-      const sumYY = pts.reduce((s,p) => s+p.y*p.y, 0);
-      const sumXY = pts.reduce((s,p) => s+p.x*p.y, 0);
+      const sumY  = pts.reduce((s,p)=>s+p.y,0);
+      const sumX  = pts.reduce((s,p)=>s+p.x,0);
+      const sumYY = pts.reduce((s,p)=>s+p.y*p.y,0);
+      const sumXY = pts.reduce((s,p)=>s+p.x*p.y,0);
       const denom = n*sumYY - sumY*sumY;
       if (Math.abs(denom) > 1e-6)
-        cvAngle = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
+        tilt = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
     }
 
-    // Blend with gyroscope on mobile; CV-only on desktop
-    const gyro   = tiltAngle.current;
-    const hasGyro = Math.abs(gyro) > 0.5;
-    const tilt    = hasGyro ? cvAngle * 0.5 + gyro * 0.5 : cvAngle;
+    // Blend with gyroscope if available
+    const gyro      = tiltAngle.current;
+    const hasGyro   = Math.abs(gyro) > 0.5;
+    const finalTilt = hasGyro ? tilt*0.5 + gyro*0.5 : tilt;
 
-    const absTilt  = Math.abs(tilt);
+    const absTilt  = Math.abs(finalTilt);
     const isGreen  = absTilt <= 10;
     const isYellow = absTilt > 10 && absTilt <= 15;
     const lineColor = isGreen
       ? 'rgba(34,197,94,0.95)'
       : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
 
-    setLiveAngle(tilt);
-    setResult({ straight: isGreen, angle: tilt });
+    setLiveAngle(finalTilt);
+    setResult({ straight: isGreen, angle: finalTilt });
 
-    // ── Draw overlay ──────────────────────────────────────────────────────
-    const ow = overlay.offsetWidth;
-    const oh = overlay.offsetHeight;
-    overlay.width = ow; overlay.height = oh;
-    const octx = overlay.getContext('2d')!;
-    octx.clearRect(0, 0, ow, oh);
-
-    const cx  = (activeCol / vw) * ow;
-    const cy  = oh / 2;
-    const rad = (tilt * Math.PI) / 180;
+    const cx   = (activeCol / vw) * ow;
+    const cy   = oh / 2;
+    const rad  = (finalTilt * Math.PI) / 180;
     const half = oh * 0.45;
 
     // White dashed = true vertical
     octx.strokeStyle = 'rgba(255,255,255,0.3)';
-    octx.lineWidth = 1.5;
-    octx.setLineDash([6, 5]);
-    octx.beginPath(); octx.moveTo(cx, oh*0.05); octx.lineTo(cx, oh*0.95); octx.stroke();
+    octx.lineWidth = 1.5; octx.setLineDash([6,5]);
+    octx.beginPath(); octx.moveTo(cx,oh*0.05); octx.lineTo(cx,oh*0.95); octx.stroke();
     octx.setLineDash([]);
 
-    // Coloured line = object angle
-    const lx1 = cx - Math.sin(rad)*half, ly1 = cy - Math.cos(rad)*half;
-    const lx2 = cx + Math.sin(rad)*half, ly2 = cy + Math.cos(rad)*half;
+    // Coloured tilted line
+    const lx1 = cx-Math.sin(rad)*half, ly1 = cy-Math.cos(rad)*half;
+    const lx2 = cx+Math.sin(rad)*half, ly2 = cy+Math.cos(rad)*half;
     octx.strokeStyle = lineColor; octx.lineWidth = 3; octx.lineCap = 'round';
-    octx.beginPath(); octx.moveTo(lx1, ly1); octx.lineTo(lx2, ly2); octx.stroke();
+    octx.beginPath(); octx.moveTo(lx1,ly1); octx.lineTo(lx2,ly2); octx.stroke();
     octx.fillStyle = lineColor;
-    octx.beginPath(); octx.arc(lx1, ly1, 4, 0, Math.PI*2); octx.fill();
-    octx.beginPath(); octx.arc(lx2, ly2, 4, 0, Math.PI*2); octx.fill();
+    octx.beginPath(); octx.arc(lx1,ly1,4,0,Math.PI*2); octx.fill();
+    octx.beginPath(); octx.arc(lx2,ly2,4,0,Math.PI*2); octx.fill();
 
     // Angle arc
     if (absTilt > 0.5) {
       octx.strokeStyle = lineColor; octx.lineWidth = 1.5;
-      octx.beginPath();
-      octx.arc(cx, cy, 36, -Math.PI/2, -Math.PI/2+rad, tilt<0);
-      octx.stroke();
+      octx.beginPath(); octx.arc(cx,cy,36,-Math.PI/2,-Math.PI/2+rad,finalTilt<0); octx.stroke();
     }
 
     // Angle badge
-    const label = `${tilt>=0?'+':''}${tilt.toFixed(1)}°`;
+    const label = `${finalTilt>=0?'+':''}${finalTilt.toFixed(1)}°`;
     octx.font = 'bold 12px monospace';
     const tw  = octx.measureText(label).width + 14;
-    const bx2 = cx + Math.sin(rad)*55 + 12;
+    const bx2 = cx + Math.sin(rad)*55 + 14;
     const by2 = cy - Math.cos(rad)*55;
     octx.fillStyle = lineColor;
-    octx.beginPath(); octx.roundRect(bx2-tw/2, by2-11, tw, 20, 4); octx.fill();
-    octx.fillStyle = 'white';
-    octx.fillText(label, bx2-tw/2+7, by2+3);
+    octx.beginPath(); octx.roundRect(bx2-tw/2,by2-11,tw,20,4); octx.fill();
+    octx.fillStyle = 'white'; octx.fillText(label, bx2-tw/2+7, by2+3);
 
-    // AUTO / LOCKED badge
-    octx.font = 'bold 8px monospace';
-    const tag  = lockedX.current !== null ? 'LOCKED' : 'AUTO';
-    const tagW = octx.measureText(tag).width + 12;
-    octx.fillStyle = lockedX.current !== null ? 'rgba(59,130,246,0.8)' : 'rgba(255,255,255,0.2)';
-    octx.beginPath(); octx.roundRect(8, 8, tagW, 16, 3); octx.fill();
-    octx.fillStyle = 'white'; octx.fillText(tag, 12, 19);
+    // Tap to reset hint
+    octx.fillStyle = 'rgba(255,255,255,0.2)'; octx.font = '8px monospace';
+    octx.fillText('TAP TO RESET', ow-82, oh-8);
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!showPlumb || !streaming) return;
     const overlay = overlayRef.current;
     if (!overlay) return;
-    const rect = overlay.getBoundingClientRect();
+    const rect   = overlay.getBoundingClientRect();
     const clickX = (e.clientX - rect.left) / rect.width;
-    // Toggle lock — tap anywhere to lock to that X position, tap again to unlock
     if (lockedX.current !== null) {
-      lockedX.current = null;
-      setIsLocked(false);
+      lockedX.current = null; setIsLocked(false);
     } else {
-      lockedX.current = clickX;
-      setIsLocked(true);
+      lockedX.current = clickX; setIsLocked(true);
     }
   };
-
   useEffect(() => {
     if (streaming && showPlumb) {
       const loop = () => { analyseFrame(); timerRef.current=window.setTimeout(loop,125) as unknown as number; };
@@ -385,13 +289,11 @@ function CameraView({
             </button>
           )}
           {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">● LIVE</span>}
-          {result && showPlumb && (
+          {result && showPlumb && isLocked && (
             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg ${
-              isLocked
-                ? result.straight ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-                : 'bg-amber-100 text-amber-700'
+              result.straight ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
             }`}>
-              {isLocked ? (result.straight?'✓ Plumb':'✗ Off plumb') : '⊙ Detecting'}
+              {result.straight ? '✓ Aligned' : '✗ Off'}
             </span>
           )}
         </div>
@@ -403,8 +305,8 @@ function CameraView({
             </button>
           ))}
           <button onClick={()=>{ setShowPlumb(v=>!v); lockedX.current=null; setIsLocked(false); }}
-            className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-blue-500 text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
-            ⊕ Plumb
+            className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
+            Alignment
           </button>
         </div>
       </div>
