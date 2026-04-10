@@ -102,6 +102,7 @@ function CameraView({
   const [editing,   setEditing]   = useState(false);
   const [label,     setLabel]     = useState(camera.label);
   const [showPlumb, setShowPlumb] = useState(false);
+  const [alignMode, setAlignMode] = useState<'vertical'|'horizontal'>('vertical');
   const [isLocked,  setIsLocked]  = useState(false);
   const [liveAngle, setLiveAngle] = useState(0);
   const [result,    setResult]    = useState<{straight:boolean; angle:number} | null>(null);
@@ -179,28 +180,37 @@ function CameraView({
         tilt = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
     }
 
-    const absTilt  = Math.abs(tilt);
+    // In horizontal mode, deviation is measured from horizontal (90° - vertical angle)
+    const isHorizontal = alignMode === 'horizontal';
+    const deviation = isHorizontal ? 90 - Math.abs(tilt) : tilt;
+
+    const absTilt  = Math.abs(deviation);
     const isGreen  = absTilt <= 10;
     const isYellow = absTilt > 10 && absTilt <= 15;
     const lineColor = isGreen
       ? 'rgba(34,197,94,0.95)'
       : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
 
-    setLiveAngle(tilt);
-    setResult({ straight: isGreen, angle: tilt });
+    setLiveAngle(deviation);
+    setResult({ straight: isGreen, angle: deviation });
 
     const cx   = (activeCol / vw) * ow;
     const cy   = oh / 2;
-    const rad  = (tilt * Math.PI) / 180;
+    // Vertical mode: line is near-vertical. Horizontal mode: line is near-horizontal
+    const baseAngle = isHorizontal ? 90 : 0;
+    const rad  = ((tilt + baseAngle) * Math.PI) / 180;
     const half = oh * 0.45;
 
-    // White dashed = true vertical
+    // Reference line — white dashed (true vertical or horizontal)
+    const refRad = (baseAngle * Math.PI) / 180;
     octx.strokeStyle = 'rgba(255,255,255,0.3)';
     octx.lineWidth = 1.5; octx.setLineDash([6,5]);
-    octx.beginPath(); octx.moveTo(cx, oh*0.05); octx.lineTo(cx, oh*0.95); octx.stroke();
+    const rx1 = cx - Math.sin(refRad)*half, ry1 = cy - Math.cos(refRad)*half;
+    const rx2 = cx + Math.sin(refRad)*half, ry2 = cy + Math.cos(refRad)*half;
+    octx.beginPath(); octx.moveTo(rx1,ry1); octx.lineTo(rx2,ry2); octx.stroke();
     octx.setLineDash([]);
 
-    // Coloured tilted line
+    // Coloured measured line
     const lx1 = cx-Math.sin(rad)*half, ly1 = cy-Math.cos(rad)*half;
     const lx2 = cx+Math.sin(rad)*half, ly2 = cy+Math.cos(rad)*half;
     octx.strokeStyle = lineColor; octx.lineWidth = 3; octx.lineCap = 'round';
@@ -212,11 +222,12 @@ function CameraView({
     // Angle arc
     if (absTilt > 0.5) {
       octx.strokeStyle = lineColor; octx.lineWidth = 1.5;
-      octx.beginPath(); octx.arc(cx,cy,36,-Math.PI/2,-Math.PI/2+rad,tilt<0); octx.stroke();
+      const arcStart = -Math.PI/2 + refRad;
+      octx.beginPath(); octx.arc(cx,cy,36,arcStart,arcStart+rad-refRad,deviation<0); octx.stroke();
     }
 
-    // Angle badge
-    const label = `${tilt>=0?'+':''}${tilt.toFixed(1)}°`;
+    // Clean angle badge — just the number
+    const label = `${deviation>=0?'+':''}${deviation.toFixed(1)}°`;
     octx.font = 'bold 13px monospace';
     const tw  = octx.measureText(label).width + 14;
     const bx2 = cx + Math.sin(rad)*55 + 14;
@@ -225,8 +236,16 @@ function CameraView({
     octx.beginPath(); octx.roundRect(bx2-tw/2,by2-11,tw,20,4); octx.fill();
     octx.fillStyle = 'white'; octx.fillText(label, bx2-tw/2+7, by2+4);
 
-    // Tap to reset hint
-    octx.fillStyle = 'rgba(255,255,255,0.25)'; octx.font = '9px monospace';
+    // Mode indicator — bottom left
+    octx.fillStyle = 'rgba(0,0,0,0.45)';
+    const modeW = octx.measureText(isHorizontal?'HORIZONTAL':'VERTICAL').width + 12;
+    octx.font = 'bold 8px monospace';
+    octx.beginPath(); octx.roundRect(8, oh-24, modeW, 16, 3); octx.fill();
+    octx.fillStyle = 'rgba(255,255,255,0.7)';
+    octx.fillText(isHorizontal?'HORIZONTAL':'VERTICAL', 12, oh-12);
+
+    // Tap to reset — bottom right
+    octx.fillStyle = 'rgba(255,255,255,0.2)'; octx.font = '8px monospace';
     octx.fillText('TAP TO RESET', ow-86, oh-10);
   };
 
@@ -250,7 +269,7 @@ function CameraView({
       if (timerRef.current) clearTimeout(timerRef.current);
     }
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [streaming, showPlumb]);
+  }, [streaming, showPlumb, alignMode]);
 
   const startCamera = async () => {
     setError('');
@@ -305,6 +324,18 @@ function CameraView({
             className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
             Alignment
           </button>
+          {showPlumb && (
+            <>
+              <button onClick={()=>setAlignMode('vertical')}
+                className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode==='vertical'?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
+                V
+              </button>
+              <button onClick={()=>setAlignMode('horizontal')}
+                className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode==='horizontal'?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
+                H
+              </button>
+            </>
+          )}
         </div>
       </div>
 
