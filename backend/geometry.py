@@ -224,11 +224,11 @@ def parse_and_slice(
         n = len(segments)
         max_segs = max(max_segs, n)
 
-        perim = sum(_seg_len(s[0], s[1]) for s in segments) if segments else 0.0
+        perim   = sum(_seg_len(s[0], s[1]) for s in segments) if segments else 0.0
         all_pts = [p for s in segments for p in s]
         if all_pts:
-            xs = [p[0] for p in all_pts]
-            ys = [p[1] for p in all_pts]
+            xs   = [p[0] for p in all_pts]
+            ys   = [p[1] for p in all_pts]
             area = (max(xs) - min(xs)) * (max(ys) - min(ys))
         else:
             area = 0.0
@@ -307,9 +307,19 @@ def _slice_layer(
     # Buffer each segment by nozzle_width/2 (cap_style=2 = flat ends).
     # This reconstructs the concrete bead footprint for each wall face.
     # Overlapping beads merge into continuous wall regions.
+    # Fast path: if many segments, skip expensive buffer+union and use raw segments
+    # This trades some bead-merging quality for speed on complex models
+    FAST_PATH_THRESHOLD = 300
+    if len(shapely_segs) > FAST_PATH_THRESHOLD:
+        return [
+            ((float(s.coords[0][0]), float(s.coords[0][1])),
+             (float(s.coords[1][0]), float(s.coords[1][1])))
+            for s in shapely_segs
+        ]
+
     try:
         bead_union = unary_union([
-            s.buffer(nozzle_width / 2, cap_style=2, join_style=2)
+            s.buffer(nozzle_width / 2, cap_style=2, join_style=2, resolution=2)
             for s in shapely_segs
         ])
     except Exception:
@@ -369,31 +379,54 @@ def _walk_ring(coords) -> List[Segment]:
 
 def _nn_chain(segs: List[Segment]) -> List[Segment]:
     """
-    Nearest-neighbour segment ordering.
-    Greedy: always go to the closest unvisited segment start or end.
-    O(n²) but n < 500 per layer — fast enough.
+    Fast segment ordering using a dictionary lookup instead of O(n²) search.
+    Builds an adjacency map and walks connected chains.
+    Falls back to original order if no clear chain found.
     """
     if not segs:
         return []
-    remaining = list(segs)
-    ordered   = [remaining.pop(0)]
-    cur       = ordered[0][1]
+    if len(segs) <= 2:
+        return segs
 
-    while remaining:
-        best_i, best_d, best_flip = 0, float('inf'), False
-        for i, s in enumerate(remaining):
-            d_fwd = _dist(cur, s[0])
-            d_rev = _dist(cur, s[1])
-            if d_fwd < best_d:
-                best_d, best_i, best_flip = d_fwd, i, False
-            if d_rev < best_d:
-                best_d, best_i, best_flip = d_rev, i, True
+    # Round endpoints to avoid float precision issues
+    def rnd(p): return (round(p[0], 6), round(p[1], 6))
 
-        seg = remaining.pop(best_i)
-        if best_flip:
-            seg = (seg[1], seg[0])
-        ordered.append(seg)
-        cur = seg[1]
+    # Build endpoint → segment index map
+    from collections import defaultdict
+    start_map = defaultdict(list)  # start point → seg indices
+    end_map   = defaultdict(list)  # end point   → seg indices
+
+    rounded = [(rnd(s[0]), rnd(s[1])) for s in segs]
+    for i, (p0, p1) in enumerate(rounded):
+        start_map[p0].append(i)
+        end_map[p1].append(i)
+
+    used    = [False] * len(segs)
+    ordered = []
+
+    for start_i in range(len(segs)):
+        if used[start_i]:
+            continue
+        # Walk chain from this segment
+        chain = [segs[start_i]]
+        used[start_i] = True
+        cur_end = rounded[start_i][1]
+
+        while True:
+            candidates = start_map.get(cur_end, [])
+            next_i = next((i for i in candidates if not used[i]), None)
+            if next_i is None:
+                break
+            used[next_i] = True
+            chain.append(segs[next_i])
+            cur_end = rounded[next_i][1]
+
+        ordered.extend(chain)
+
+    # Add any remaining unvisited segments
+    for i, seg in enumerate(segs):
+        if not used[i]:
+            ordered.append(seg)
 
     return ordered
 

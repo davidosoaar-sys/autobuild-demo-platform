@@ -84,8 +84,9 @@ async def scan_endpoint(
       - Extrusion gaps (windows, doors, voids)
     """
     fname = file.filename or ""
-    if not fname.lower().endswith((".stl", ".obj")):
-        raise HTTPException(400, "Only STL and OBJ files supported")
+    allowed_exts = (".stl", ".obj", ".stp", ".step", ".dxf", ".ifc")
+    if not fname.lower().endswith(allowed_exts):
+        raise HTTPException(400, f"Unsupported file type. Supported: {', '.join(allowed_exts)}")
 
     try:
         file_bytes = await file.read()
@@ -220,10 +221,15 @@ async def optimize_endpoint(
     print_scale:       float         = Form(1.0),
 ):
     fname = file.filename or ""
-    if not fname.lower().endswith((".stl", ".obj")):
-        raise HTTPException(400, "Only STL and OBJ files supported")
+    allowed_exts = (".stl", ".obj", ".stp", ".step", ".dxf", ".ifc")
+    if not fname.lower().endswith(allowed_exts):
+        raise HTTPException(400, f"Unsupported file type. Supported: {', '.join(allowed_exts)}")
     if not os.path.exists(MODEL_PATH):
         raise HTTPException(503, "RL model not found — run python train.py first")
+
+    # Cap layers to prevent timeout on large models
+    if max_layers is None:
+        max_layers = 200
 
     # Compat: print_speed form field → base_speed_mm_s
     if print_speed is not None and base_speed_mm_s == 60.0:
