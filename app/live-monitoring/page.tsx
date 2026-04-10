@@ -95,8 +95,7 @@ function CameraView({
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const timerRef   = useRef<number | null>(null);
 
-  const lockedBox  = useRef<{x:number;y:number;w:number;h:number} | null>(null);
-  const autoBox    = useRef<{x:number;y:number;w:number;h:number} | null>(null);
+  const lockedX    = useRef<number | null>(null); // 0–1 normalised X position of locked line
   const tiltAngle  = useRef<number>(0);
 
   const [streaming, setStreaming] = useState(false);
@@ -184,130 +183,114 @@ function CameraView({
 
   const analyseFrame = () => {
     const video   = videoRef.current;
-    const canvas  = canvasRef.current;
     const overlay = overlayRef.current;
-    if (!video || !canvas || !overlay || video.readyState < 2) return;
-
-    const vw = video.videoWidth || 640;
-    const vh = video.videoHeight || 360;
-    canvas.width = vw; canvas.height = vh;
-
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(video, 0, 0, vw, vh);
-    const { data } = ctx.getImageData(0, 0, vw, vh);
-
-    const grey = new Float32Array(vw * vh);
-    for (let i = 0; i < vw*vh; i++)
-      grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
-
-    const activeBox = lockedBox.current ?? detectDominantObject(grey, vw, vh);
-    autoBox.current = lockedBox.current ? null : activeBox;
-
-    let cvResult: {straight:boolean; score:number} | null = null;
-    if (activeBox) cvResult = analyseBoxStraightness(grey, vw, activeBox);
+    if (!video || !overlay || video.readyState < 2) return;
 
     const tilt = tiltAngle.current;
-    const straight = (cvResult?.straight ?? true) && Math.abs(tilt) < 2.5;
-    const angleStr = `${tilt>=0?'+':''}${tilt.toFixed(1)}°`;
-
-    setResult({ straight, angle: tilt });
     setLiveAngle(tilt);
 
-    // ── Draw overlay ───────────────────────────────────────────────────────
+    const absTilt = Math.abs(tilt);
+    const isGreen  = absTilt <= 10;
+    const isYellow = absTilt > 10 && absTilt <= 15;
+    const lineColor = isGreen
+      ? 'rgba(34,197,94,0.95)'
+      : isYellow
+      ? 'rgba(251,191,36,0.95)'
+      : 'rgba(239,68,68,0.95)';
+
     const ow = overlay.offsetWidth;
     const oh = overlay.offsetHeight;
     overlay.width = ow; overlay.height = oh;
     const octx = overlay.getContext('2d')!;
     octx.clearRect(0, 0, ow, oh);
 
-    // Colour zones: 0–10° green, 11–15° yellow, 16°+ red
-    const absTilt = Math.abs(tilt);
-    const lineColor = absTilt <= 10
-      ? 'rgba(34,197,94,0.9)'
-      : absTilt <= 15
-      ? 'rgba(251,191,36,0.9)'
-      : 'rgba(239,68,68,0.9)';
+    const cx = lockedX.current !== null ? lockedX.current * ow : ow / 2;
+    const cy = oh / 2;
 
-    // ── Find dominant vertical edges in frame ─────────────────────────────
-    // Sum horizontal Sobel (Gx) per column → columns with most vertical edge energy
-    const colEnergy = new Float32Array(vw);
-    for (let x = 1; x < vw-1; x++) {
-      let sum = 0;
-      for (let y = 1; y < vh-1; y++) {
-        const gx = Math.abs(
-          -grey[(y-1)*vw+(x-1)] + grey[(y-1)*vw+(x+1)]
-          -2*grey[y*vw+(x-1)]   + 2*grey[y*vw+(x+1)]
-          -grey[(y+1)*vw+(x-1)] + grey[(y+1)*vw+(x+1)]
-        );
-        sum += gx;
-      }
-      colEnergy[x] = sum;
-    }
+    // ── Ideal vertical line (true 0°) — always white, thin, dashed ──────
+    octx.strokeStyle = 'rgba(255,255,255,0.35)';
+    octx.lineWidth   = 1.5;
+    octx.setLineDash([6, 5]);
+    octx.beginPath();
+    octx.moveTo(cx, oh * 0.05);
+    octx.lineTo(cx, oh * 0.95);
+    octx.stroke();
+    octx.setLineDash([]);
 
-    // Find top 2 column peaks (separated by at least 10% of width)
-    const minSep = Math.floor(vw * 0.10);
-    let peak1 = 0, peak2 = -1;
-    let energy1 = 0, energy2 = 0;
-    for (let x = 1; x < vw-1; x++) {
-      if (colEnergy[x] > energy1) { energy1 = colEnergy[x]; peak1 = x; }
-    }
-    for (let x = 1; x < vw-1; x++) {
-      if (Math.abs(x - peak1) > minSep && colEnergy[x] > energy2) {
-        energy2 = colEnergy[x]; peak2 = x;
-      }
-    }
+    // ── Object line — rotated by tilt angle around centre point ─────────
+    const rad    = (tilt * Math.PI) / 180;
+    const half   = oh * 0.45;
+    const x1     = cx - Math.sin(rad) * half;
+    const y1     = cy - Math.cos(rad) * half;
+    const x2     = cx + Math.sin(rad) * half;
+    const y2     = cy + Math.cos(rad) * half;
 
-    // Only draw second line if its energy is at least 50% of the first
-    const drawSecond = peak2 >= 0 && energy2 > energy1 * 0.5;
+    octx.strokeStyle = lineColor;
+    octx.lineWidth   = 3;
+    octx.lineCap     = 'round';
+    octx.beginPath();
+    octx.moveTo(x1, y1);
+    octx.lineTo(x2, y2);
+    octx.stroke();
 
-    // Draw lines — full height of frame
-    const drawVerticalLine = (xCol: number) => {
-      const sx = (xCol / vw) * ow;
-      octx.strokeStyle = lineColor;
-      octx.lineWidth   = 2.5;
-      octx.lineCap     = 'round';
-      octx.beginPath();
-      octx.moveTo(sx, oh * 0.05);
-      octx.lineTo(sx, oh * 0.95);
-      octx.stroke();
-      // Small dot at top and bottom
-      octx.fillStyle = lineColor;
-      octx.beginPath(); octx.arc(sx, oh*0.05, 3, 0, Math.PI*2); octx.fill();
-      octx.beginPath(); octx.arc(sx, oh*0.95, 3, 0, Math.PI*2); octx.fill();
-    };
-
-    drawVerticalLine(peak1);
-    if (drawSecond) drawVerticalLine(peak2);
-
-    // Angle readout — bottom centre, minimal
+    // Dots at each end
     octx.fillStyle = lineColor;
-    const angleStr2 = `${tilt>=0?'+':''}${tilt.toFixed(1)}°`;
-    const rw = octx.measureText(angleStr2).width + 16;
-    octx.beginPath(); octx.roundRect(ow/2-rw/2, oh-30, rw, 20, 4); octx.fill();
-    octx.fillStyle = 'white'; octx.font = 'bold 11px monospace';
-    octx.fillText(angleStr2, ow/2-rw/2+8, oh-16);
+    octx.beginPath(); octx.arc(x1, y1, 4, 0, Math.PI*2); octx.fill();
+    octx.beginPath(); octx.arc(x2, y2, 4, 0, Math.PI*2); octx.fill();
+
+    // ── Angle arc between the two lines (visual gap indicator) ───────────
+    if (absTilt > 0.5) {
+      const arcR = 40;
+      octx.strokeStyle = lineColor;
+      octx.lineWidth   = 1.5;
+      octx.beginPath();
+      octx.arc(cx, cy, arcR, -Math.PI/2, -Math.PI/2 + rad, tilt < 0);
+      octx.stroke();
+    }
+
+    // ── Angle readout — next to the line midpoint ────────────────────────
+    const label = `${tilt >= 0 ? '+' : ''}${tilt.toFixed(1)}°`;
+    const offX  = Math.sin(rad) * 50 + 12;
+    const offY  = -Math.cos(rad) * 50;
+    const lx    = cx + offX;
+    const ly    = cy + offY;
+
+    octx.font      = 'bold 13px monospace';
+    const tw       = octx.measureText(label).width + 14;
+    octx.fillStyle = lineColor;
+    octx.beginPath(); octx.roundRect(lx - tw/2, ly - 12, tw, 22, 4); octx.fill();
+    octx.fillStyle = 'white';
+    octx.fillText(label, lx - tw/2 + 7, ly + 4);
+
+    // ── Hint when not yet tapped ─────────────────────────────────────────
+    if (!isLocked && lockedX.current === null) {
+      octx.fillStyle = 'rgba(255,255,255,0.5)';
+      octx.font      = '11px sans-serif';
+      const hint     = 'Tap object to lock';
+      const hw       = octx.measureText(hint).width + 16;
+      octx.fillStyle = 'rgba(0,0,0,0.5)';
+      octx.beginPath(); octx.roundRect(ow/2 - hw/2, 12, hw, 22, 4); octx.fill();
+      octx.fillStyle = 'rgba(255,255,255,0.7)';
+      octx.fillText(hint, ow/2 - hw/2 + 8, 27);
+    }
+
+    setResult({ straight: isGreen, angle: tilt });
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!showPlumb || !streaming) return;
     const overlay = overlayRef.current;
-    const video   = videoRef.current;
-    if (!overlay || !video) return;
-    const rect   = overlay.getBoundingClientRect();
-    const clickX = (e.clientX-rect.left)/rect.width;
-    const clickY = (e.clientY-rect.top)/rect.height;
-    if (lockedBox.current) { lockedBox.current=null; setIsLocked(false); return; }
-    if (autoBox.current) {
-      const vw=video.videoWidth||640, vh=video.videoHeight||360;
-      const b=autoBox.current;
-      if (clickX>=b.x/vw-0.05&&clickX<=b.x/vw+b.w/vw+0.05&&clickY>=b.y/vh-0.05&&clickY<=b.y/vh+b.h/vh+0.05) {
-        lockedBox.current=autoBox.current; setIsLocked(true); return;
-      }
+    if (!overlay) return;
+    const rect = overlay.getBoundingClientRect();
+    const clickX = (e.clientX - rect.left) / rect.width;
+    // Toggle lock — tap anywhere to lock to that X position, tap again to unlock
+    if (lockedX.current !== null) {
+      lockedX.current = null;
+      setIsLocked(false);
+    } else {
+      lockedX.current = clickX;
+      setIsLocked(true);
     }
-    const vw=video.videoWidth||640, vh=video.videoHeight||360;
-    const bw=vw*0.35, bh=vh*0.45;
-    lockedBox.current={ x:Math.max(0,clickX*vw-bw/2), y:Math.max(0,clickY*vh-bh/2), w:Math.min(vw,bw), h:Math.min(vh,bh) };
-    setIsLocked(true);
   };
 
   useEffect(() => {
@@ -333,7 +316,7 @@ function CameraView({
   const stopCamera = () => {
     if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t=>t.stop());
     if (videoRef.current) videoRef.current.srcObject=null;
-    lockedBox.current=null; setIsLocked(false); setStreaming(false); setResult(null);
+    lockedX.current=null; setIsLocked(false); setStreaming(false); setResult(null);
   };
 
   const saveLabel = () => { onRename(camera.id, label); setEditing(false); };
@@ -371,7 +354,7 @@ function CameraView({
               {a}
             </button>
           ))}
-          <button onClick={()=>{ setShowPlumb(v=>!v); lockedBox.current=null; setIsLocked(false); }}
+          <button onClick={()=>{ setShowPlumb(v=>!v); lockedX.current=null; setIsLocked(false); }}
             className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-blue-500 text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
             ⊕ Plumb
           </button>
