@@ -454,6 +454,136 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
   );
 }
 
+// ── Printer Position Grid ─────────────────────────────────────────────────────
+function PrinterPositionGrid({ paused }: { paused: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const posRef    = useRef({ x: 0.1, y: 0.1 });
+  const pathRef   = useRef<{x:number;y:number}[]>([]);
+  const animRef   = useRef<number | null>(null);
+  const tRef      = useRef(0);
+
+  // Demo print path — rectangular layers spiraling inward
+  const DEMO_PATH = (() => {
+    const pts: {x:number;y:number}[] = [];
+    const layers = 3;
+    for (let l = 0; l < layers; l++) {
+      const m = 0.08 + l * 0.04;
+      pts.push({x:m,y:m},{x:1-m,y:m},{x:1-m,y:1-m},{x:m,y:1-m},{x:m,y:m});
+    }
+    return pts;
+  })();
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const draw = () => {
+      const w = canvas.offsetWidth;
+      const h = canvas.offsetHeight;
+      if (w === 0 || h === 0) { animRef.current = requestAnimationFrame(draw); return; }
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid
+      const cols = 12, rows = 8;
+      ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= cols; i++) {
+        ctx.beginPath(); ctx.moveTo(i/cols*w,0); ctx.lineTo(i/cols*w,h); ctx.stroke();
+      }
+      for (let i = 0; i <= rows; i++) {
+        ctx.beginPath(); ctx.moveTo(0,i/rows*h); ctx.lineTo(w,i/rows*h); ctx.stroke();
+      }
+
+      // Advance nozzle along demo path if not paused
+      if (!paused) {
+        tRef.current += 0.004;
+        const total  = DEMO_PATH.length - 1;
+        const seg    = Math.floor(tRef.current % total);
+        const frac   = (tRef.current % total) - seg;
+        const a      = DEMO_PATH[seg % DEMO_PATH.length];
+        const b      = DEMO_PATH[(seg + 1) % DEMO_PATH.length];
+        posRef.current = { x: a.x + (b.x-a.x)*frac, y: a.y + (b.y-a.y)*frac };
+        pathRef.current.push({ ...posRef.current });
+        if (pathRef.current.length > 400) pathRef.current.shift();
+      }
+
+      // Drawn path trace
+      if (pathRef.current.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(pathRef.current[0].x*w, pathRef.current[0].y*h);
+        for (let i = 1; i < pathRef.current.length; i++) {
+          ctx.lineTo(pathRef.current[i].x*w, pathRef.current[i].y*h);
+        }
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+
+      // Nozzle dot
+      const nx = posRef.current.x * w;
+      const ny = posRef.current.y * h;
+
+      // Glow
+      const grd = ctx.createRadialGradient(nx,ny,0,nx,ny,18);
+      grd.addColorStop(0, 'rgba(0,0,0,0.15)');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(nx,ny,18,0,Math.PI*2); ctx.fill();
+
+      // Dot
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(nx,ny,5,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(nx,ny,2.5,0,Math.PI*2); ctx.fill();
+
+      // Crosshair lines
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.lineWidth = 0.75;
+      ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(nx,0); ctx.lineTo(nx,h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,ny); ctx.lineTo(w,ny); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // XY label
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.font = 'bold 9px monospace';
+      const lbl = `X:${(posRef.current.x*100).toFixed(1)}% Y:${(posRef.current.y*100).toFixed(1)}%`;
+      ctx.fillText(lbl, nx+8, ny-6);
+
+      animRef.current = requestAnimationFrame(draw);
+    };
+
+    animRef.current = requestAnimationFrame(draw);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, [paused]);
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <div>
+          <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Nozzle Position</h3>
+          <p className="text-[9px] text-black/25 mt-0.5">Overhead view — live XY tracking</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-black animate-pulse"/>
+          <span className="text-[9px] font-mono text-black/40">DEMO</span>
+        </div>
+      </div>
+      <div className="p-3">
+        <canvas ref={canvasRef} className="w-full rounded-xl bg-gray-50" style={{height:160}}/>
+        <div className="flex justify-between mt-2 px-1">
+          <span className="text-[8px] text-black/25 font-mono">0,0</span>
+          <span className="text-[8px] text-black/25 font-mono">Print bed — overhead</span>
+          <span className="text-[8px] text-black/25 font-mono">max,max</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function LiveMonitoring() {
   const router = useRouter();
@@ -464,6 +594,7 @@ export default function LiveMonitoring() {
   const [activeTab,   setActiveTab]   = useState<Tab>('monitor');
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsed,     setElapsed]     = useState(0);
+  const [cameraSize,  setCameraSize]  = useState<'sm'|'md'|'lg'|'full'>('md');
   const [alertLog,    setAlertLog]    = useState<{time:string;msg:string;level:'info'|'warn'|'error'}[]>([]);
   const [controls,    setControls]    = useState<PrinterControl>({ printSpeed:60, extrusionRate:100, pumpPressure:4.2, paused:false });
   const [cameras,     setCameras]     = useState<Camera[]>([
@@ -568,9 +699,29 @@ export default function LiveMonitoring() {
             <motion.div key="monitor" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
               className="grid grid-cols-[1fr_320px] gap-6">
               <div className="space-y-4">
-                <div className={`grid gap-4 ${cameras.length===1?'grid-cols-1':cameras.length<=2?'grid-cols-2':cameras.length<=4?'grid-cols-2':'grid-cols-3'}`}>
+                {/* Camera size controls */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-black/40 font-semibold uppercase tracking-widest">Camera Size</span>
+                  {(['sm','md','lg','full'] as const).map(s=>(
+                    <button key={s} onClick={()=>setCameraSize(s)}
+                      className={`px-2.5 py-1 text-[10px] font-semibold rounded-lg transition-all ${cameraSize===s?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
+                      {s==='sm'?'Small':s==='md'?'Medium':s==='lg'?'Large':'Full'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className={`grid gap-4 ${
+                  cameraSize==='full' ? 'grid-cols-1' :
+                  cameraSize==='lg'   ? 'grid-cols-1' :
+                  cameras.length===1  ? 'grid-cols-1' :
+                  cameras.length<=2   ? 'grid-cols-2' :
+                  cameras.length<=4   ? 'grid-cols-2' : 'grid-cols-3'
+                }`}>
                   {cameras.map(cam=>(
-                    <div key={cam.id} className="relative group">
+                    <div key={cam.id} className={`relative group ${
+                      cameraSize==='sm'   ? 'max-w-xs' :
+                      cameraSize==='full' ? 'w-full'   : ''
+                    }`}>
                       <CameraView camera={cam} onAngleChange={updateAngle} onRename={renameCamera} onRemove={removeCamera}/>
                       <button onClick={()=>removeCamera(cam.id)}
                         className="absolute top-10 right-2 w-5 h-5 bg-black/70 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-red-600 z-20">
@@ -578,13 +729,15 @@ export default function LiveMonitoring() {
                       </button>
                     </div>
                   ))}
-                  <button onClick={addCamera}
-                    className="aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition-all group min-h-[180px]">
-                    <div className="w-8 h-8 rounded-full border-2 border-gray-200 group-hover:border-black flex items-center justify-center transition-all">
-                      <span className="text-gray-300 group-hover:text-black text-lg">+</span>
-                    </div>
-                    <span className="text-xs text-black/30 group-hover:text-black transition-all">Add Camera</span>
-                  </button>
+                  {cameraSize !== 'full' && (
+                    <button onClick={addCamera}
+                      className="aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition-all group min-h-[180px]">
+                      <div className="w-8 h-8 rounded-full border-2 border-gray-200 group-hover:border-black flex items-center justify-center transition-all">
+                        <span className="text-gray-300 group-hover:text-black text-lg">+</span>
+                      </div>
+                      <span className="text-xs text-black/30 group-hover:text-black transition-all">Add Camera</span>
+                    </button>
+                  )}
                 </div>
                 <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">System Log</h3>
@@ -601,6 +754,7 @@ export default function LiveMonitoring() {
               </div>
 
               <div className="space-y-4">
+                <PrinterPositionGrid paused={controls.paused}/>
                 <div className="bg-black rounded-2xl p-5 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-4">Printer Control</h3>
                   <div className="space-y-5">
