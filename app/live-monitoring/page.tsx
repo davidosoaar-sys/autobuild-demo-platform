@@ -114,8 +114,10 @@ function CameraView({
     const overlay = overlayRef.current;
     if (!video || !canvas || !overlay || video.readyState < 2) return;
 
-    const ow = overlay.offsetWidth;
-    const oh = overlay.offsetHeight;
+    // Use getBoundingClientRect for reliable dimensions
+    const rect = overlay.getBoundingClientRect();
+    const ow = rect.width  || overlay.offsetWidth  || 640;
+    const oh = rect.height || overlay.offsetHeight || 360;
     overlay.width = ow; overlay.height = oh;
     const octx = overlay.getContext('2d')!;
     octx.clearRect(0, 0, ow, oh);
@@ -123,16 +125,16 @@ function CameraView({
     // Not locked — show tap hint only
     if (lockedX.current === null) {
       const hint = 'Tap the edge you want to measure';
-      octx.font  = '12px sans-serif';
+      octx.font  = '13px sans-serif';
       const hw   = octx.measureText(hint).width + 20;
-      octx.fillStyle = 'rgba(0,0,0,0.55)';
-      octx.beginPath(); octx.roundRect(ow/2-hw/2, oh/2-14, hw, 26, 6); octx.fill();
-      octx.fillStyle = 'rgba(255,255,255,0.9)';
-      octx.fillText(hint, ow/2-hw/2+10, oh/2+3);
+      octx.fillStyle = 'rgba(0,0,0,0.6)';
+      octx.beginPath(); octx.roundRect(ow/2-hw/2, oh/2-14, hw, 28, 6); octx.fill();
+      octx.fillStyle = 'white';
+      octx.fillText(hint, ow/2-hw/2+10, oh/2+4);
       return;
     }
 
-    // Capture frame
+    // Capture frame for CV
     const vw = video.videoWidth  || 640;
     const vh = video.videoHeight || 360;
     canvas.width = vw; canvas.height = vh;
@@ -147,8 +149,8 @@ function CameraView({
     // Narrow strip around tapped X only
     const activeCol = Math.round(lockedX.current * vw);
     const stripW    = Math.max(12, Math.floor(vw * 0.05));
-    const x0 = Math.max(0, activeCol - stripW);
-    const x1 = Math.min(vw-1, activeCol + stripW);
+    const x0 = Math.max(1, activeCol - stripW);
+    const x1 = Math.min(vw-2, activeCol + stripW);
 
     const pts: {x:number; y:number}[] = [];
     for (let y = 1; y < vh-1; y++) {
@@ -161,46 +163,41 @@ function CameraView({
         );
         if (gx > maxGx) { maxGx = gx; maxX = x; }
       }
-      if (maxGx > 0.06 && maxX >= 0) pts.push({ x: maxX, y });
+      if (maxGx > 0.04 && maxX >= 0) pts.push({ x: maxX, y });
     }
 
     // Linear regression → tilt from vertical
     let tilt = 0;
-    if (pts.length > 20) {
+    if (pts.length > 10) {
       const n     = pts.length;
-      const sumY  = pts.reduce((s,p)=>s+p.y,0);
-      const sumX  = pts.reduce((s,p)=>s+p.x,0);
-      const sumYY = pts.reduce((s,p)=>s+p.y*p.y,0);
-      const sumXY = pts.reduce((s,p)=>s+p.x*p.y,0);
+      const sumY  = pts.reduce((s,p)=>s+p.y, 0);
+      const sumX  = pts.reduce((s,p)=>s+p.x, 0);
+      const sumYY = pts.reduce((s,p)=>s+p.y*p.y, 0);
+      const sumXY = pts.reduce((s,p)=>s+p.x*p.y, 0);
       const denom = n*sumYY - sumY*sumY;
       if (Math.abs(denom) > 1e-6)
         tilt = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
     }
 
-    // Blend with gyroscope if available
-    const gyro      = tiltAngle.current;
-    const hasGyro   = Math.abs(gyro) > 0.5;
-    const finalTilt = hasGyro ? tilt*0.5 + gyro*0.5 : tilt;
-
-    const absTilt  = Math.abs(finalTilt);
+    const absTilt  = Math.abs(tilt);
     const isGreen  = absTilt <= 10;
     const isYellow = absTilt > 10 && absTilt <= 15;
     const lineColor = isGreen
       ? 'rgba(34,197,94,0.95)'
       : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
 
-    setLiveAngle(finalTilt);
-    setResult({ straight: isGreen, angle: finalTilt });
+    setLiveAngle(tilt);
+    setResult({ straight: isGreen, angle: tilt });
 
     const cx   = (activeCol / vw) * ow;
     const cy   = oh / 2;
-    const rad  = (finalTilt * Math.PI) / 180;
+    const rad  = (tilt * Math.PI) / 180;
     const half = oh * 0.45;
 
     // White dashed = true vertical
     octx.strokeStyle = 'rgba(255,255,255,0.3)';
     octx.lineWidth = 1.5; octx.setLineDash([6,5]);
-    octx.beginPath(); octx.moveTo(cx,oh*0.05); octx.lineTo(cx,oh*0.95); octx.stroke();
+    octx.beginPath(); octx.moveTo(cx, oh*0.05); octx.lineTo(cx, oh*0.95); octx.stroke();
     octx.setLineDash([]);
 
     // Coloured tilted line
@@ -215,22 +212,22 @@ function CameraView({
     // Angle arc
     if (absTilt > 0.5) {
       octx.strokeStyle = lineColor; octx.lineWidth = 1.5;
-      octx.beginPath(); octx.arc(cx,cy,36,-Math.PI/2,-Math.PI/2+rad,finalTilt<0); octx.stroke();
+      octx.beginPath(); octx.arc(cx,cy,36,-Math.PI/2,-Math.PI/2+rad,tilt<0); octx.stroke();
     }
 
     // Angle badge
-    const label = `${finalTilt>=0?'+':''}${finalTilt.toFixed(1)}°`;
-    octx.font = 'bold 12px monospace';
+    const label = `${tilt>=0?'+':''}${tilt.toFixed(1)}°`;
+    octx.font = 'bold 13px monospace';
     const tw  = octx.measureText(label).width + 14;
     const bx2 = cx + Math.sin(rad)*55 + 14;
     const by2 = cy - Math.cos(rad)*55;
     octx.fillStyle = lineColor;
     octx.beginPath(); octx.roundRect(bx2-tw/2,by2-11,tw,20,4); octx.fill();
-    octx.fillStyle = 'white'; octx.fillText(label, bx2-tw/2+7, by2+3);
+    octx.fillStyle = 'white'; octx.fillText(label, bx2-tw/2+7, by2+4);
 
     // Tap to reset hint
-    octx.fillStyle = 'rgba(255,255,255,0.2)'; octx.font = '8px monospace';
-    octx.fillText('TAP TO RESET', ow-82, oh-8);
+    octx.fillStyle = 'rgba(255,255,255,0.25)'; octx.font = '9px monospace';
+    octx.fillText('TAP TO RESET', ow-86, oh-10);
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -474,28 +471,20 @@ export default function LiveMonitoring() {
     { id:'2', label:'Camera 2', angle:'overhead', active:true },
   ]);
   const [sensors, setSensors] = useState<SensorReading[]>([
-    { label:'Ambient Temp',    value:'24.2', unit:'°C',    status:'ok',   trend:'stable', history:[24,24.1,24.2,24.1,24.2,24.3,24.2] },
-    { label:'Humidity',        value:'58',   unit:'%',     status:'ok',   trend:'stable', history:[57,58,58,59,58,57,58] },
-    { label:'Wind Speed',      value:'6.2',  unit:'km/h',  status:'ok',   trend:'up',     history:[4,5,5.5,6,6.1,6.2,6.2] },
-    { label:'Flow Rate',       value:'8.1',  unit:'L/min', status:'ok',   trend:'stable', history:[8,8.1,8.1,8,8.1,8.2,8.1] },
-    { label:'Pump Pressure',   value:'4.2',  unit:'bar',   status:'ok',   trend:'stable', history:[4.1,4.2,4.2,4.3,4.2,4.2,4.2] },
-    { label:'Concrete Temp',   value:'21.8', unit:'°C',    status:'ok',   trend:'stable', history:[21.5,21.6,21.7,21.8,21.8,21.8,21.8] },
-    { label:'Pot Life Left',   value:'47',   unit:'min',   status:'warn', trend:'down',   history:[60,58,55,53,51,49,47] },
-    { label:'Mix Consistency', value:'94',   unit:'%',     status:'ok',   trend:'stable', history:[93,94,95,94,94,93,94] },
+    { label:'Ambient Temp',    value:'—', unit:'°C',    status:'ok', trend:'stable', history:[] },
+    { label:'Humidity',        value:'—', unit:'%',     status:'ok', trend:'stable', history:[] },
+    { label:'Wind Speed',      value:'—', unit:'km/h',  status:'ok', trend:'stable', history:[] },
+    { label:'Flow Rate',       value:'—', unit:'L/min', status:'ok', trend:'stable', history:[] },
+    { label:'Pump Pressure',   value:'—', unit:'bar',   status:'ok', trend:'stable', history:[] },
+    { label:'Concrete Temp',   value:'—', unit:'°C',    status:'ok', trend:'stable', history:[] },
+    { label:'Pot Life Left',   value:'—', unit:'min',   status:'ok', trend:'stable', history:[] },
+    { label:'Mix Consistency', value:'—', unit:'%',     status:'ok', trend:'stable', history:[] },
   ]);
 
   useEffect(() => {
     tickRef.current = setInterval(() => {
       setElapsed(s=>s+1);
-      setSensors(prev=>prev.map(s=>{
-        const last=parseFloat(s.value);
-        const next=Math.round((last+(Math.random()-0.5)*0.2)*100)/100;
-        const newH=[...s.history.slice(-8),next];
-        let status:'ok'|'warn'|'error'=s.status;
-        if(s.label==='Pot Life Left') status=next<20?'error':next<35?'warn':'ok';
-        return {...s, value:String(next), history:newH, status};
-      }));
-    }, 3000);
+    }, 1000);
     return ()=>{ if(tickRef.current) clearInterval(tickRef.current); };
   }, []);
 
@@ -670,13 +659,14 @@ export default function LiveMonitoring() {
                         <div>
                           <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40 mb-0.5">{s.label}</p>
                           <div className="flex items-baseline gap-1">
-                            <span className="text-lg font-bold text-white">{s.value}</span>
-                            <span className="text-[10px] text-white/40">{s.unit}</span>
+                            <span className={`font-bold text-white ${s.value==='—'?'text-sm text-white/30':'text-lg'}`}>{s.value}</span>
+                            {s.value!=='—' && <span className="text-[10px] text-white/40">{s.unit}</span>}
                           </div>
+                          {s.value==='—' && <p className="text-[8px] text-white/20 mt-0.5">No sensor connected</p>}
                         </div>
                         <div className="flex flex-col items-end gap-1">
-                          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${s.status==='ok'?'bg-emerald-400':s.status==='warn'?'bg-amber-400':'bg-red-400'}`}/>
-                          <Sparkline data={s.history} color={s.status==='ok'?'#4ade80':s.status==='warn'?'#fbbf24':'#f87171'}/>
+                          <div className={`w-1.5 h-1.5 rounded-full ${s.value==='—'?'bg-white/20':s.status==='ok'?'bg-emerald-400 animate-pulse':s.status==='warn'?'bg-amber-400 animate-pulse':'bg-red-400 animate-pulse'}`}/>
+                          {s.history.length > 1 && <Sparkline data={s.history} color={s.status==='ok'?'#4ade80':s.status==='warn'?'#fbbf24':'#f87171'}/>}
                         </div>
                       </div>
                     ))}
