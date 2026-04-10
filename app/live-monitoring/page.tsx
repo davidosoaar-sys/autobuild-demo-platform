@@ -247,7 +247,6 @@ function CameraView({
     octx.fillStyle = 'rgba(255,255,255,0.7)';
     octx.fillText(modeLabel, 12, oh-12);
   };
-  };
 
   const handleOverlayClick = () => {}; // reserved for future manual override
   useEffect(() => {
@@ -273,7 +272,7 @@ function CameraView({
   const stopCamera = () => {
     if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t=>t.stop());
     if (videoRef.current) videoRef.current.srcObject=null;
-    lockedX.current=null; setIsLocked(false); setStreaming(false); setResult(null);
+    lockedX.current=null; setStreaming(false); setResult(null);
   };
 
   const saveLabel = () => { onRename(camera.id, label); setEditing(false); };
