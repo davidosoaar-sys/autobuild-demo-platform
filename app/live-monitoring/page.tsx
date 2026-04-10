@@ -133,58 +133,49 @@ function CameraView({
     for (let i = 0; i < vw*vh; i++)
       grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
 
-    // Auto-detect dominant edge column continuously
+    // Full-frame edge detection — find ALL strong edge points
     const isHorizontal = alignMode === 'horizontal';
-    const colEnergy = new Float32Array(vw);
-    for (let x = 1; x < vw-1; x++) {
-      let sum = 0;
-      for (let y = 1; y < vh-1; y++) {
-        // For vertical mode use horizontal Sobel (finds vertical edges)
-        // For horizontal mode use vertical Sobel (finds horizontal edges)
-        const gx = isHorizontal
-          ? Math.abs(-grey[(y-1)*vw+x]-(-grey[(y+1)*vw+x])*2)
-          : Math.abs(-grey[y*vw+(x-1)]+grey[y*vw+(x+1)]);
-        sum += gx;
-      }
-      colEnergy[x] = sum;
-    }
 
-    // Find strongest column
-    let bestCol = Math.floor(vw/2), bestE = 0;
-    for (let x = 1; x < vw-1; x++)
-      if (colEnergy[x] > bestE) { bestE = colEnergy[x]; bestCol = x; }
-
-    // CV regression in strip around best column
-    const stripW = Math.max(12, Math.floor(vw * 0.05));
-    const x0 = Math.max(1, bestCol - stripW);
-    const x1 = Math.min(vw-2, bestCol + stripW);
-
-    const pts: {x:number; y:number}[] = [];
+    // Compute Sobel magnitude for every pixel
+    const edgePts: {x:number; y:number; mag:number}[] = [];
     for (let y = 1; y < vh-1; y++) {
-      let maxGx = 0, maxX = -1;
-      for (let x = x0; x <= x1; x++) {
-        const gx = Math.abs(
+      for (let x = 1; x < vw-1; x++) {
+        const gx = (
           -grey[(y-1)*vw+(x-1)] + grey[(y-1)*vw+(x+1)]
           -2*grey[y*vw+(x-1)]   + 2*grey[y*vw+(x+1)]
           -grey[(y+1)*vw+(x-1)] + grey[(y+1)*vw+(x+1)]
         );
-        if (gx > maxGx) { maxGx = gx; maxX = x; }
+        const gy = (
+          -grey[(y-1)*vw+(x-1)] - 2*grey[(y-1)*vw+x] - grey[(y-1)*vw+(x+1)]
+          +grey[(y+1)*vw+(x-1)] + 2*grey[(y+1)*vw+x] + grey[(y+1)*vw+(x+1)]
+        );
+        const mag = Math.sqrt(gx*gx + gy*gy);
+        if (mag > 0.15) edgePts.push({ x, y, mag });
       }
-      if (maxGx > 0.04 && maxX >= 0) pts.push({ x: maxX, y });
     }
 
-    // Linear regression → tilt
+    // Sort by magnitude, keep top 300 strongest edge points
+    edgePts.sort((a,b) => b.mag - a.mag);
+    const topPts = edgePts.slice(0, 300);
+
+    // Find the dominant line angle using regression on top edge points
+    // x = a*y + b → angle = atan(a)
     let tilt = 0;
-    if (pts.length > 10) {
-      const n     = pts.length;
-      const sumY  = pts.reduce((s,p)=>s+p.y, 0);
-      const sumX  = pts.reduce((s,p)=>s+p.x, 0);
-      const sumYY = pts.reduce((s,p)=>s+p.y*p.y, 0);
-      const sumXY = pts.reduce((s,p)=>s+p.x*p.y, 0);
+    if (topPts.length > 10) {
+      const n     = topPts.length;
+      const sumY  = topPts.reduce((s,p)=>s+p.y, 0);
+      const sumX  = topPts.reduce((s,p)=>s+p.x, 0);
+      const sumYY = topPts.reduce((s,p)=>s+p.y*p.y, 0);
+      const sumXY = topPts.reduce((s,p)=>s+p.x*p.y, 0);
       const denom = n*sumYY - sumY*sumY;
       if (Math.abs(denom) > 1e-6)
         tilt = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
     }
+
+    // Centre X of detected edge cluster
+    const bestCol = topPts.length > 0
+      ? Math.round(topPts.reduce((s,p)=>s+p.x, 0) / topPts.length)
+      : Math.floor(vw/2);
 
     const deviation = isHorizontal ? 90 - Math.abs(tilt) : tilt;
     const absTilt   = Math.abs(deviation);
