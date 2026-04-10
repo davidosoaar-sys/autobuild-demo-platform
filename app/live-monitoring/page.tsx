@@ -183,98 +183,146 @@ function CameraView({
 
   const analyseFrame = () => {
     const video   = videoRef.current;
+    const canvas  = canvasRef.current;
     const overlay = overlayRef.current;
-    if (!video || !overlay || video.readyState < 2) return;
+    if (!video || !canvas || !overlay || video.readyState < 2) return;
 
-    const tilt = tiltAngle.current;
-    setLiveAngle(tilt);
+    const vw = video.videoWidth  || 640;
+    const vh = video.videoHeight || 360;
+    canvas.width = vw; canvas.height = vh;
 
-    const absTilt = Math.abs(tilt);
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(video, 0, 0, vw, vh);
+    const { data } = ctx.getImageData(0, 0, vw, vh);
+
+    // Greyscale
+    const grey = new Float32Array(vw * vh);
+    for (let i = 0; i < vw * vh; i++)
+      grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
+
+    // ── Auto-detect dominant vertical edge column ─────────────────────────
+    const colEnergy = new Float32Array(vw);
+    for (let x = 1; x < vw-1; x++) {
+      let sum = 0;
+      for (let y = 1; y < vh-1; y++) {
+        sum += Math.abs(
+          -grey[(y-1)*vw+(x-1)] + grey[(y-1)*vw+(x+1)]
+          -2*grey[y*vw+(x-1)]   + 2*grey[y*vw+(x+1)]
+          -grey[(y+1)*vw+(x-1)] + grey[(y+1)*vw+(x+1)]
+        );
+      }
+      colEnergy[x] = sum;
+    }
+    let bestCol = Math.floor(vw / 2), bestE = 0;
+    for (let x = 1; x < vw-1; x++)
+      if (colEnergy[x] > bestE) { bestE = colEnergy[x]; bestCol = x; }
+
+    // Use locked X if user tapped, else auto
+    const activeCol = lockedX.current !== null
+      ? Math.round(lockedX.current * vw)
+      : bestCol;
+
+    // ── CV angle: linear regression on edge points in strip ───────────────
+    const stripW = Math.max(8, Math.floor(vw * 0.04));
+    const x0 = Math.max(0, activeCol - stripW);
+    const x1 = Math.min(vw-1, activeCol + stripW);
+    const pts: {x:number; y:number}[] = [];
+
+    for (let y = 1; y < vh-1; y++) {
+      let maxGx = 0, maxX = -1;
+      for (let x = x0; x <= x1; x++) {
+        const gx = Math.abs(
+          -grey[(y-1)*vw+(x-1)] + grey[(y-1)*vw+(x+1)]
+          -2*grey[y*vw+(x-1)]   + 2*grey[y*vw+(x+1)]
+          -grey[(y+1)*vw+(x-1)] + grey[(y+1)*vw+(x+1)]
+        );
+        if (gx > maxGx) { maxGx = gx; maxX = x; }
+      }
+      if (maxGx > 0.08 && maxX >= 0) pts.push({ x: maxX, y });
+    }
+
+    // Linear regression: x = a*y + b → angle from vertical = atan(a)
+    let cvAngle = 0;
+    if (pts.length > 20) {
+      const n     = pts.length;
+      const sumY  = pts.reduce((s,p) => s+p.y, 0);
+      const sumX  = pts.reduce((s,p) => s+p.x, 0);
+      const sumYY = pts.reduce((s,p) => s+p.y*p.y, 0);
+      const sumXY = pts.reduce((s,p) => s+p.x*p.y, 0);
+      const denom = n*sumYY - sumY*sumY;
+      if (Math.abs(denom) > 1e-6)
+        cvAngle = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
+    }
+
+    // Blend with gyroscope on mobile; CV-only on desktop
+    const gyro   = tiltAngle.current;
+    const hasGyro = Math.abs(gyro) > 0.5;
+    const tilt    = hasGyro ? cvAngle * 0.5 + gyro * 0.5 : cvAngle;
+
+    const absTilt  = Math.abs(tilt);
     const isGreen  = absTilt <= 10;
     const isYellow = absTilt > 10 && absTilt <= 15;
     const lineColor = isGreen
       ? 'rgba(34,197,94,0.95)'
-      : isYellow
-      ? 'rgba(251,191,36,0.95)'
-      : 'rgba(239,68,68,0.95)';
+      : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
 
+    setLiveAngle(tilt);
+    setResult({ straight: isGreen, angle: tilt });
+
+    // ── Draw overlay ──────────────────────────────────────────────────────
     const ow = overlay.offsetWidth;
     const oh = overlay.offsetHeight;
     overlay.width = ow; overlay.height = oh;
     const octx = overlay.getContext('2d')!;
     octx.clearRect(0, 0, ow, oh);
 
-    const cx = lockedX.current !== null ? lockedX.current * ow : ow / 2;
-    const cy = oh / 2;
+    const cx  = (activeCol / vw) * ow;
+    const cy  = oh / 2;
+    const rad = (tilt * Math.PI) / 180;
+    const half = oh * 0.45;
 
-    // ── Ideal vertical line (true 0°) — always white, thin, dashed ──────
-    octx.strokeStyle = 'rgba(255,255,255,0.35)';
-    octx.lineWidth   = 1.5;
+    // White dashed = true vertical
+    octx.strokeStyle = 'rgba(255,255,255,0.3)';
+    octx.lineWidth = 1.5;
     octx.setLineDash([6, 5]);
-    octx.beginPath();
-    octx.moveTo(cx, oh * 0.05);
-    octx.lineTo(cx, oh * 0.95);
-    octx.stroke();
+    octx.beginPath(); octx.moveTo(cx, oh*0.05); octx.lineTo(cx, oh*0.95); octx.stroke();
     octx.setLineDash([]);
 
-    // ── Object line — rotated by tilt angle around centre point ─────────
-    const rad    = (tilt * Math.PI) / 180;
-    const half   = oh * 0.45;
-    const x1     = cx - Math.sin(rad) * half;
-    const y1     = cy - Math.cos(rad) * half;
-    const x2     = cx + Math.sin(rad) * half;
-    const y2     = cy + Math.cos(rad) * half;
-
-    octx.strokeStyle = lineColor;
-    octx.lineWidth   = 3;
-    octx.lineCap     = 'round';
-    octx.beginPath();
-    octx.moveTo(x1, y1);
-    octx.lineTo(x2, y2);
-    octx.stroke();
-
-    // Dots at each end
+    // Coloured line = object angle
+    const lx1 = cx - Math.sin(rad)*half, ly1 = cy - Math.cos(rad)*half;
+    const lx2 = cx + Math.sin(rad)*half, ly2 = cy + Math.cos(rad)*half;
+    octx.strokeStyle = lineColor; octx.lineWidth = 3; octx.lineCap = 'round';
+    octx.beginPath(); octx.moveTo(lx1, ly1); octx.lineTo(lx2, ly2); octx.stroke();
     octx.fillStyle = lineColor;
-    octx.beginPath(); octx.arc(x1, y1, 4, 0, Math.PI*2); octx.fill();
-    octx.beginPath(); octx.arc(x2, y2, 4, 0, Math.PI*2); octx.fill();
+    octx.beginPath(); octx.arc(lx1, ly1, 4, 0, Math.PI*2); octx.fill();
+    octx.beginPath(); octx.arc(lx2, ly2, 4, 0, Math.PI*2); octx.fill();
 
-    // ── Angle arc between the two lines (visual gap indicator) ───────────
+    // Angle arc
     if (absTilt > 0.5) {
-      const arcR = 40;
-      octx.strokeStyle = lineColor;
-      octx.lineWidth   = 1.5;
+      octx.strokeStyle = lineColor; octx.lineWidth = 1.5;
       octx.beginPath();
-      octx.arc(cx, cy, arcR, -Math.PI/2, -Math.PI/2 + rad, tilt < 0);
+      octx.arc(cx, cy, 36, -Math.PI/2, -Math.PI/2+rad, tilt<0);
       octx.stroke();
     }
 
-    // ── Angle readout — next to the line midpoint ────────────────────────
-    const label = `${tilt >= 0 ? '+' : ''}${tilt.toFixed(1)}°`;
-    const offX  = Math.sin(rad) * 50 + 12;
-    const offY  = -Math.cos(rad) * 50;
-    const lx    = cx + offX;
-    const ly    = cy + offY;
-
-    octx.font      = 'bold 13px monospace';
-    const tw       = octx.measureText(label).width + 14;
+    // Angle badge
+    const label = `${tilt>=0?'+':''}${tilt.toFixed(1)}°`;
+    octx.font = 'bold 12px monospace';
+    const tw  = octx.measureText(label).width + 14;
+    const bx2 = cx + Math.sin(rad)*55 + 12;
+    const by2 = cy - Math.cos(rad)*55;
     octx.fillStyle = lineColor;
-    octx.beginPath(); octx.roundRect(lx - tw/2, ly - 12, tw, 22, 4); octx.fill();
+    octx.beginPath(); octx.roundRect(bx2-tw/2, by2-11, tw, 20, 4); octx.fill();
     octx.fillStyle = 'white';
-    octx.fillText(label, lx - tw/2 + 7, ly + 4);
+    octx.fillText(label, bx2-tw/2+7, by2+3);
 
-    // ── Hint when not yet tapped ─────────────────────────────────────────
-    if (!isLocked && lockedX.current === null) {
-      octx.fillStyle = 'rgba(255,255,255,0.5)';
-      octx.font      = '11px sans-serif';
-      const hint     = 'Tap object to lock';
-      const hw       = octx.measureText(hint).width + 16;
-      octx.fillStyle = 'rgba(0,0,0,0.5)';
-      octx.beginPath(); octx.roundRect(ow/2 - hw/2, 12, hw, 22, 4); octx.fill();
-      octx.fillStyle = 'rgba(255,255,255,0.7)';
-      octx.fillText(hint, ow/2 - hw/2 + 8, 27);
-    }
-
-    setResult({ straight: isGreen, angle: tilt });
+    // AUTO / LOCKED badge
+    octx.font = 'bold 8px monospace';
+    const tag  = lockedX.current !== null ? 'LOCKED' : 'AUTO';
+    const tagW = octx.measureText(tag).width + 12;
+    octx.fillStyle = lockedX.current !== null ? 'rgba(59,130,246,0.8)' : 'rgba(255,255,255,0.2)';
+    octx.beginPath(); octx.roundRect(8, 8, tagW, 16, 3); octx.fill();
+    octx.fillStyle = 'white'; octx.fillText(tag, 12, 19);
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
