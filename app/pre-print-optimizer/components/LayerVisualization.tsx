@@ -296,8 +296,8 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
         // Skip gap markers (window/door openings — no bead drawn across these)
         if (seg.gap) return;
         out.push({
-          s: [seg.x0, y, seg.y0],
-          e: [seg.x1, y, seg.y1],
+          s: [seg.x0, y, -seg.y0],
+          e: [seg.x1, y, -seg.y1],
           layer: li,
         });
       });
