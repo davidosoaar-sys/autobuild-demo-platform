@@ -95,7 +95,8 @@ function CameraView({
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const timerRef   = useRef<number | null>(null);
 
-  const lockedX   = useRef<number | null>(null); // kept for future manual override
+  const roiRef = useRef<{x:number;y:number;w:number;h:number}|null>(null);
+  const dragRef = useRef<{startX:number;startY:number;dragging:boolean}>({startX:0,startY:0,dragging:false});
 
   const [streaming, setStreaming] = useState(false);
   const [error,     setError]     = useState('');
@@ -133,113 +134,124 @@ function CameraView({
     for (let i = 0; i < vw*vh; i++)
       grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
 
-    // Full-frame edge detection — find ALL strong edge points
-    const isHorizontal = alignMode === 'horizontal';
 
-    // Compute Sobel magnitude for every pixel
-    const edgePts: {x:number; y:number; mag:number}[] = [];
-    for (let y = 1; y < vh-1; y++) {
-      for (let x = 1; x < vw-1; x++) {
-        const gx = (
-          -grey[(y-1)*vw+(x-1)] + grey[(y-1)*vw+(x+1)]
-          -2*grey[y*vw+(x-1)]   + 2*grey[y*vw+(x+1)]
-          -grey[(y+1)*vw+(x-1)] + grey[(y+1)*vw+(x+1)]
-        );
-        const gy = (
-          -grey[(y-1)*vw+(x-1)] - 2*grey[(y-1)*vw+x] - grey[(y-1)*vw+(x+1)]
-          +grey[(y+1)*vw+(x-1)] + 2*grey[(y+1)*vw+x] + grey[(y+1)*vw+(x+1)]
-        );
-        const mag = Math.sqrt(gx*gx + gy*gy);
-        if (mag > 0.15) edgePts.push({ x, y, mag });
+    const isHorizontal = alignMode === 'horizontal';
+    const stepX = Math.max(1, Math.floor(vw/40));
+    const stepY = Math.max(1, Math.floor(vh/60));
+
+    const pts: {x:number;y:number}[] = [];
+    for (let y = stepY; y < vh-stepY; y+=stepY) {
+      for (let x = stepX; x < vw-stepX; x+=stepX) {
+        const gx = Math.abs(grey[y*vw+(x+1)] - grey[y*vw+(x-1)]);
+        const gy = Math.abs(grey[(y+1)*vw+x] - grey[(y-1)*vw+x]);
+        const mag = gx + gy;
+        if (isHorizontal ? gy > gx && mag > 0.08 : gx > gy && mag > 0.08)
+          pts.push({x, y});
       }
     }
 
-    // Sort by magnitude, keep top 300 strongest edge points
-    edgePts.sort((a,b) => b.mag - a.mag);
-    const topPts = edgePts.slice(0, 300);
-
-    // Find the dominant line angle using regression on top edge points
-    // x = a*y + b → angle = atan(a)
     let tilt = 0;
-    if (topPts.length > 10) {
-      const n     = topPts.length;
-      const sumY  = topPts.reduce((s,p)=>s+p.y, 0);
-      const sumX  = topPts.reduce((s,p)=>s+p.x, 0);
-      const sumYY = topPts.reduce((s,p)=>s+p.y*p.y, 0);
-      const sumXY = topPts.reduce((s,p)=>s+p.x*p.y, 0);
+    if (pts.length > 5) {
+      const n     = pts.length;
+      const sumY  = pts.reduce((s,p)=>s+p.y,0);
+      const sumX  = pts.reduce((s,p)=>s+p.x,0);
+      const sumYY = pts.reduce((s,p)=>s+p.y*p.y,0);
+      const sumXY = pts.reduce((s,p)=>s+p.x*p.y,0);
       const denom = n*sumYY - sumY*sumY;
       if (Math.abs(denom) > 1e-6)
         tilt = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
     }
 
-    // Centre X of detected edge cluster
-    const bestCol = topPts.length > 0
-      ? Math.round(topPts.reduce((s,p)=>s+p.x, 0) / topPts.length)
-      : Math.floor(vw/2);
-
     const deviation = isHorizontal ? 90 - Math.abs(tilt) : tilt;
-    const absTilt   = Math.abs(deviation);
-    const isGreen   = absTilt <= 10;
-    const isYellow  = absTilt > 10 && absTilt <= 15;
-    const lineColor = isGreen
-      ? 'rgba(34,197,94,0.95)'
-      : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
+    const absDev    = Math.abs(deviation);
+    const isGreen   = absDev <= 10;
+    const isYellow  = absDev > 10 && absDev <= 15;
+    const lineColor = isGreen ? 'rgba(34,197,94,0.95)' : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
+    const baseAngle = isHorizontal ? 90 : 0;
+    const rad       = ((tilt + baseAngle) * Math.PI) / 180;
+    const refRad    = (baseAngle * Math.PI) / 180;
+    const cx        = ow / 2;
+    const cy        = oh / 2;
+    const half      = oh * 0.45;
 
     setLiveAngle(deviation);
     setResult({ straight: isGreen, angle: deviation });
 
-    const cx      = (bestCol / vw) * ow;
-    const cy      = oh / 2;
-    const baseAngle = isHorizontal ? 90 : 0;
-    const rad     = ((tilt + baseAngle) * Math.PI) / 180;
-    const refRad  = (baseAngle * Math.PI) / 180;
-    const half    = oh * 0.45;
-
-    // Reference line — white dashed
-    octx.strokeStyle = 'rgba(255,255,255,0.3)';
+    octx.strokeStyle = 'rgba(255,255,255,0.35)';
     octx.lineWidth = 1.5; octx.setLineDash([6,5]);
-    const rx1 = cx-Math.sin(refRad)*half, ry1 = cy-Math.cos(refRad)*half;
-    const rx2 = cx+Math.sin(refRad)*half, ry2 = cy+Math.cos(refRad)*half;
-    octx.beginPath(); octx.moveTo(rx1,ry1); octx.lineTo(rx2,ry2); octx.stroke();
-    octx.setLineDash([]);
+    octx.beginPath();
+    octx.moveTo(cx-Math.sin(refRad)*half, cy-Math.cos(refRad)*half);
+    octx.lineTo(cx+Math.sin(refRad)*half, cy+Math.cos(refRad)*half);
+    octx.stroke(); octx.setLineDash([]);
 
-    // Measured line
-    const lx1 = cx-Math.sin(rad)*half, ly1 = cy-Math.cos(rad)*half;
-    const lx2 = cx+Math.sin(rad)*half, ly2 = cy+Math.cos(rad)*half;
-    octx.strokeStyle = lineColor; octx.lineWidth = 3; octx.lineCap = 'round';
+    const lx1=cx-Math.sin(rad)*half, ly1=cy-Math.cos(rad)*half;
+    const lx2=cx+Math.sin(rad)*half, ly2=cy+Math.cos(rad)*half;
+    octx.strokeStyle=lineColor; octx.lineWidth=3; octx.lineCap='round';
     octx.beginPath(); octx.moveTo(lx1,ly1); octx.lineTo(lx2,ly2); octx.stroke();
-    octx.fillStyle = lineColor;
+    octx.fillStyle=lineColor;
     octx.beginPath(); octx.arc(lx1,ly1,4,0,Math.PI*2); octx.fill();
     octx.beginPath(); octx.arc(lx2,ly2,4,0,Math.PI*2); octx.fill();
 
-    // Arc
-    if (absTilt > 0.5) {
-      octx.strokeStyle = lineColor; octx.lineWidth = 1.5;
-      const arcStart = -Math.PI/2 + refRad;
+    if (absDev > 0.5) {
+      octx.strokeStyle=lineColor; octx.lineWidth=1.5;
+      const arcStart=-Math.PI/2+refRad;
       octx.beginPath(); octx.arc(cx,cy,36,arcStart,arcStart+(rad-refRad),deviation<0); octx.stroke();
     }
 
-    // Angle badge
-    const label = `${deviation>=0?'+':''}${deviation.toFixed(1)}°`;
-    octx.font = 'bold 13px monospace';
-    const tw  = octx.measureText(label).width + 14;
-    const bx2 = cx + Math.sin(rad)*55 + 14;
-    const by2 = cy - Math.cos(rad)*55;
-    octx.fillStyle = lineColor;
+    const label=`${deviation>=0?'+':''}${deviation.toFixed(1)}°`;
+    octx.font='bold 13px monospace';
+    const tw=octx.measureText(label).width+14;
+    const bx2=cx+Math.sin(rad)*55+14, by2=cy-Math.cos(rad)*55;
+    octx.fillStyle=lineColor;
     octx.beginPath(); octx.roundRect(bx2-tw/2,by2-11,tw,20,4); octx.fill();
-    octx.fillStyle = 'white'; octx.fillText(label, bx2-tw/2+7, by2+4);
+    octx.fillStyle='white'; octx.fillText(label,bx2-tw/2+7,by2+4);
 
-    // Mode badge bottom left
-    octx.font = 'bold 8px monospace';
-    const modeLabel = isHorizontal ? 'HORIZONTAL' : 'VERTICAL';
-    const modeW = octx.measureText(modeLabel).width + 12;
-    octx.fillStyle = 'rgba(0,0,0,0.45)';
-    octx.beginPath(); octx.roundRect(8, oh-24, modeW, 16, 3); octx.fill();
-    octx.fillStyle = 'rgba(255,255,255,0.7)';
-    octx.fillText(modeLabel, 12, oh-12);
+    const ml=isHorizontal?'HORIZONTAL':'VERTICAL';
+    const mw=octx.measureText(ml).width+12;
+    octx.font='bold 8px monospace';
+    octx.fillStyle='rgba(0,0,0,0.4)';
+    octx.beginPath(); octx.roundRect(8,oh-24,mw,16,3); octx.fill();
+    octx.fillStyle='rgba(255,255,255,0.7)';
+    octx.fillText(ml,12,oh-12);
   };
 
-  const handleOverlayClick = () => {}; // reserved for future manual override
+
+  const getOverlayPos = (e: React.MouseEvent|React.TouchEvent, overlay: HTMLCanvasElement) => {
+    const rect = overlay.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  };
+
+  const handlePointerDown = (e: React.MouseEvent<HTMLCanvasElement>|React.TouchEvent<HTMLCanvasElement>) => {
+    if (!showPlumb || !streaming) return;
+    const overlay = overlayRef.current; if (!overlay) return;
+    const { x, y } = getOverlayPos(e, overlay);
+    // If clicking near reset button of existing ROI, clear it
+    if (roiRef.current) {
+      const r = roiRef.current;
+      if (x >= r.x+r.w-30 && x <= r.x+r.w && y >= r.y-18 && y <= r.y) {
+        roiRef.current = null; return;
+      }
+    }
+    dragRef.current = { startX: x, startY: y, dragging: true };
+    roiRef.current = null;
+  };
+
+  const handlePointerMove = (e: React.MouseEvent<HTMLCanvasElement>|React.TouchEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current.dragging || !showPlumb) return;
+    const overlay = overlayRef.current; if (!overlay) return;
+    const { x, y } = getOverlayPos(e, overlay);
+    const sx = dragRef.current.startX, sy = dragRef.current.startY;
+    roiRef.current = {
+      x: Math.min(sx,x), y: Math.min(sy,y),
+      w: Math.abs(x-sx), h: Math.abs(y-sy),
+    };
+  };
+
+  const handlePointerUp = () => { dragRef.current.dragging = false; };
+
+  const handleOverlayClick = () => {};
   useEffect(() => {
     if (streaming && showPlumb) {
       const loop = () => { analyseFrame(); timerRef.current=window.setTimeout(loop,125) as unknown as number; };
@@ -292,7 +304,7 @@ function CameraView({
               {a}
             </button>
           ))}
-          <button onClick={()=>{ setShowPlumb(v=>!v); lockedX.current=null; }}
+          <button onClick={()=>{ setShowPlumb(v=>!v); roiRef.current=null; }}
             className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
             Alignment
           </button>
@@ -317,7 +329,8 @@ function CameraView({
           className={`absolute inset-0 w-full h-full object-cover ${streaming?'block':'hidden'}`}/>
         <canvas ref={canvasRef} className="hidden"/>
         <canvas ref={overlayRef}
-          onClick={handleOverlayClick}
+          onMouseDown={handlePointerDown} onMouseMove={handlePointerMove} onMouseUp={handlePointerUp}
+          onTouchStart={handlePointerDown} onTouchMove={handlePointerMove} onTouchEnd={handlePointerUp}
           className={`absolute inset-0 w-full h-full z-10 ${streaming&&showPlumb?'block':'hidden'} ${showPlumb?'cursor-crosshair':'pointer-events-none'}`}/>
         {streaming && !showPlumb && (
           <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg z-10">
