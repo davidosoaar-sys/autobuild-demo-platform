@@ -64,13 +64,20 @@ export default function FileUpload({
 
   const { getRootProps: getModelProps, getInputProps: getModelInput, isDragActive: isDragModel } = useDropzone({
     onDrop: onDropModel,
-    accept: { 'model/stl': ['.stl'], 'model/obj': ['.obj'], 'application/octet-stream': ['.stl', '.obj'] },
+    accept: {
+      'model/stl':                ['.stl'],
+      'model/obj':                ['.obj'],
+      'application/octet-stream': ['.stl', '.obj', '.stp', '.step', '.dxf', '.ifc'],
+      'application/step':         ['.stp', '.step'],
+      'application/dxf':          ['.dxf'],
+      'application/ifc':          ['.ifc'],
+    },
     maxFiles: 1,
   });
 
-  // Derived scaled dimensions for display
   const scaledW = site.width  > 0 ? (site.width  * printScale).toFixed(2) : null;
   const scaledL = site.length > 0 ? (site.length * printScale).toFixed(2) : null;
+  const fileExt = file ? file.name.split('.').pop()?.toUpperCase() : null;
 
   return (
     <div className="space-y-4">
@@ -99,16 +106,14 @@ export default function FileUpload({
               <p className="text-sm font-medium text-black mb-1">
                 {isDragModel ? 'Drop 3D model here' : 'Drop your 3D model or click to browse'}
               </p>
-              <p className="text-xs text-black/30">.stl and .obj supported</p>
+              <p className="text-xs text-black/30">.stl · .obj · .stp · .dxf · .ifc</p>
             </div>
           </div>
         ) : (
           <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center flex-shrink-0">
-                <span className="text-[9px] font-bold text-white uppercase">
-                  {file.name.split('.').pop()}
-                </span>
+                <span className="text-[9px] font-bold text-white uppercase">{fileExt}</span>
               </div>
               <div>
                 <p className="text-xs font-medium text-black truncate max-w-[160px]">{file.name}</p>
@@ -126,7 +131,7 @@ export default function FileUpload({
           </div>
         )}
 
-        {/* ── Print Scale ── */}
+        {/* Print Scale */}
         {file && (
           <div className="px-5 pb-5 border-t border-gray-100 pt-4">
             <div className="flex items-center justify-between mb-2">
@@ -139,55 +144,39 @@ export default function FileUpload({
               <span className="text-xs font-bold text-black font-mono">{printScale.toFixed(2)}×</span>
             </div>
 
-            {/* Preset buttons */}
             <div className="flex items-center gap-1.5 mb-2">
               {PRESET_SCALES.map(s => (
-                <button
-                  key={s}
-                  onClick={() => handlePresetScale(s)}
+                <button key={s} onClick={() => handlePresetScale(s)}
                   className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${
                     !useCustom && printScale === s
                       ? 'bg-black text-white border-black'
                       : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
-                  }`}
-                >
+                  }`}>
                   {s}×
                 </button>
               ))}
-              <button
-                onClick={() => setUseCustom(true)}
+              <button onClick={() => setUseCustom(true)}
                 className={`px-2 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${
-                  useCustom
-                    ? 'bg-black text-white border-black'
-                    : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
-                }`}
-              >
+                  useCustom ? 'bg-black text-white border-black' : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
+                }`}>
                 Custom
               </button>
             </div>
 
-            {/* Custom input */}
             {useCustom && (
               <div className="flex items-center gap-2 mb-2">
-                <input
-                  type="number"
-                  min={0.1} max={10} step={0.05}
-                  placeholder="e.g. 1.75"
-                  value={customScale}
+                <input type="number" min={0.1} max={10} step={0.05}
+                  placeholder="e.g. 1.75" value={customScale}
                   onChange={e => handleCustomScale(e.target.value)}
                   className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl outline-none focus:border-black text-black placeholder:text-black/20"
-                  autoFocus
-                />
+                  autoFocus/>
                 <span className="text-xs text-black/40">×</span>
               </div>
             )}
 
-            {/* Impact summary */}
             <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
               {printScale === 1.0 ? (
-                <p className="text-[10px] text-black/40">
-                  Original size — all dimensions as modelled
-                </p>
+                <p className="text-[10px] text-black/40">Original size — all dimensions as modelled</p>
               ) : (
                 <div className="space-y-0.5">
                   <p className="text-[10px] text-black/60 font-medium">
@@ -213,7 +202,6 @@ export default function FileUpload({
         <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-4">
           Site Details
         </h2>
-
         <div className="mb-5">
           <label className="text-xs font-medium text-black mb-2 block">
             Site Dimensions
@@ -221,21 +209,17 @@ export default function FileUpload({
           </label>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <input
-                type="number" placeholder="Width" min={0}
+              <input type="number" placeholder="Width" min={0}
                 value={site.width || ''}
                 onChange={e => updateSite('width', e.target.value)}
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/20"
-              />
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/20"/>
               <p className="text-[10px] text-black/30 mt-1">Width (m)</p>
             </div>
             <div>
-              <input
-                type="number" placeholder="Length" min={0}
+              <input type="number" placeholder="Length" min={0}
                 value={site.length || ''}
                 onChange={e => updateSite('length', e.target.value)}
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/20"
-              />
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/20"/>
               <p className="text-[10px] text-black/30 mt-1">Length (m)</p>
             </div>
           </div>
@@ -245,7 +229,6 @@ export default function FileUpload({
             </p>
           )}
         </div>
-
         <div>
           <label className="text-xs font-medium text-black mb-2 block">
             Site Plan
