@@ -2,6 +2,7 @@
 geometry.py — 3DCP Adaptive Slicer
 
 Handles both solid meshes and thin-surface architectural STL/OBJ files.
+Also supports STP/STEP, DXF, and IFC formats.
 
 Pipeline per layer:
   1. Slice wall mesh at height Z → raw 3D line segments (trimesh)
@@ -12,14 +13,12 @@ Pipeline per layer:
   6. Large gaps between consecutive segments = door/window openings
      → left as coordinate jumps; main.py serialiser marks them {"gap":true}
 
-Why this works for thin-surface meshes:
-  Architectural STL files represent walls as zero-thickness surfaces.
-  Cross-section slicing gives line segments (wall faces), not closed polygons.
-  Buffering each segment by nozzle_width/2 reconstructs the concrete bead
-  footprint exactly as the printer would lay it. No ring tracing, no
-  polygonize, no closed-ring assumptions.
-
-OBJ files get Y-up → Z-up rotation applied automatically.
+Supported formats:
+  STL  — Standard mesh, thin-surface or solid
+  OBJ  — Wavefront, Y-up → Z-up rotation applied
+  STP/STEP — CAD solid, loaded via trimesh STEP support
+  DXF  — AutoCAD, 2D/3D entities extracted via ezdxf → mesh
+  IFC  — Building model, wall geometry extracted via ifcopenshell
 """
 
 import io
@@ -40,6 +39,88 @@ Layer    = List[Segment]
 Geometry = List[Layer]
 
 
+def _load_dxf(file_bytes: bytes) -> trimesh.Trimesh:
+    """Convert DXF entities to a trimesh mesh."""
+    import ezdxf
+    import tempfile, os
+
+    with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as f:
+        f.write(file_bytes)
+        tmp_path = f.name
+
+    try:
+        doc    = ezdxf.readfile(tmp_path)
+        msp    = doc.modelspace()
+        verts  = []
+        faces  = []
+
+        for entity in msp:
+            if entity.dxftype() == '3DFACE':
+                pts = [
+                    entity.dxf.vtx0,
+                    entity.dxf.vtx1,
+                    entity.dxf.vtx2,
+                    entity.dxf.vtx3,
+                ]
+                base = len(verts)
+                verts.extend([[p.x, p.y, p.z] for p in pts])
+                faces.append([base, base+1, base+2])
+                if pts[2] != pts[3]:
+                    faces.append([base, base+2, base+3])
+            elif entity.dxftype() == 'MESH':
+                try:
+                    v = [(p[0], p[1], p[2]) for p in entity.vertices]
+                    f = list(entity.faces)
+                    base = len(verts)
+                    verts.extend(v)
+                    faces.extend([[base+i for i in face] for face in f])
+                except Exception:
+                    pass
+
+        if not verts:
+            raise ValueError("No 3D geometry found in DXF file. Try exporting walls as 3DFACE or MESH entities.")
+
+        return trimesh.Trimesh(vertices=np.array(verts), faces=np.array(faces), process=True)
+    finally:
+        os.unlink(tmp_path)
+
+
+def _load_ifc(file_bytes: bytes) -> trimesh.Trimesh:
+    """Extract wall geometry from IFC file using ifcopenshell."""
+    import ifcopenshell
+    import ifcopenshell.geom
+    import tempfile, os
+
+    with tempfile.NamedTemporaryFile(suffix=".ifc", delete=False) as f:
+        f.write(file_bytes)
+        tmp_path = f.name
+
+    try:
+        ifc      = ifcopenshell.open(tmp_path)
+        settings = ifcopenshell.geom.settings()
+        settings.set(settings.USE_WORLD_COORDS, True)
+
+        meshes = []
+        # Extract walls, slabs, columns, beams — anything structural
+        for product in ifc.by_type('IfcWall') + ifc.by_type('IfcSlab') + \
+                       ifc.by_type('IfcColumn') + ifc.by_type('IfcBeam'):
+            try:
+                shape  = ifcopenshell.geom.create_shape(settings, product)
+                verts  = np.array(shape.geometry.verts).reshape(-1, 3)
+                faces  = np.array(shape.geometry.faces).reshape(-1, 3)
+                if len(verts) > 0 and len(faces) > 0:
+                    meshes.append(trimesh.Trimesh(vertices=verts, faces=faces, process=False))
+            except Exception:
+                continue
+
+        if not meshes:
+            raise ValueError("No structural geometry found in IFC file.")
+
+        return trimesh.util.concatenate(meshes) if len(meshes) > 1 else meshes[0]
+    finally:
+        os.unlink(tmp_path)
+
+
 def parse_and_slice(
     file_bytes:   bytes,
     filename:     str,
@@ -57,8 +138,17 @@ def parse_and_slice(
             mesh = trimesh.load(io.BytesIO(file_bytes), file_type="stl", force="mesh")
         elif ext == "obj":
             mesh = trimesh.load(io.BytesIO(file_bytes), file_type="obj", force="mesh")
+        elif ext in ("stp", "step"):
+            mesh = trimesh.load(io.BytesIO(file_bytes), file_type="step", force="mesh")
+        elif ext == "dxf":
+            mesh = _load_dxf(file_bytes)
+        elif ext == "ifc":
+            mesh = _load_ifc(file_bytes)
         else:
-            raise ValueError(f"Unsupported file type: {ext}")
+            raise ValueError(
+                f"Unsupported file type: .{ext}. "
+                f"Supported: STL, OBJ, STP/STEP, DXF, IFC"
+            )
     except Exception as e:
         raise ValueError(f"Could not load mesh: {e}")
 
