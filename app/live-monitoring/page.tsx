@@ -95,7 +95,7 @@ function CameraView({
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const timerRef   = useRef<number | null>(null);
 
-  const lockedX   = useRef<number | null>(null);
+  const lockedX   = useRef<number | null>(null); // kept for future manual override
 
   const [streaming, setStreaming] = useState(false);
   const [error,     setError]     = useState('');
@@ -103,7 +103,6 @@ function CameraView({
   const [label,     setLabel]     = useState(camera.label);
   const [showPlumb, setShowPlumb] = useState(false);
   const [alignMode, setAlignMode] = useState<'vertical'|'horizontal'>('vertical');
-  const [isLocked,  setIsLocked]  = useState(false);
   const [liveAngle, setLiveAngle] = useState(0);
   const [result,    setResult]    = useState<{straight:boolean; angle:number} | null>(null);
 
@@ -115,7 +114,6 @@ function CameraView({
     const overlay = overlayRef.current;
     if (!video || !canvas || !overlay || video.readyState < 2) return;
 
-    // Use getBoundingClientRect for reliable dimensions
     const rect = overlay.getBoundingClientRect();
     const ow = rect.width  || overlay.offsetWidth  || 640;
     const oh = rect.height || overlay.offsetHeight || 360;
@@ -123,19 +121,7 @@ function CameraView({
     const octx = overlay.getContext('2d')!;
     octx.clearRect(0, 0, ow, oh);
 
-    // Not locked — show tap hint only
-    if (lockedX.current === null) {
-      const hint = 'Tap the edge you want to measure';
-      octx.font  = '13px sans-serif';
-      const hw   = octx.measureText(hint).width + 20;
-      octx.fillStyle = 'rgba(0,0,0,0.6)';
-      octx.beginPath(); octx.roundRect(ow/2-hw/2, oh/2-14, hw, 28, 6); octx.fill();
-      octx.fillStyle = 'white';
-      octx.fillText(hint, ow/2-hw/2+10, oh/2+4);
-      return;
-    }
-
-    // Capture frame for CV
+    // Capture frame
     const vw = video.videoWidth  || 640;
     const vh = video.videoHeight || 360;
     canvas.width = vw; canvas.height = vh;
@@ -147,11 +133,31 @@ function CameraView({
     for (let i = 0; i < vw*vh; i++)
       grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
 
-    // Narrow strip around tapped X only
-    const activeCol = Math.round(lockedX.current * vw);
-    const stripW    = Math.max(12, Math.floor(vw * 0.05));
-    const x0 = Math.max(1, activeCol - stripW);
-    const x1 = Math.min(vw-2, activeCol + stripW);
+    // Auto-detect dominant edge column continuously
+    const isHorizontal = alignMode === 'horizontal';
+    const colEnergy = new Float32Array(vw);
+    for (let x = 1; x < vw-1; x++) {
+      let sum = 0;
+      for (let y = 1; y < vh-1; y++) {
+        // For vertical mode use horizontal Sobel (finds vertical edges)
+        // For horizontal mode use vertical Sobel (finds horizontal edges)
+        const gx = isHorizontal
+          ? Math.abs(-grey[(y-1)*vw+x]-(-grey[(y+1)*vw+x])*2)
+          : Math.abs(-grey[y*vw+(x-1)]+grey[y*vw+(x+1)]);
+        sum += gx;
+      }
+      colEnergy[x] = sum;
+    }
+
+    // Find strongest column
+    let bestCol = Math.floor(vw/2), bestE = 0;
+    for (let x = 1; x < vw-1; x++)
+      if (colEnergy[x] > bestE) { bestE = colEnergy[x]; bestCol = x; }
+
+    // CV regression in strip around best column
+    const stripW = Math.max(12, Math.floor(vw * 0.05));
+    const x0 = Math.max(1, bestCol - stripW);
+    const x1 = Math.min(vw-2, bestCol + stripW);
 
     const pts: {x:number; y:number}[] = [];
     for (let y = 1; y < vh-1; y++) {
@@ -167,7 +173,7 @@ function CameraView({
       if (maxGx > 0.04 && maxX >= 0) pts.push({ x: maxX, y });
     }
 
-    // Linear regression → tilt from vertical
+    // Linear regression → tilt
     let tilt = 0;
     if (pts.length > 10) {
       const n     = pts.length;
@@ -180,13 +186,10 @@ function CameraView({
         tilt = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
     }
 
-    // In horizontal mode, deviation is measured from horizontal (90° - vertical angle)
-    const isHorizontal = alignMode === 'horizontal';
     const deviation = isHorizontal ? 90 - Math.abs(tilt) : tilt;
-
-    const absTilt  = Math.abs(deviation);
-    const isGreen  = absTilt <= 10;
-    const isYellow = absTilt > 10 && absTilt <= 15;
+    const absTilt   = Math.abs(deviation);
+    const isGreen   = absTilt <= 10;
+    const isYellow  = absTilt > 10 && absTilt <= 15;
     const lineColor = isGreen
       ? 'rgba(34,197,94,0.95)'
       : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
@@ -194,23 +197,22 @@ function CameraView({
     setLiveAngle(deviation);
     setResult({ straight: isGreen, angle: deviation });
 
-    const cx   = (activeCol / vw) * ow;
-    const cy   = oh / 2;
-    // Vertical mode: line is near-vertical. Horizontal mode: line is near-horizontal
+    const cx      = (bestCol / vw) * ow;
+    const cy      = oh / 2;
     const baseAngle = isHorizontal ? 90 : 0;
-    const rad  = ((tilt + baseAngle) * Math.PI) / 180;
-    const half = oh * 0.45;
+    const rad     = ((tilt + baseAngle) * Math.PI) / 180;
+    const refRad  = (baseAngle * Math.PI) / 180;
+    const half    = oh * 0.45;
 
-    // Reference line — white dashed (true vertical or horizontal)
-    const refRad = (baseAngle * Math.PI) / 180;
+    // Reference line — white dashed
     octx.strokeStyle = 'rgba(255,255,255,0.3)';
     octx.lineWidth = 1.5; octx.setLineDash([6,5]);
-    const rx1 = cx - Math.sin(refRad)*half, ry1 = cy - Math.cos(refRad)*half;
-    const rx2 = cx + Math.sin(refRad)*half, ry2 = cy + Math.cos(refRad)*half;
+    const rx1 = cx-Math.sin(refRad)*half, ry1 = cy-Math.cos(refRad)*half;
+    const rx2 = cx+Math.sin(refRad)*half, ry2 = cy+Math.cos(refRad)*half;
     octx.beginPath(); octx.moveTo(rx1,ry1); octx.lineTo(rx2,ry2); octx.stroke();
     octx.setLineDash([]);
 
-    // Coloured measured line
+    // Measured line
     const lx1 = cx-Math.sin(rad)*half, ly1 = cy-Math.cos(rad)*half;
     const lx2 = cx+Math.sin(rad)*half, ly2 = cy+Math.cos(rad)*half;
     octx.strokeStyle = lineColor; octx.lineWidth = 3; octx.lineCap = 'round';
@@ -219,14 +221,14 @@ function CameraView({
     octx.beginPath(); octx.arc(lx1,ly1,4,0,Math.PI*2); octx.fill();
     octx.beginPath(); octx.arc(lx2,ly2,4,0,Math.PI*2); octx.fill();
 
-    // Angle arc
+    // Arc
     if (absTilt > 0.5) {
       octx.strokeStyle = lineColor; octx.lineWidth = 1.5;
       const arcStart = -Math.PI/2 + refRad;
-      octx.beginPath(); octx.arc(cx,cy,36,arcStart,arcStart+rad-refRad,deviation<0); octx.stroke();
+      octx.beginPath(); octx.arc(cx,cy,36,arcStart,arcStart+(rad-refRad),deviation<0); octx.stroke();
     }
 
-    // Clean angle badge — just the number
+    // Angle badge
     const label = `${deviation>=0?'+':''}${deviation.toFixed(1)}°`;
     octx.font = 'bold 13px monospace';
     const tw  = octx.measureText(label).width + 14;
@@ -236,31 +238,18 @@ function CameraView({
     octx.beginPath(); octx.roundRect(bx2-tw/2,by2-11,tw,20,4); octx.fill();
     octx.fillStyle = 'white'; octx.fillText(label, bx2-tw/2+7, by2+4);
 
-    // Mode indicator — bottom left
-    octx.fillStyle = 'rgba(0,0,0,0.45)';
-    const modeW = octx.measureText(isHorizontal?'HORIZONTAL':'VERTICAL').width + 12;
+    // Mode badge bottom left
     octx.font = 'bold 8px monospace';
+    const modeLabel = isHorizontal ? 'HORIZONTAL' : 'VERTICAL';
+    const modeW = octx.measureText(modeLabel).width + 12;
+    octx.fillStyle = 'rgba(0,0,0,0.45)';
     octx.beginPath(); octx.roundRect(8, oh-24, modeW, 16, 3); octx.fill();
     octx.fillStyle = 'rgba(255,255,255,0.7)';
-    octx.fillText(isHorizontal?'HORIZONTAL':'VERTICAL', 12, oh-12);
-
-    // Tap to reset — bottom right
-    octx.fillStyle = 'rgba(255,255,255,0.2)'; octx.font = '8px monospace';
-    octx.fillText('TAP TO RESET', ow-86, oh-10);
+    octx.fillText(modeLabel, 12, oh-12);
+  };
   };
 
-  const handleOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!showPlumb || !streaming) return;
-    const overlay = overlayRef.current;
-    if (!overlay) return;
-    const rect   = overlay.getBoundingClientRect();
-    const clickX = (e.clientX - rect.left) / rect.width;
-    if (lockedX.current !== null) {
-      lockedX.current = null; setIsLocked(false);
-    } else {
-      lockedX.current = clickX; setIsLocked(true);
-    }
-  };
+  const handleOverlayClick = () => {}; // reserved for future manual override
   useEffect(() => {
     if (streaming && showPlumb) {
       const loop = () => { analyseFrame(); timerRef.current=window.setTimeout(loop,125) as unknown as number; };
@@ -305,13 +294,6 @@ function CameraView({
             </button>
           )}
           {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">● LIVE</span>}
-          {result && showPlumb && isLocked && (
-            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg ${
-              result.straight ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-            }`}>
-              {result.straight ? '✓ Aligned' : '✗ Off'}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1 flex-wrap justify-end">
           {angles.map(a=>(
@@ -320,7 +302,7 @@ function CameraView({
               {a}
             </button>
           ))}
-          <button onClick={()=>{ setShowPlumb(v=>!v); lockedX.current=null; setIsLocked(false); }}
+          <button onClick={()=>{ setShowPlumb(v=>!v); lockedX.current=null; }}
             className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
             Alignment
           </button>
