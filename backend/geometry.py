@@ -208,16 +208,16 @@ def parse_and_slice(
         wall_mesh = mesh
 
     # ── Layer count ───────────────────────────────────────────────────────────
-    num_layers = max(1, int(total_height / layer_height))
-    if max_layers:
-        num_layers = min(num_layers, max_layers)
+    total_layers = max(1, int(total_height / layer_height))
+    num_layers   = min(total_layers, max_layers) if max_layers else total_layers
+    layer_indices = list(range(num_layers))
 
     geometry:    Geometry   = []
     layer_metas: List[dict] = []
     max_segs = 0
 
-    for i in range(num_layers):
-        z        = (i + 0.5) * layer_height
+    for idx, layer_i in enumerate(layer_indices):
+        z        = (layer_i + 0.5) * layer_height
         segments = _slice_layer(wall_mesh, z, nozzle_width)
         geometry.append(segments)
 
@@ -234,7 +234,7 @@ def parse_and_slice(
             area = 0.0
 
         layer_metas.append({
-            "index":            i,
+            "index":            idx,
             "z_height_m":       round(z, 4),
             "segment_count":    n,
             "perimeter_m":      round(perim, 4),
@@ -249,6 +249,8 @@ def parse_and_slice(
     bounds = mesh.bounds
     meta = {
         "num_layers":        num_layers,
+        "total_layers":      total_layers,
+        "subsampled":        num_layers < total_layers,
         "layer_height":      layer_height,
         "nozzle_width":      nozzle_width,
         "bounds_x":          (round(float(bounds[0][0]), 3), round(float(bounds[1][0]), 3)),

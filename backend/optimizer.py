@@ -33,10 +33,6 @@ from sika733 import (
     LAYER_HEIGHT_DEF_M,
 )
 
-# Max segments per layer fed into the optimizer — caps O(n²) cost
-MAX_SEGS_PER_LAYER = 256
-
-
 # ── Per-layer output ──────────────────────────────────────────────────────────
 
 class LayerParams:
@@ -201,8 +197,8 @@ def optimize(
             layer_travel = 0.0
             naive_l      = 0.0
         else:
-            # Cap segments per layer — prevents O(n²) blowup on complex models
-            segs    = layer_segs[:MAX_SEGS_PER_LAYER]
+            # Use all segments — accuracy over speed
+            segs    = layer_segs
             naive_l = _naive_travel_mm(segs)
 
             use_rl = (layer_idx % RL_SAMPLE_RATE == 0) and model is not None
