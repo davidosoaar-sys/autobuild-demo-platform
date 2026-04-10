@@ -40,123 +40,48 @@ function Sparkline({ data, color = '#fff', width = 60, height = 24 }: {
   );
 }
 
-// ── AngleMeter ────────────────────────────────────────────────────────────────
-// Carpenter-level style horizontal bar with zone lines and sliding dot.
-// Zones: |angle| < 1° = green, 1–5° = yellow, 5–15° = red, > 15° = clamp
-// VAR lines at: 0°, ±1°, ±5°, ±9°, ±15°
-function AngleMeter({ angle }: { angle: number }) {
-  // Map angle (-15° to +15°) → 0–100% position
+// ── PlumbIndicator ────────────────────────────────────────────────────────────
+// One line. One dot. Green = plumb. Red = off.
+function PlumbIndicator({ angle }: { angle: number }) {
+  const isPlumb = Math.abs(angle) < 1;
+  const isClose = Math.abs(angle) >= 1 && Math.abs(angle) < 5;
+  const color   = isPlumb ? '#22c55e' : isClose ? '#fbbf24' : '#ef4444';
+  const label   = isPlumb ? 'Plumb' : isClose ? 'Slight tilt' : 'Off plumb';
+
   const RANGE = 15;
-  const clampedAngle = Math.max(-RANGE, Math.min(RANGE, angle));
-  const pct = ((clampedAngle + RANGE) / (RANGE * 2)) * 100;
-
-  const isGreen  = Math.abs(angle) < 1;
-  const isYellow = Math.abs(angle) >= 1 && Math.abs(angle) < 5;
-  const dotColor = isGreen ? '#22c55e' : isYellow ? '#fbbf24' : '#ef4444';
-  const label    = isGreen ? 'Plumb' : isYellow ? 'Slight tilt' : 'Off plumb';
-
-  // VAR line positions — degree → pct
-  const degToPct = (d: number) => ((d + RANGE) / (RANGE * 2)) * 100;
-
-  const varLines = [
-    { deg: -15, label: '-15°', major: true },
-    { deg: -9,  label: '-9°',  major: false },
-    { deg: -5,  label: '-5°',  major: false },
-    { deg: -1,  label: '-1°',  major: false },
-    { deg:  0,  label:  '0°',  major: true  },
-    { deg:  1,  label: '+1°',  major: false },
-    { deg:  5,  label: '+5°',  major: false },
-    { deg:  9,  label: '+9°',  major: false },
-    { deg: 15,  label: '+15°', major: true  },
-  ];
+  const pct   = ((Math.max(-RANGE, Math.min(RANGE, angle)) + RANGE) / (RANGE * 2)) * 100;
 
   return (
-    <div className="bg-black px-3 py-2.5 rounded-b-xl border-t border-white/8">
-      {/* Header row */}
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-white/30">Plumb</span>
-        <div className="flex items-center gap-2">
-          <span className="text-[9px] text-white/30">{label}</span>
-          <span
-            className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded-lg"
-            style={{ background: `${dotColor}22`, color: dotColor }}
-          >
-            {angle >= 0 ? '+' : ''}{angle.toFixed(1)}°
-          </span>
-        </div>
-      </div>
-
-      {/* Track */}
-      <div className="relative h-6 select-none">
-
-        {/* Colour zones */}
-        <div className="absolute inset-y-1 rounded-full overflow-hidden" style={{ left: 0, right: 0 }}>
-          {/* red left */}
-          <div className="absolute inset-y-0 bg-red-500/20"    style={{ left: '0%',               width: `${degToPct(-5)}%` }}/>
-          {/* yellow left */}
-          <div className="absolute inset-y-0 bg-amber-400/20"  style={{ left: `${degToPct(-5)}%`,  width: `${degToPct(-1)-degToPct(-5)}%` }}/>
-          {/* green centre */}
-          <div className="absolute inset-y-0 bg-emerald-500/25" style={{ left: `${degToPct(-1)}%`, width: `${degToPct(1)-degToPct(-1)}%` }}/>
-          {/* yellow right */}
-          <div className="absolute inset-y-0 bg-amber-400/20"  style={{ left: `${degToPct(1)}%`,   width: `${degToPct(5)-degToPct(1)}%` }}/>
-          {/* red right */}
-          <div className="absolute inset-y-0 bg-red-500/20"    style={{ left: `${degToPct(5)}%`,   right: 0 }}/>
-        </div>
-
-        {/* Track baseline */}
-        <div className="absolute left-0 right-0 top-1/2 -translate-y-px h-px bg-white/10"/>
-
-        {/* VAR lines */}
-        {varLines.map(v => (
-          <div
-            key={v.deg}
-            className="absolute top-0 flex flex-col items-center"
-            style={{ left: `${degToPct(v.deg)}%`, transform: 'translateX(-50%)' }}
-          >
-            {/* Tick */}
-            <div
-              className={`w-px ${v.major ? 'h-4 bg-white/50' : 'h-2.5 bg-white/20'}`}
-              style={{ marginTop: v.major ? 1 : 4 }}
-            />
-            {/* Label below track — only for major lines */}
-            {v.major && (
-              <span className="text-[7px] font-mono text-white/25 mt-0.5 whitespace-nowrap">{v.label}</span>
-            )}
-          </div>
-        ))}
-
-        {/* Centre 0° indicator — black vertical bar */}
-        <div
-          className="absolute top-0 bottom-0 w-0.5 bg-white/60 rounded-full"
-          style={{ left: `${degToPct(0)}%`, transform: 'translateX(-50%)' }}
+    <div className="bg-black px-4 py-3 rounded-b-xl border-t border-white/8 flex items-center gap-4">
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <motion.div
+          className="w-2 h-2 rounded-full"
+          style={{ background: color }}
+          animate={{ opacity: isPlumb ? [1, 0.3, 1] : 1 }}
+          transition={{ duration: 1.2, repeat: Infinity }}
         />
-
+        <span className="text-[10px] font-semibold text-white/50">{label}</span>
+        <span className="text-[11px] font-bold font-mono" style={{ color }}>
+          {angle >= 0 ? '+' : ''}{angle.toFixed(1)}°
+        </span>
+      </div>
+      {/* Single track */}
+      <div className="relative flex-1 h-px bg-white/15 rounded-full">
+        {/* Centre reference */}
+        <div className="absolute left-1/2 -translate-x-1/2 -top-1.5 w-px h-4 bg-white/40 rounded-full"/>
         {/* Moving dot */}
         <motion.div
-          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full shadow-lg border-2 border-black"
-          style={{ background: dotColor, left: `${pct}%`, transform: 'translate(-50%, -50%)' }}
-          animate={{ left: `${pct}%` }}
-          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+          className="absolute top-1/2 w-3 h-3 rounded-full border-2 border-black shadow-lg"
+          style={{ background: color, translateY: '-50%' }}
+          animate={{ left: `${pct}%`, x: '-50%' }}
+          transition={{ type: 'spring', stiffness: 400, damping: 35 }}
         />
-      </div>
-
-      {/* Degree labels row */}
-      <div className="relative h-3 mt-0.5">
-        {varLines.filter(v => !v.major).map(v => (
-          <span
-            key={v.deg}
-            className="absolute text-[7px] font-mono text-white/15 -translate-x-1/2"
-            style={{ left: `${degToPct(v.deg)}%` }}
-          >
-            {v.label}
-          </span>
-        ))}
       </div>
     </div>
   );
 }
 
-// ── Camera View with plumb line + rename ──────────────────────────────────────
+// ── CameraView ────────────────────────────────────────────────────────────────
 function CameraView({
   camera, onAngleChange, onRename, onRemove,
 }: {
@@ -174,17 +99,18 @@ function CameraView({
   const autoBox    = useRef<{x:number;y:number;w:number;h:number} | null>(null);
   const tiltAngle  = useRef<number>(0);
 
-  const [streaming,  setStreaming]  = useState(false);
-  const [error,      setError]      = useState('');
-  const [editing,    setEditing]    = useState(false);
-  const [label,      setLabel]      = useState(camera.label);
-  const [showPlumb,  setShowPlumb]  = useState(false);
-  const [isLocked,   setIsLocked]   = useState(false);
-  const [liveAngle,  setLiveAngle]  = useState(0);
-  const [result,     setResult]     = useState<{straight:boolean; angle:number; label:string} | null>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [error,     setError]     = useState('');
+  const [editing,   setEditing]   = useState(false);
+  const [label,     setLabel]     = useState(camera.label);
+  const [showPlumb, setShowPlumb] = useState(false);
+  const [isLocked,  setIsLocked]  = useState(false);
+  const [liveAngle, setLiveAngle] = useState(0);
+  const [result,    setResult]    = useState<{straight:boolean; angle:number} | null>(null);
 
   const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
 
+  // Device orientation → tilt
   useEffect(() => {
     const handler = (e: DeviceOrientationEvent) => {
       const g = e.gamma ?? 0;
@@ -195,84 +121,65 @@ function CameraView({
     return () => window.removeEventListener('deviceorientation', handler);
   }, []);
 
-  const detectDominantObject = (
-    grey: Float32Array, w: number, h: number
-  ): {x:number;y:number;w:number;h:number} | null => {
+  // Detect dominant object via Sobel edge energy grid
+  const detectDominantObject = (grey: Float32Array, w: number, h: number) => {
     const edges = new Float32Array(w * h);
     let maxE = 0;
     for (let y = 1; y < h-1; y++) {
       for (let x = 1; x < w-1; x++) {
         const i = y*w+x;
-        const gx = Math.abs(
-          -grey[(y-1)*w+(x-1)] + grey[(y-1)*w+(x+1)]
-          -2*grey[y*w+(x-1)]   + 2*grey[y*w+(x+1)]
-          -grey[(y+1)*w+(x-1)] + grey[(y+1)*w+(x+1)]
-        );
-        const gy = Math.abs(
-          -grey[(y-1)*w+(x-1)] - 2*grey[(y-1)*w+x] - grey[(y-1)*w+(x+1)]
-          +grey[(y+1)*w+(x-1)] + 2*grey[(y+1)*w+x] + grey[(y+1)*w+(x+1)]
-        );
+        const gx = Math.abs(-grey[(y-1)*w+(x-1)]+grey[(y-1)*w+(x+1)]-2*grey[y*w+(x-1)]+2*grey[y*w+(x+1)]-grey[(y+1)*w+(x-1)]+grey[(y+1)*w+(x+1)]);
+        const gy = Math.abs(-grey[(y-1)*w+(x-1)]-2*grey[(y-1)*w+x]-grey[(y-1)*w+(x+1)]+grey[(y+1)*w+(x-1)]+2*grey[(y+1)*w+x]+grey[(y+1)*w+(x+1)]);
         edges[i] = gx + gy;
         if (edges[i] > maxE) maxE = edges[i];
       }
     }
     const gridX = 4, gridY = 4;
-    const cellW = Math.floor(w / gridX);
-    const cellH = Math.floor(h / gridY);
+    const cellW = Math.floor(w/gridX), cellH = Math.floor(h/gridY);
     let bestCell = 0, bestEnergy = 0;
     const threshold = maxE * 0.3;
-    for (let gy = 0; gy < gridY; gy++) {
-      for (let gx = 0; gx < gridX; gx++) {
+    for (let gy = 0; gy < gridY; gy++)
+      for (let gx2 = 0; gx2 < gridX; gx2++) {
         let energy = 0;
         for (let py = gy*cellH; py < (gy+1)*cellH; py++)
-          for (let px = gx*cellW; px < (gx+1)*cellW; px++)
+          for (let px = gx2*cellW; px < (gx2+1)*cellW; px++)
             if (edges[py*w+px] > threshold) energy++;
-        if (energy > bestEnergy) { bestEnergy = energy; bestCell = gy * gridX + gx; }
+        if (energy > bestEnergy) { bestEnergy = energy; bestCell = gy*gridX+gx2; }
       }
-    }
     if (bestEnergy === 0) return null;
-    const bx = (bestCell % gridX) * cellW;
-    const by = Math.floor(bestCell / gridX) * cellH;
-    const padX = cellW * 0.5, padY = cellH * 0.5;
-    const rx = Math.max(0, bx - padX);
-    const ry = Math.max(0, by - padY);
-    const rw = Math.min(w - rx, cellW * 2 + padX);
-    const rh = Math.min(h - ry, cellH * 2 + padY);
-    return { x: rx, y: ry, w: rw, h: rh };
+    const bx = (bestCell%gridX)*cellW, by = Math.floor(bestCell/gridX)*cellH;
+    const padX = cellW*0.5, padY = cellH*0.5;
+    return {
+      x: Math.max(0, bx-padX), y: Math.max(0, by-padY),
+      w: Math.min(w-(bx-padX), cellW*2+padX), h: Math.min(h-(by-padY), cellH*2+padY),
+    };
   };
 
-  const analyseBoxStraightness = (
-    grey: Float32Array, w: number,
-    box: {x:number;y:number;w:number;h:number}
-  ): {straight:boolean; score:number} => {
-    const xS = Math.floor(box.x), xE = Math.floor(box.x + box.w);
-    const yS = Math.floor(box.y), yE = Math.floor(box.y + box.h);
+  // Analyse layer straightness within box
+  const analyseBoxStraightness = (grey: Float32Array, w: number, box: {x:number;y:number;w:number;h:number}) => {
+    const xS = Math.floor(box.x), xE = Math.floor(box.x+box.w);
+    const yS = Math.floor(box.y), yE = Math.floor(box.y+box.h);
     const edgeRows: number[] = [];
     for (let y = yS+1; y < yE-1; y++) {
       let sum = 0;
-      for (let x = xS; x < xE; x++) {
-        sum += Math.abs(
-          -grey[(y-1)*w+x-1] - 2*grey[(y-1)*w+x] - grey[(y-1)*w+x+1]
-          +grey[(y+1)*w+x-1] + 2*grey[(y+1)*w+x] + grey[(y+1)*w+x+1]
-        );
-      }
-      if (sum / (xE - xS) > 0.06) edgeRows.push(y);
+      for (let x = xS; x < xE; x++)
+        sum += Math.abs(-grey[(y-1)*w+x-1]-2*grey[(y-1)*w+x]-grey[(y-1)*w+x+1]+grey[(y+1)*w+x-1]+2*grey[(y+1)*w+x]+grey[(y+1)*w+x+1]);
+      if (sum/(xE-xS) > 0.06) edgeRows.push(y);
     }
     const clusters: number[][] = [];
     let cur: number[] = [];
     for (const r of edgeRows) {
-      if (cur.length === 0 || r - cur[cur.length-1] < 8) cur.push(r);
-      else { if (cur.length > 1) clusters.push(cur); cur = [r]; }
+      if (cur.length===0 || r-cur[cur.length-1]<8) cur.push(r);
+      else { if (cur.length>1) clusters.push(cur); cur=[r]; }
     }
-    if (cur.length > 1) clusters.push(cur);
-    if (clusters.length < 2) return { straight: true, score: 100 };
-    const centres = clusters.map(c => c.reduce((a,b)=>a+b,0)/c.length);
-    const gaps    = centres.slice(1).map((c,i)=>c-centres[i]);
-    const avgGap  = gaps.reduce((a,b)=>a+b,0)/gaps.length;
-    const std     = Math.sqrt(gaps.reduce((a,b)=>a+Math.pow(b-avgGap,2),0)/gaps.length);
-    const cv      = std / Math.max(avgGap, 1);
-    const score   = Math.round(Math.max(0, 100 - cv * 200));
-    return { straight: score > 70, score };
+    if (cur.length>1) clusters.push(cur);
+    if (clusters.length<2) return { straight: true, score: 100 };
+    const centres = clusters.map(c=>c.reduce((a,b)=>a+b,0)/c.length);
+    const gaps = centres.slice(1).map((c,i)=>c-centres[i]);
+    const avgGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
+    const std = Math.sqrt(gaps.reduce((a,b)=>a+Math.pow(b-avgGap,2),0)/gaps.length);
+    const score = Math.round(Math.max(0, 100-std/Math.max(avgGap,1)*200));
+    return { straight: score>70, score };
   };
 
   const analyseFrame = () => {
@@ -281,7 +188,7 @@ function CameraView({
     const overlay = overlayRef.current;
     if (!video || !canvas || !overlay || video.readyState < 2) return;
 
-    const vw = video.videoWidth  || 640;
+    const vw = video.videoWidth || 640;
     const vh = video.videoHeight || 360;
     canvas.width = vw; canvas.height = vh;
 
@@ -290,7 +197,7 @@ function CameraView({
     const { data } = ctx.getImageData(0, 0, vw, vh);
 
     const grey = new Float32Array(vw * vh);
-    for (let i = 0; i < vw * vh; i++)
+    for (let i = 0; i < vw*vh; i++)
       grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
 
     const activeBox = lockedBox.current ?? detectDominantObject(grey, vw, vh);
@@ -300,14 +207,13 @@ function CameraView({
     if (activeBox) cvResult = analyseBoxStraightness(grey, vw, activeBox);
 
     const tilt = tiltAngle.current;
-    const isLevelByTilt = Math.abs(tilt) < 2.5;
-    const straight = (cvResult?.straight ?? true) && isLevelByTilt;
-    const angleStr = `${tilt >= 0 ? '+' : ''}${tilt.toFixed(1)}°`;
-    const objectLabel = lockedBox.current ? 'LOCKED OBJECT' : activeBox ? 'AUTO-DETECTED' : 'SCANNING...';
+    const straight = (cvResult?.straight ?? true) && Math.abs(tilt) < 2.5;
+    const angleStr = `${tilt>=0?'+':''}${tilt.toFixed(1)}°`;
 
-    setResult({ straight, angle: tilt, label: objectLabel });
+    setResult({ straight, angle: tilt });
     setLiveAngle(tilt);
 
+    // ── Draw overlay ───────────────────────────────────────────────────────
     const ow = overlay.offsetWidth;
     const oh = overlay.offsetHeight;
     overlay.width = ow; overlay.height = oh;
@@ -317,174 +223,89 @@ function CameraView({
     const scaleX = ow / vw;
     const scaleY = oh / vh;
 
-    // Rule of thirds grid
-    octx.strokeStyle = 'rgba(255,255,255,0.12)';
-    octx.lineWidth = 0.5;
-    [1/3,2/3].forEach(f => {
-      octx.beginPath(); octx.moveTo(ow*f,0); octx.lineTo(ow*f,oh); octx.stroke();
-      octx.beginPath(); octx.moveTo(0,oh*f); octx.lineTo(ow,oh*f); octx.stroke();
-    });
-
-    // Centre plumb line (dashed blue)
-    octx.strokeStyle = 'rgba(59,130,246,0.7)';
-    octx.lineWidth = 1.5;
-    octx.setLineDash([5,5]);
-    octx.beginPath(); octx.moveTo(ow/2, 0); octx.lineTo(ow/2, oh); octx.stroke();
-    octx.setLineDash([]);
-
-    // Centre horizontal
-    octx.lineWidth = 1;
-    octx.beginPath(); octx.moveTo(0, oh/2); octx.lineTo(ow, oh/2); octx.stroke();
-
-    // Crosshair
-    octx.beginPath(); octx.arc(ow/2, oh/2, 20, 0, Math.PI*2);
-    octx.lineWidth = 1.5; octx.stroke();
-
-    // VAR scale lines on both sides of frame
-    const varDefs = [
-      { deg: 0,   major: true  },
-      { deg: 1,   major: false },
-      { deg: -1,  major: false },
-      { deg: 5,   major: false },
-      { deg: -5,  major: false },
-      { deg: 9,   major: false },
-      { deg: -9,  major: false },
-      { deg: 15,  major: true  },
-      { deg: -15, major: true  },
-    ];
-    const RANGE = 15;
-    varDefs.forEach(({ deg, major }) => {
-      const yFrac = 0.5 - deg / (RANGE * 2); // map deg to vertical position
-      const y     = oh * yFrac;
-      const lw    = major ? ow * 0.12 : ow * 0.07;
-      const isZero = deg === 0;
-
-      octx.strokeStyle = isZero
-        ? 'rgba(59,130,246,0.9)'
-        : major
-        ? 'rgba(255,255,255,0.4)'
-        : 'rgba(255,255,255,0.2)';
-      octx.lineWidth = isZero ? 2 : major ? 1.2 : 0.8;
-
-      // Left side
-      octx.beginPath(); octx.moveTo(0, y); octx.lineTo(lw, y); octx.stroke();
-      // Right side (mirror)
-      octx.beginPath(); octx.moveTo(ow, y); octx.lineTo(ow - lw, y); octx.stroke();
-
-      // Degree label
-      if (major || Math.abs(deg) === 5 || Math.abs(deg) === 9) {
-        octx.fillStyle = 'rgba(255,255,255,0.35)';
-        octx.font = `${major ? 8 : 7}px monospace`;
-        const txt = deg === 0 ? '0°' : `${deg > 0 ? '+' : ''}${deg}°`;
-        octx.fillText(txt, lw + 3, y + 3);
-        octx.fillText(txt, ow - lw - octx.measureText(txt).width - 3, y + 3);
-      }
-    });
-
-    // Zone colour bands on left edge
-    const bandW = 4;
-    [
-      { from: -15, to: -5,  color: 'rgba(239,68,68,0.5)'   },
-      { from: -5,  to: -1,  color: 'rgba(251,191,36,0.5)'  },
-      { from: -1,  to:  1,  color: 'rgba(34,197,94,0.6)'   },
-      { from:  1,  to:  5,  color: 'rgba(251,191,36,0.5)'  },
-      { from:  5,  to:  15, color: 'rgba(239,68,68,0.5)'   },
-    ].forEach(({ from, to, color }) => {
-      const y1 = oh * (0.5 - from / (RANGE * 2));
-      const y2 = oh * (0.5 - to   / (RANGE * 2));
-      octx.fillStyle = color;
-      octx.fillRect(0, Math.min(y1,y2), bandW, Math.abs(y2-y1));
-      octx.fillRect(ow - bandW, Math.min(y1,y2), bandW, Math.abs(y2-y1));
-    });
-
-    // Current tilt marker line (moves with angle)
-    const tiltY = oh * (0.5 - tilt / (RANGE * 2));
-    const tiltColor2 = Math.abs(tilt) < 1 ? 'rgba(34,197,94,0.9)'
-                     : Math.abs(tilt) < 5 ? 'rgba(251,191,36,0.9)'
-                     : 'rgba(239,68,68,0.9)';
-    octx.strokeStyle = tiltColor2;
-    octx.lineWidth = 2;
-    octx.setLineDash([3,3]);
-    octx.beginPath(); octx.moveTo(0, tiltY); octx.lineTo(ow * 0.22, tiltY); octx.stroke();
-    octx.beginPath(); octx.moveTo(ow, tiltY); octx.lineTo(ow * 0.78, tiltY); octx.stroke();
-    octx.setLineDash([]);
-
-    // Detected object bounding box
+    // Bounding box + plumb line on object
     if (activeBox) {
       const bx = activeBox.x * scaleX;
       const by = activeBox.y * scaleY;
       const bw = activeBox.w * scaleX;
       const bh = activeBox.h * scaleY;
+
       const boxColor = lockedBox.current
-        ? (straight ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)')
-        : 'rgba(251,191,36,0.8)';
+        ? (straight ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)')
+        : 'rgba(255,255,255,0.35)';
+
+      // Box outline
       octx.strokeStyle = boxColor;
-      octx.lineWidth = lockedBox.current ? 2 : 1.5;
-      octx.setLineDash(lockedBox.current ? [] : [4,3]);
+      octx.lineWidth   = lockedBox.current ? 1.5 : 1;
+      octx.setLineDash(lockedBox.current ? [] : [5, 4]);
       octx.strokeRect(bx, by, bw, bh);
       octx.setLineDash([]);
+
+      // Corner brackets when locked
       if (lockedBox.current) {
-        const cs = 12;
-        octx.lineWidth = 2.5;
-        [[bx,by],[bx+bw,by],[bx,by+bh],[bx+bw,by+bh]].forEach(([cx,cy],ci) => {
+        const cs = 10;
+        octx.lineWidth = 2;
+        [[bx,by],[bx+bw,by],[bx,by+bh],[bx+bw,by+bh]].forEach(([px,py],ci) => {
           const sx = ci%2===0?1:-1, sy = ci<2?1:-1;
           octx.beginPath();
-          octx.moveTo(cx+sx*cs, cy); octx.lineTo(cx,cy); octx.lineTo(cx, cy+sy*cs);
+          octx.moveTo(px+sx*cs, py); octx.lineTo(px, py); octx.lineTo(px, py+sy*cs);
           octx.stroke();
         });
       }
-      const lText = lockedBox.current ? (straight ? '✓ STRAIGHT' : '✗ DEVIATION') : '⊙ AUTO-DETECT';
+
+      // ── THE ONE PLUMB LINE — vertical centre of object ─────────────────
+      const cx = bx + bw/2;
+      const lineColor = straight ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)';
+      octx.strokeStyle = lineColor;
+      octx.lineWidth   = 2;
+      octx.beginPath(); octx.moveTo(cx, by); octx.lineTo(cx, by+bh); octx.stroke();
+      // End caps
+      octx.fillStyle = lineColor;
+      octx.beginPath(); octx.arc(cx, by,    3, 0, Math.PI*2); octx.fill();
+      octx.beginPath(); octx.arc(cx, by+bh, 3, 0, Math.PI*2); octx.fill();
+
+      // Label above box
+      const lText = lockedBox.current ? (straight?'✓ PLUMB':'✗ OFF PLUMB') : '⊙ TAP TO LOCK';
       const lw2 = octx.measureText(lText).width + 12;
-      octx.fillStyle = boxColor.replace('0.9','0.85').replace('0.8','0.85');
+      octx.fillStyle = boxColor;
       octx.beginPath(); octx.roundRect(bx, by-20, lw2, 16, 3); octx.fill();
       octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
       octx.fillText(lText, bx+6, by-8);
+
+      // Score inside box when locked
       if (lockedBox.current && cvResult) {
-        octx.fillStyle = 'rgba(0,0,0,0.65)';
-        octx.beginPath(); octx.roundRect(bx+4, by+4, 90, 14, 3); octx.fill();
-        octx.fillStyle = 'rgba(255,255,255,0.8)'; octx.font = '8px monospace';
-        octx.fillText(`SCORE ${cvResult.score}% · ${angleStr}`, bx+8, by+14);
+        octx.fillStyle = 'rgba(0,0,0,0.6)';
+        octx.beginPath(); octx.roundRect(bx+4, by+4, 80, 14, 3); octx.fill();
+        octx.fillStyle = 'rgba(255,255,255,0.75)'; octx.font = '8px monospace';
+        octx.fillText(`${cvResult.score}% · ${angleStr}`, bx+8, by+14);
       }
     }
 
-    // Angle readout next to crosshair
-    const tiltColor = Math.abs(tilt) < 1 ? 'rgba(34,197,94,0.9)'
-                    : Math.abs(tilt) < 5 ? 'rgba(251,191,36,0.9)'
-                    : 'rgba(239,68,68,0.9)';
+    // Angle readout — top right
+    const tiltColor = Math.abs(tilt)<1?'rgba(34,197,94,0.9)':Math.abs(tilt)<5?'rgba(251,191,36,0.9)':'rgba(239,68,68,0.9)';
     octx.fillStyle = tiltColor;
-    octx.beginPath(); octx.roundRect(ow/2+26, oh/2-10, 52, 17, 4); octx.fill();
+    const rw = octx.measureText(angleStr).width + 14;
+    octx.beginPath(); octx.roundRect(ow-rw-8, 8, rw, 20, 4); octx.fill();
     octx.fillStyle = 'white'; octx.font = 'bold 10px monospace';
-    octx.fillText(angleStr, ow/2+30, oh/2+3);
+    octx.fillText(angleStr, ow-rw-8+7, 22);
 
-    // Status badge top-left
-    const badgeBg = !activeBox ? 'rgba(80,80,80,0.9)'
-                  : straight   ? 'rgba(22,163,74,0.9)' : 'rgba(220,38,38,0.9)';
-    const badge = !activeBox         ? '⟳ SCANNING...'
-                : !lockedBox.current ? '⊙ TAP TO LOCK'
-                : straight           ? '✓ STRAIGHT' : '✗ DEVIATION';
+    // Status badge — top left
+    const badgeBg = !activeBox?'rgba(60,60,60,0.85)':straight?'rgba(22,163,74,0.85)':'rgba(220,38,38,0.85)';
+    const badge   = !activeBox?'SCANNING':!lockedBox.current?'TAP TO LOCK':straight?'PLUMB':'OFF PLUMB';
     octx.fillStyle = badgeBg;
-    const badgeW = octx.measureText(badge).width + 16;
-    octx.beginPath(); octx.roundRect(8, 8, badgeW, 20, 4); octx.fill();
+    const bw2 = octx.measureText(badge).width + 16;
+    octx.beginPath(); octx.roundRect(8, 8, bw2, 20, 4); octx.fill();
     octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
-    octx.fillText(badge, 14, 21);
+    octx.fillText(badge, 16, 22);
 
-    // PLUMB badge top-right
-    octx.fillStyle = 'rgba(59,130,246,0.85)';
-    octx.beginPath(); octx.roundRect(ow-56, 8, 48, 20, 4); octx.fill();
-    octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
-    octx.fillText('PLUMB', ow-50, 21);
+    // Camera angle — bottom left
+    octx.fillStyle = 'rgba(255,255,255,0.2)'; octx.font = '8px monospace';
+    octx.fillText(`${camera.angle.toUpperCase()} VIEW`, 8, oh-8);
 
-    // Camera label bottom-left
-    octx.fillStyle = 'rgba(0,0,0,0.65)';
-    octx.beginPath(); octx.roundRect(8, oh-24, 96, 16, 4); octx.fill();
-    octx.fillStyle = 'rgba(255,255,255,0.7)'; octx.font = '8px monospace';
-    octx.fillText(`${camera.angle.toUpperCase()} VIEW`, 12, oh-12);
-
+    // Unlock hint — bottom right
     if (lockedBox.current) {
-      octx.fillStyle = 'rgba(0,0,0,0.55)';
-      octx.beginPath(); octx.roundRect(ow-90, oh-24, 82, 16, 4); octx.fill();
-      octx.fillStyle = 'rgba(255,255,255,0.5)'; octx.font = '8px monospace';
-      octx.fillText('TAP TO UNLOCK', ow-86, oh-12);
+      octx.fillStyle = 'rgba(255,255,255,0.2)'; octx.font = '8px monospace';
+      octx.fillText('TAP TO UNLOCK', ow-90, oh-8);
     }
   };
 
@@ -494,32 +315,26 @@ function CameraView({
     const video   = videoRef.current;
     if (!overlay || !video) return;
     const rect   = overlay.getBoundingClientRect();
-    const clickX = (e.clientX - rect.left) / rect.width;
-    const clickY = (e.clientY - rect.top)  / rect.height;
-    if (lockedBox.current) { lockedBox.current = null; setIsLocked(false); return; }
+    const clickX = (e.clientX-rect.left)/rect.width;
+    const clickY = (e.clientY-rect.top)/rect.height;
+    if (lockedBox.current) { lockedBox.current=null; setIsLocked(false); return; }
     if (autoBox.current) {
-      const vw = video.videoWidth || 640;
-      const vh = video.videoHeight || 360;
-      const b  = autoBox.current;
-      const bx = b.x/vw, by = b.y/vh, bw = b.w/vw, bh = b.h/vh;
-      if (clickX >= bx-0.05 && clickX <= bx+bw+0.05 && clickY >= by-0.05 && clickY <= by+bh+0.05) {
-        lockedBox.current = autoBox.current; setIsLocked(true); return;
+      const vw=video.videoWidth||640, vh=video.videoHeight||360;
+      const b=autoBox.current;
+      if (clickX>=b.x/vw-0.05&&clickX<=b.x/vw+b.w/vw+0.05&&clickY>=b.y/vh-0.05&&clickY<=b.y/vh+b.h/vh+0.05) {
+        lockedBox.current=autoBox.current; setIsLocked(true); return;
       }
     }
-    const vw = video.videoWidth || 640;
-    const vh = video.videoHeight || 360;
-    const bw = vw * 0.35, bh = vh * 0.45;
-    lockedBox.current = {
-      x: Math.max(0, clickX*vw - bw/2), y: Math.max(0, clickY*vh - bh/2),
-      w: Math.min(vw, bw), h: Math.min(vh, bh),
-    };
+    const vw=video.videoWidth||640, vh=video.videoHeight||360;
+    const bw=vw*0.35, bh=vh*0.45;
+    lockedBox.current={ x:Math.max(0,clickX*vw-bw/2), y:Math.max(0,clickY*vh-bh/2), w:Math.min(vw,bw), h:Math.min(vh,bh) };
     setIsLocked(true);
   };
 
   useEffect(() => {
     if (streaming && showPlumb) {
-      const loop = () => { analyseFrame(); timerRef.current = window.setTimeout(loop, 125) as unknown as number; };
-      timerRef.current = window.setTimeout(loop, 125) as unknown as number;
+      const loop = () => { analyseFrame(); timerRef.current=window.setTimeout(loop,125) as unknown as number; };
+      timerRef.current = window.setTimeout(loop,125) as unknown as number;
     } else {
       if (timerRef.current) clearTimeout(timerRef.current);
     }
@@ -530,21 +345,16 @@ function CameraView({
     setError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+        video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }, audio: false,
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        setStreaming(true);
-      }
-    } catch (e: any) { setError(e.message || 'Camera access denied'); }
+      if (videoRef.current) { videoRef.current.srcObject=stream; await videoRef.current.play(); setStreaming(true); }
+    } catch (e: any) { setError(e.message||'Camera access denied'); }
   };
 
   const stopCamera = () => {
-    if (videoRef.current?.srcObject)
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-    if (videoRef.current) videoRef.current.srcObject = null;
-    lockedBox.current = null; setIsLocked(false); setStreaming(false); setResult(null);
+    if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t=>t.stop());
+    if (videoRef.current) videoRef.current.srcObject=null;
+    lockedBox.current=null; setIsLocked(false); setStreaming(false); setResult(null);
   };
 
   const saveLabel = () => { onRename(camera.id, label); setEditing(false); };
@@ -554,7 +364,7 @@ function CameraView({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
         <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full ${streaming ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}/>
+          <div className={`w-1.5 h-1.5 rounded-full ${streaming?'bg-red-500 animate-pulse':'bg-gray-300'}`}/>
           {editing ? (
             <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
               onBlur={saveLabel} onKeyDown={e=>e.key==='Enter'&&saveLabel()}
@@ -571,21 +381,21 @@ function CameraView({
                 ? result.straight ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
                 : 'bg-amber-100 text-amber-700'
             }`}>
-              {isLocked ? (result.straight ? '✓ Straight' : '✗ Deviation') : '⊙ Detecting'}
+              {isLocked ? (result.straight?'✓ Plumb':'✗ Off plumb') : '⊙ Detecting'}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1 flex-wrap justify-end">
           {angles.map(a=>(
             <button key={a} onClick={()=>onAngleChange(camera.id,a)}
-              className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${
-                camera.angle===a?'bg-black text-white':'text-black/30 hover:text-black'
-              }`}>{a}</button>
+              className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${camera.angle===a?'bg-black text-white':'text-black/30 hover:text-black'}`}>
+              {a}
+            </button>
           ))}
           <button onClick={()=>{ setShowPlumb(v=>!v); lockedBox.current=null; setIsLocked(false); }}
-            className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${
-              showPlumb?'bg-blue-500 text-white':'text-black/30 hover:text-black border border-gray-200'
-            }`}>⊕ Plumb</button>
+            className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-blue-500 text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
+            ⊕ Plumb
+          </button>
         </div>
       </div>
 
@@ -596,9 +406,7 @@ function CameraView({
         <canvas ref={canvasRef} className="hidden"/>
         <canvas ref={overlayRef}
           onClick={handleOverlayClick}
-          className={`absolute inset-0 w-full h-full z-10 ${
-            streaming&&showPlumb ? 'block' : 'hidden'
-          } ${showPlumb ? 'cursor-crosshair' : 'pointer-events-none'}`}/>
+          className={`absolute inset-0 w-full h-full z-10 ${streaming&&showPlumb?'block':'hidden'} ${showPlumb?'cursor-crosshair':'pointer-events-none'}`}/>
         {streaming && !showPlumb && (
           <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg z-10">
             <span className="text-[9px] text-white/70 font-mono uppercase">{camera.angle} view</span>
@@ -624,8 +432,8 @@ function CameraView({
         )}
       </div>
 
-      {/* ── Angle Meter — shown when plumb is active ── */}
-      {showPlumb && <AngleMeter angle={liveAngle} />}
+      {/* Plumb indicator — only when plumb active */}
+      {showPlumb && <PlumbIndicator angle={liveAngle}/>}
     </div>
   );
 }
@@ -636,32 +444,30 @@ const DEFECT_CLASSES = ['Cracking', 'Delamination', 'Over-extrusion', 'Under-ext
 function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info'|'warn'|'error') => void }) {
   const [image,   setImage]   = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [results, setResults] = useState<{label: string; confidence: number; detected: boolean}[] | null>(null);
+  const [results, setResults] = useState<{label:string; confidence:number; detected:boolean}[] | null>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setImage(url); setResults(null); setRunning(true);
+    setImage(URL.createObjectURL(file)); setResults(null); setRunning(true);
     onAlert('Defect analysis running…', 'info');
     try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await fetch(`${API}/detect`, { method: 'POST', body: form });
+      const form = new FormData(); form.append('file', file);
+      const res = await fetch(`${API}/detect`, { method:'POST', body:form });
       if (res.ok) {
         const data = await res.json();
         setResults(data.detections ?? data.results ?? []);
-        const found = (data.detections ?? []).filter((d: any) => d.detected);
-        onAlert(found.length > 0 ? `Detected: ${found.map((d:any)=>d.label).join(', ')}` : 'No defects detected', found.length > 0 ? 'error' : 'info');
+        const found = (data.detections??[]).filter((d:any)=>d.detected);
+        onAlert(found.length>0?`Detected: ${found.map((d:any)=>d.label).join(', ')}`:'No defects detected', found.length>0?'error':'info');
       } else {
-        const simulated = DEFECT_CLASSES.map(label => ({ label, confidence: Math.random(), detected: Math.random() > 0.75 }));
-        setResults(simulated);
-        const found = simulated.filter(d => d.detected);
-        onAlert(found.length > 0 ? `Detected: ${found.map(d=>d.label).join(', ')}` : 'No defects detected', found.length > 0 ? 'error' : 'info');
+        const sim = DEFECT_CLASSES.map(label=>({label, confidence:Math.random(), detected:Math.random()>0.75}));
+        setResults(sim);
+        const found = sim.filter(d=>d.detected);
+        onAlert(found.length>0?`Detected: ${found.map(d=>d.label).join(', ')}`:'No defects detected', found.length>0?'error':'info');
       }
     } catch {
-      const simulated = DEFECT_CLASSES.map(label => ({ label, confidence: Math.random(), detected: Math.random() > 0.75 }));
-      setResults(simulated);
+      const sim = DEFECT_CLASSES.map(label=>({label, confidence:Math.random(), detected:Math.random()>0.75}));
+      setResults(sim);
     }
     setRunning(false);
   };
@@ -680,7 +486,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
           </label>
         </div>
         <div className="aspect-video bg-gray-50 flex items-center justify-center relative">
-          {image ? <img src={image} alt="Analysis input" className="w-full h-full object-contain"/> : (
+          {image ? <img src={image} alt="input" className="w-full h-full object-contain"/> : (
             <div className="text-center">
               <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
                 <svg className="w-6 h-6 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -694,7 +500,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
             <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
               <div className="text-center">
                 <motion.div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full mx-auto mb-2"
-                  animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}/>
+                  animate={{rotate:360}} transition={{duration:0.8,repeat:Infinity,ease:'linear'}}/>
                 <p className="text-white text-xs font-semibold">Running YOLOv8…</p>
               </div>
             </div>
@@ -707,10 +513,10 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
           <p className="text-[10px] text-black/30 mt-0.5">YOLOv8 Nano · 22 defect classes · trained on 3DCP dataset</p>
         </div>
         <div className="p-5">
-          {!results && !running && <div className="text-center py-12 text-black/25 text-xs">Upload an image to see results</div>}
+          {!results&&!running&&<div className="text-center py-12 text-black/25 text-xs">Upload an image to see results</div>}
           {results && (
             <div className="space-y-3">
-              {results.map((r, i) => (
+              {results.map((r,i)=>(
                 <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.05}}
                   className={`flex items-center justify-between p-3 rounded-xl border ${r.detected?'bg-red-50 border-red-200':'bg-gray-50 border-gray-100'}`}>
                   <div className="flex items-center gap-2">
@@ -728,7 +534,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
               ))}
               <div className={`mt-4 p-3 rounded-xl ${results.some(r=>r.detected)?'bg-red-50 border border-red-200':'bg-emerald-50 border border-emerald-200'}`}>
                 <p className={`text-xs font-bold ${results.some(r=>r.detected)?'text-red-700':'text-emerald-700'}`}>
-                  {results.some(r=>r.detected) ? `⚠ ${results.filter(r=>r.detected).length} defect(s) detected — review recommended` : '✓ Layer quality OK — no defects detected'}
+                  {results.some(r=>r.detected)?`⚠ ${results.filter(r=>r.detected).length} defect(s) detected — review recommended`:'✓ Layer quality OK — no defects detected'}
                 </p>
               </div>
             </div>
@@ -743,112 +549,102 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
 export default function LiveMonitoring() {
   const router = useRouter();
   const { activeProject, updateProject } = useProjects();
-  const startTimeRef = useRef<Date>(new Date());
-  const sessionRef   = useRef({ layersPrinted: 0, errorsDetected: 0, alerts: [] as ReportAlert[] });
-  const tickRef      = useRef<NodeJS.Timeout | null>(null);
+  const sessionRef = useRef({ layersPrinted:0, errorsDetected:0, alerts:[] as ReportAlert[] });
+  const tickRef    = useRef<NodeJS.Timeout | null>(null);
 
   const [activeTab,   setActiveTab]   = useState<Tab>('monitor');
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsed,     setElapsed]     = useState(0);
   const [alertLog,    setAlertLog]    = useState<{time:string;msg:string;level:'info'|'warn'|'error'}[]>([]);
-
-  const [controls, setControls] = useState<PrinterControl>({
-    printSpeed: 60, extrusionRate: 100, pumpPressure: 4.2, paused: false,
-  });
-
-  const [cameras, setCameras] = useState<Camera[]>([
-    { id: '1', label: 'Camera 1', angle: 'front',    active: true },
-    { id: '2', label: 'Camera 2', angle: 'overhead', active: true },
+  const [controls,    setControls]    = useState<PrinterControl>({ printSpeed:60, extrusionRate:100, pumpPressure:4.2, paused:false });
+  const [cameras,     setCameras]     = useState<Camera[]>([
+    { id:'1', label:'Camera 1', angle:'front',    active:true },
+    { id:'2', label:'Camera 2', angle:'overhead', active:true },
   ]);
-
   const [sensors, setSensors] = useState<SensorReading[]>([
-    { label: 'Ambient Temp',    value: '24.2', unit: '°C',    status: 'ok',   trend: 'stable', history: [24,24.1,24.2,24.1,24.2,24.3,24.2] },
-    { label: 'Humidity',        value: '58',   unit: '%',     status: 'ok',   trend: 'stable', history: [57,58,58,59,58,57,58] },
-    { label: 'Wind Speed',      value: '6.2',  unit: 'km/h',  status: 'ok',   trend: 'up',     history: [4,5,5.5,6,6.1,6.2,6.2] },
-    { label: 'Flow Rate',       value: '8.1',  unit: 'L/min', status: 'ok',   trend: 'stable', history: [8,8.1,8.1,8,8.1,8.2,8.1] },
-    { label: 'Pump Pressure',   value: '4.2',  unit: 'bar',   status: 'ok',   trend: 'stable', history: [4.1,4.2,4.2,4.3,4.2,4.2,4.2] },
-    { label: 'Concrete Temp',   value: '21.8', unit: '°C',    status: 'ok',   trend: 'stable', history: [21.5,21.6,21.7,21.8,21.8,21.8,21.8] },
-    { label: 'Pot Life Left',   value: '47',   unit: 'min',   status: 'warn', trend: 'down',   history: [60,58,55,53,51,49,47] },
-    { label: 'Mix Consistency', value: '94',   unit: '%',     status: 'ok',   trend: 'stable', history: [93,94,95,94,94,93,94] },
+    { label:'Ambient Temp',    value:'24.2', unit:'°C',    status:'ok',   trend:'stable', history:[24,24.1,24.2,24.1,24.2,24.3,24.2] },
+    { label:'Humidity',        value:'58',   unit:'%',     status:'ok',   trend:'stable', history:[57,58,58,59,58,57,58] },
+    { label:'Wind Speed',      value:'6.2',  unit:'km/h',  status:'ok',   trend:'up',     history:[4,5,5.5,6,6.1,6.2,6.2] },
+    { label:'Flow Rate',       value:'8.1',  unit:'L/min', status:'ok',   trend:'stable', history:[8,8.1,8.1,8,8.1,8.2,8.1] },
+    { label:'Pump Pressure',   value:'4.2',  unit:'bar',   status:'ok',   trend:'stable', history:[4.1,4.2,4.2,4.3,4.2,4.2,4.2] },
+    { label:'Concrete Temp',   value:'21.8', unit:'°C',    status:'ok',   trend:'stable', history:[21.5,21.6,21.7,21.8,21.8,21.8,21.8] },
+    { label:'Pot Life Left',   value:'47',   unit:'min',   status:'warn', trend:'down',   history:[60,58,55,53,51,49,47] },
+    { label:'Mix Consistency', value:'94',   unit:'%',     status:'ok',   trend:'stable', history:[93,94,95,94,94,93,94] },
   ]);
 
   useEffect(() => {
     tickRef.current = setInterval(() => {
-      setElapsed(s => s + 1);
-      setSensors(prev => prev.map(s => {
-        const last = parseFloat(s.value);
-        const next = Math.round((last + (Math.random()-0.5)*0.2)*100)/100;
-        const newH = [...s.history.slice(-8), next];
-        let status: 'ok'|'warn'|'error' = s.status;
-        if (s.label === 'Pot Life Left') status = next < 20 ? 'error' : next < 35 ? 'warn' : 'ok';
-        return { ...s, value: String(next), history: newH, status };
+      setElapsed(s=>s+1);
+      setSensors(prev=>prev.map(s=>{
+        const last=parseFloat(s.value);
+        const next=Math.round((last+(Math.random()-0.5)*0.2)*100)/100;
+        const newH=[...s.history.slice(-8),next];
+        let status:'ok'|'warn'|'error'=s.status;
+        if(s.label==='Pot Life Left') status=next<20?'error':next<35?'warn':'ok';
+        return {...s, value:String(next), history:newH, status};
       }));
     }, 3000);
-    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+    return ()=>{ if(tickRef.current) clearInterval(tickRef.current); };
   }, []);
 
-  const addAlert = useCallback((msg: string, level: 'info'|'warn'|'error' = 'info') => {
-    const time = new Date().toLocaleTimeString();
-    setAlertLog(prev => [{ time, msg, level }, ...prev.slice(0,19)]);
-    if (level !== 'info') sessionRef.current.alerts.push({ time, layer: sessionRef.current.layersPrinted, message: msg });
-  }, []);
+  const addAlert = useCallback((msg:string, level:'info'|'warn'|'error'='info')=>{
+    const time=new Date().toLocaleTimeString();
+    setAlertLog(prev=>[{time,msg,level},...prev.slice(0,19)]);
+    if(level!=='info') sessionRef.current.alerts.push({time,layer:sessionRef.current.layersPrinted,message:msg});
+  },[]);
 
-  const updateControl = (key: keyof PrinterControl, val: number | boolean) => {
-    setControls(prev => ({ ...prev, [key]: val }));
-    if (key !== 'paused') addAlert(`${key} set to ${val}`, 'info');
+  const updateControl=(key:keyof PrinterControl, val:number|boolean)=>{
+    setControls(prev=>({...prev,[key]:val}));
+    if(key!=='paused') addAlert(`${key} set to ${val}`,'info');
   };
 
-  const addCamera   = () => { const id = String(Date.now()); setCameras(prev => [...prev, { id, label: `Camera ${prev.length+1}`, angle: 'front', active: true }]); };
-  const removeCamera = (id: string) => setCameras(prev => prev.filter(c => c.id !== id));
-  const updateAngle  = (id: string, angle: Camera['angle']) => setCameras(prev => prev.map(c => c.id===id ? {...c,angle} : c));
-  const renameCamera = (id: string, label: string) => setCameras(prev => prev.map(c => c.id===id ? {...c,label} : c));
+  const addCamera   = ()=>{ const id=String(Date.now()); setCameras(prev=>[...prev,{id,label:`Camera ${prev.length+1}`,angle:'front',active:true}]); };
+  const removeCamera = (id:string)=>setCameras(prev=>prev.filter(c=>c.id!==id));
+  const updateAngle  = (id:string,angle:Camera['angle'])=>setCameras(prev=>prev.map(c=>c.id===id?{...c,angle}:c));
+  const renameCamera = (id:string,label:string)=>setCameras(prev=>prev.map(c=>c.id===id?{...c,label}:c));
 
-  const fmtElapsed = () => {
-    const h=Math.floor(elapsed/3600), m=Math.floor((elapsed%3600)/60), s=elapsed%60;
+  const fmtElapsed=()=>{
+    const h=Math.floor(elapsed/3600),m=Math.floor((elapsed%3600)/60),s=elapsed%60;
     return h>0?`${h}h ${m}m`:`${m}m ${String(s).padStart(2,'0')}s`;
   };
 
-  const endPrint = () => {
-    if (!activeProject) return;
+  const endPrint=()=>{
+    if(!activeProject) return;
     const s=sessionRef.current;
-    const h=Math.floor(elapsed/3600), m=Math.floor((elapsed%3600)/60);
-    const report: ProjectReport = {
-      generatedAt: new Date().toISOString(), duration: h>0?`${h}h ${m}m`:`${m}m`,
-      totalLayers: activeProject.totalLayers, layersPrinted: s.layersPrinted,
-      errorsDetected: s.errorsDetected,
-      errorRate: activeProject.totalLayers>0?`${((s.errorsDetected/activeProject.totalLayers)*100).toFixed(1)}%`:'0%',
-      alerts: s.alerts, printerName: activeProject.printer.name, structureType: activeProject.structureType,
+    const h=Math.floor(elapsed/3600),m=Math.floor((elapsed%3600)/60);
+    const report:ProjectReport={
+      generatedAt:new Date().toISOString(), duration:h>0?`${h}h ${m}m`:`${m}m`,
+      totalLayers:activeProject.totalLayers, layersPrinted:s.layersPrinted,
+      errorsDetected:s.errorsDetected,
+      errorRate:activeProject.totalLayers>0?`${((s.errorsDetected/activeProject.totalLayers)*100).toFixed(1)}%`:'0%',
+      alerts:s.alerts, printerName:activeProject.printer.name, structureType:activeProject.structureType,
     };
-    updateProject(activeProject.id, { status:'complete', report });
+    updateProject(activeProject.id,{status:'complete',report});
     router.push('/report');
   };
 
-  const keySensors = sensors.slice(0,4);
+  const keySensors=sensors.slice(0,4);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-6">
       <AppNav currentStep="monitor"/>
-      <style>{`footer { display: none !important; }`}</style>
+      <style>{`footer{display:none!important}`}</style>
 
-      {/* Header */}
       <div className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between sticky top-14 z-20">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <motion.div className="w-2 h-2 rounded-full bg-emerald-500"
-              animate={{ opacity: controls.paused ? 1 : [1,0.3,1] }}
-              transition={{ duration: 1.2, repeat: Infinity }}/>
-            <span className="text-sm font-semibold">{controls.paused ? 'Paused' : 'Printing'}</span>
+              animate={{opacity:controls.paused?1:[1,0.3,1]}} transition={{duration:1.2,repeat:Infinity}}/>
+            <span className="text-sm font-semibold">{controls.paused?'Paused':'Printing'}</span>
           </div>
           <div className="h-4 w-px bg-gray-200"/>
           <span className="text-xs font-mono text-black/40">{fmtElapsed()}</span>
-          {activeProject && <><div className="h-4 w-px bg-gray-200"/><span className="text-xs text-black/40">{activeProject.printer.name||'—'}</span></>}
+          {activeProject&&<><div className="h-4 w-px bg-gray-200"/><span className="text-xs text-black/40">{activeProject.printer.name||'—'}</span></>}
         </div>
         <div className="flex items-center gap-2">
           {(['monitor','sensors','defects'] as Tab[]).map(t=>(
             <button key={t} onClick={()=>setActiveTab(t)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${
-                activeTab===t?'bg-black text-white':'text-black/40 hover:text-black hover:bg-gray-100'
-              }`}>
+              className={`px-3 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${activeTab===t?'bg-black text-white':'text-black/40 hover:text-black hover:bg-gray-100'}`}>
               {t==='monitor'?'Monitor':t==='sensors'?'All Sensors':'Defect Detection'}
             </button>
           ))}
@@ -889,15 +685,12 @@ export default function LiveMonitoring() {
                     <span className="text-xs text-black/30 group-hover:text-black transition-all">Add Camera</span>
                   </button>
                 </div>
-
                 <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">System Log</h3>
                   <div className="space-y-1 max-h-28 overflow-y-auto">
-                    {alertLog.length===0 && <p className="text-xs text-black/25 text-center py-3">No events</p>}
+                    {alertLog.length===0&&<p className="text-xs text-black/25 text-center py-3">No events</p>}
                     {alertLog.map((a,i)=>(
-                      <div key={i} className={`flex gap-2 px-2 py-1 rounded-lg text-[11px] ${
-                        a.level==='error'?'bg-red-50 text-red-700':a.level==='warn'?'bg-amber-50 text-amber-700':'bg-gray-50 text-black/50'
-                      }`}>
+                      <div key={i} className={`flex gap-2 px-2 py-1 rounded-lg text-[11px] ${a.level==='error'?'bg-red-50 text-red-700':a.level==='warn'?'bg-amber-50 text-amber-700':'bg-gray-50 text-black/50'}`}>
                         <span className="font-mono opacity-50 flex-shrink-0">{a.time}</span>
                         <span>{a.msg}</span>
                       </div>
@@ -911,17 +704,17 @@ export default function LiveMonitoring() {
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-4">Printer Control</h3>
                   <div className="space-y-5">
                     {[
-                      { label:'Print Speed',    key:'printSpeed'    as const, min:10,  max:150, step:5,   unit:' mm/s', warn: controls.printSpeed>120 },
-                      { label:'Extrusion Rate', key:'extrusionRate' as const, min:50,  max:150, step:5,   unit:'%',     warn: controls.extrusionRate>130 },
-                      { label:'Pump Pressure',  key:'pumpPressure'  as const, min:1,   max:10,  step:0.1, unit:' bar',  warn: controls.pumpPressure>8 },
+                      {label:'Print Speed',    key:'printSpeed'    as const, min:10,  max:150, step:5,   unit:' mm/s', warn:controls.printSpeed>120},
+                      {label:'Extrusion Rate', key:'extrusionRate' as const, min:50,  max:150, step:5,   unit:'%',     warn:controls.extrusionRate>130},
+                      {label:'Pump Pressure',  key:'pumpPressure'  as const, min:1,   max:10,  step:0.1, unit:' bar',  warn:controls.pumpPressure>8},
                     ].map(s=>{
-                      const pct = ((controls[s.key] as number - s.min)/(s.max-s.min))*100;
+                      const pct=((controls[s.key] as number-s.min)/(s.max-s.min))*100;
                       return (
                         <div key={s.key} className="space-y-1.5">
                           <div className="flex justify-between">
                             <span className="text-xs font-medium text-white/60">{s.label}</span>
                             <div className="flex items-center gap-1">
-                              {s.warn && <span className="text-[9px] text-amber-400">⚠</span>}
+                              {s.warn&&<span className="text-[9px] text-amber-400">⚠</span>}
                               <span className="text-xs font-bold font-mono text-white">{controls[s.key]}{s.unit}</span>
                             </div>
                           </div>
@@ -938,9 +731,9 @@ export default function LiveMonitoring() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-5">
                     {[
-                      { label:'Home',  action:()=>addAlert('Homing nozzle…') },
-                      { label:'Purge', action:()=>addAlert('Purge started') },
-                      { label:'Prime', action:()=>addAlert('Priming pump…') },
+                      {label:'Home',  action:()=>addAlert('Homing nozzle…')},
+                      {label:'Purge', action:()=>addAlert('Purge started')},
+                      {label:'Prime', action:()=>addAlert('Priming pump…')},
                     ].map((btn,i)=>(
                       <button key={i} onClick={btn.action}
                         className="py-2 text-[11px] font-semibold rounded-xl border border-white/20 text-white hover:bg-white/10 transition-all">
