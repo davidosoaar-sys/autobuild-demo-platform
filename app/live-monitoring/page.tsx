@@ -170,9 +170,15 @@ function CameraView({
     const baseAngle = isHorizontal ? 90 : 0;
     const rad       = ((tilt + baseAngle) * Math.PI) / 180;
     const refRad    = (baseAngle * Math.PI) / 180;
-    const cx        = ow / 2;
-    const cy        = oh / 2;
     const half      = oh * 0.45;
+
+    // Position line at centroid of detected edge points (in overlay coords)
+    const cx = pts.length > 0
+      ? (pts.reduce((s,p)=>s+p.x,0) / pts.length / vw) * ow
+      : ow / 2;
+    const cy = pts.length > 0
+      ? (pts.reduce((s,p)=>s+p.y,0) / pts.length / vh) * oh
+      : oh / 2;
 
     setLiveAngle(deviation);
     setResult({ straight: isGreen, angle: deviation });
