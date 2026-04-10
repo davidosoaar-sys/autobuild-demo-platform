@@ -220,93 +220,72 @@ function CameraView({
     const octx = overlay.getContext('2d')!;
     octx.clearRect(0, 0, ow, oh);
 
-    const scaleX = ow / vw;
-    const scaleY = oh / vh;
+    // Colour zones: 0–10° green, 11–15° yellow, 16°+ red
+    const absTilt = Math.abs(tilt);
+    const lineColor = absTilt <= 10
+      ? 'rgba(34,197,94,0.9)'
+      : absTilt <= 15
+      ? 'rgba(251,191,36,0.9)'
+      : 'rgba(239,68,68,0.9)';
 
-    // Bounding box + plumb line on object
-    if (activeBox) {
-      const bx = activeBox.x * scaleX;
-      const by = activeBox.y * scaleY;
-      const bw = activeBox.w * scaleX;
-      const bh = activeBox.h * scaleY;
-
-      const boxColor = lockedBox.current
-        ? (straight ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)')
-        : 'rgba(255,255,255,0.35)';
-
-      // Box outline
-      octx.strokeStyle = boxColor;
-      octx.lineWidth   = lockedBox.current ? 1.5 : 1;
-      octx.setLineDash(lockedBox.current ? [] : [5, 4]);
-      octx.strokeRect(bx, by, bw, bh);
-      octx.setLineDash([]);
-
-      // Corner brackets when locked
-      if (lockedBox.current) {
-        const cs = 10;
-        octx.lineWidth = 2;
-        [[bx,by],[bx+bw,by],[bx,by+bh],[bx+bw,by+bh]].forEach(([px,py],ci) => {
-          const sx = ci%2===0?1:-1, sy = ci<2?1:-1;
-          octx.beginPath();
-          octx.moveTo(px+sx*cs, py); octx.lineTo(px, py); octx.lineTo(px, py+sy*cs);
-          octx.stroke();
-        });
+    // ── Find dominant vertical edges in frame ─────────────────────────────
+    // Sum horizontal Sobel (Gx) per column → columns with most vertical edge energy
+    const colEnergy = new Float32Array(vw);
+    for (let x = 1; x < vw-1; x++) {
+      let sum = 0;
+      for (let y = 1; y < vh-1; y++) {
+        const gx = Math.abs(
+          -grey[(y-1)*vw+(x-1)] + grey[(y-1)*vw+(x+1)]
+          -2*grey[y*vw+(x-1)]   + 2*grey[y*vw+(x+1)]
+          -grey[(y+1)*vw+(x-1)] + grey[(y+1)*vw+(x+1)]
+        );
+        sum += gx;
       }
+      colEnergy[x] = sum;
+    }
 
-      // ── THE ONE PLUMB LINE — vertical centre of object ─────────────────
-      const cx = bx + bw/2;
-      const lineColor = straight ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)';
+    // Find top 2 column peaks (separated by at least 10% of width)
+    const minSep = Math.floor(vw * 0.10);
+    let peak1 = 0, peak2 = -1;
+    let energy1 = 0, energy2 = 0;
+    for (let x = 1; x < vw-1; x++) {
+      if (colEnergy[x] > energy1) { energy1 = colEnergy[x]; peak1 = x; }
+    }
+    for (let x = 1; x < vw-1; x++) {
+      if (Math.abs(x - peak1) > minSep && colEnergy[x] > energy2) {
+        energy2 = colEnergy[x]; peak2 = x;
+      }
+    }
+
+    // Only draw second line if its energy is at least 50% of the first
+    const drawSecond = peak2 >= 0 && energy2 > energy1 * 0.5;
+
+    // Draw lines — full height of frame
+    const drawVerticalLine = (xCol: number) => {
+      const sx = (xCol / vw) * ow;
       octx.strokeStyle = lineColor;
-      octx.lineWidth   = 2;
-      octx.beginPath(); octx.moveTo(cx, by); octx.lineTo(cx, by+bh); octx.stroke();
-      // End caps
+      octx.lineWidth   = 2.5;
+      octx.lineCap     = 'round';
+      octx.beginPath();
+      octx.moveTo(sx, oh * 0.05);
+      octx.lineTo(sx, oh * 0.95);
+      octx.stroke();
+      // Small dot at top and bottom
       octx.fillStyle = lineColor;
-      octx.beginPath(); octx.arc(cx, by,    3, 0, Math.PI*2); octx.fill();
-      octx.beginPath(); octx.arc(cx, by+bh, 3, 0, Math.PI*2); octx.fill();
+      octx.beginPath(); octx.arc(sx, oh*0.05, 3, 0, Math.PI*2); octx.fill();
+      octx.beginPath(); octx.arc(sx, oh*0.95, 3, 0, Math.PI*2); octx.fill();
+    };
 
-      // Label above box
-      const lText = lockedBox.current ? (straight?'✓ PLUMB':'✗ OFF PLUMB') : '⊙ TAP TO LOCK';
-      const lw2 = octx.measureText(lText).width + 12;
-      octx.fillStyle = boxColor;
-      octx.beginPath(); octx.roundRect(bx, by-20, lw2, 16, 3); octx.fill();
-      octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
-      octx.fillText(lText, bx+6, by-8);
+    drawVerticalLine(peak1);
+    if (drawSecond) drawVerticalLine(peak2);
 
-      // Score inside box when locked
-      if (lockedBox.current && cvResult) {
-        octx.fillStyle = 'rgba(0,0,0,0.6)';
-        octx.beginPath(); octx.roundRect(bx+4, by+4, 80, 14, 3); octx.fill();
-        octx.fillStyle = 'rgba(255,255,255,0.75)'; octx.font = '8px monospace';
-        octx.fillText(`${cvResult.score}% · ${angleStr}`, bx+8, by+14);
-      }
-    }
-
-    // Angle readout — top right
-    const tiltColor = Math.abs(tilt)<1?'rgba(34,197,94,0.9)':Math.abs(tilt)<5?'rgba(251,191,36,0.9)':'rgba(239,68,68,0.9)';
-    octx.fillStyle = tiltColor;
-    const rw = octx.measureText(angleStr).width + 14;
-    octx.beginPath(); octx.roundRect(ow-rw-8, 8, rw, 20, 4); octx.fill();
-    octx.fillStyle = 'white'; octx.font = 'bold 10px monospace';
-    octx.fillText(angleStr, ow-rw-8+7, 22);
-
-    // Status badge — top left
-    const badgeBg = !activeBox?'rgba(60,60,60,0.85)':straight?'rgba(22,163,74,0.85)':'rgba(220,38,38,0.85)';
-    const badge   = !activeBox?'SCANNING':!lockedBox.current?'TAP TO LOCK':straight?'PLUMB':'OFF PLUMB';
-    octx.fillStyle = badgeBg;
-    const bw2 = octx.measureText(badge).width + 16;
-    octx.beginPath(); octx.roundRect(8, 8, bw2, 20, 4); octx.fill();
-    octx.fillStyle = 'white'; octx.font = 'bold 9px monospace';
-    octx.fillText(badge, 16, 22);
-
-    // Camera angle — bottom left
-    octx.fillStyle = 'rgba(255,255,255,0.2)'; octx.font = '8px monospace';
-    octx.fillText(`${camera.angle.toUpperCase()} VIEW`, 8, oh-8);
-
-    // Unlock hint — bottom right
-    if (lockedBox.current) {
-      octx.fillStyle = 'rgba(255,255,255,0.2)'; octx.font = '8px monospace';
-      octx.fillText('TAP TO UNLOCK', ow-90, oh-8);
-    }
+    // Angle readout — bottom centre, minimal
+    octx.fillStyle = lineColor;
+    const angleStr2 = `${tilt>=0?'+':''}${tilt.toFixed(1)}°`;
+    const rw = octx.measureText(angleStr2).width + 16;
+    octx.beginPath(); octx.roundRect(ow/2-rw/2, oh-30, rw, 20, 4); octx.fill();
+    octx.fillStyle = 'white'; octx.font = 'bold 11px monospace';
+    octx.fillText(angleStr2, ow/2-rw/2+8, oh-16);
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
