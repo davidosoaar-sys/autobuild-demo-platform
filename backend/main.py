@@ -229,7 +229,7 @@ async def optimize_endpoint(
 
     # Cap layers to prevent timeout on large models
     if max_layers is None:
-        max_layers = 200
+        max_layers = 100
 
     # Compat: print_speed form field → base_speed_mm_s
     if print_speed is not None and base_speed_mm_s == 60.0:
