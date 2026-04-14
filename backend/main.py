@@ -22,7 +22,7 @@ from weather    import (
 )
 from sika733    import (
     pot_life_at_temp, composite_risk_score, estimated_print_time_seconds,
-    PRODUCT_NAME, LAYER_HEIGHT_DEF_M,
+    PRODUCT_NAME, LAYER_HEIGHT_DEF_M, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M,
 )
 from scan       import scan_mesh
 from environment import DEFAULT_PRINTER
@@ -32,7 +32,7 @@ from environment import DEFAULT_PRINTER
 app = FastAPI(
     title       = "AutoBuild AI — Adaptive 3DCP Slicer",
     description = "RL-powered adaptive slicer for Sikacrete-733 W 3D",
-    version     = "3.1.0",
+    version     = "3.2.0",
 )
 
 app.add_middleware(
@@ -71,18 +71,6 @@ async def scan_endpoint(
     nozzle_diameter_mm: float      = Form(25.0),
     layer_height_m:     float      = Form(0.012),
 ):
-    """
-    Analyse an STL/OBJ for 3DCP printability issues.
-    Fast — no RL, no slicing. Returns in ~0.5–2s.
-
-    Checks:
-      - Non-manifold edges
-      - Wall thickness vs nozzle diameter
-      - Overhangs > 45°
-      - Floating geometry / disconnected islands
-      - Height vs layer height mismatch
-      - Extrusion gaps (windows, doors, voids)
-    """
     fname = file.filename or ""
     allowed_exts = (".stl", ".obj", ".stp", ".step", ".dxf", ".ifc")
     if not fname.lower().endswith(allowed_exts):
@@ -95,17 +83,13 @@ async def scan_endpoint(
 
     try:
         result = scan_mesh(
-            file_bytes      = file_bytes,
-            filename        = fname,
-            nozzle_diam_mm  = nozzle_diameter_mm,
-            layer_height_m  = layer_height_m,
+            file_bytes     = file_bytes,
+            filename       = fname,
+            nozzle_diam_mm = nozzle_diameter_mm,
+            layer_height_m = layer_height_m,
         )
     except Exception as e:
         raise HTTPException(500, f"Scan failed: {e}")
-
-    if not result["ok"]:
-        # Still return 200 — the scan ran, it just found blocking issues
-        return result
 
     return result
 
@@ -114,7 +98,6 @@ async def scan_endpoint(
 
 @app.get("/weather/current")
 def get_current_weather(city: str):
-    """Fetch live weather for a city."""
     try:
         snap = fetch_current_weather(city)
         return {
@@ -137,10 +120,6 @@ def get_current_weather(city: str):
 
 @app.get("/weather/search")
 def search_cities(q: str):
-    """
-    Search for cities via OpenWeatherMap geocoding.
-    Returns up to 5 matching city suggestions.
-    """
     try:
         resp = requests.get(
             f"{OW_GEO_BASE}/direct",
@@ -168,7 +147,6 @@ def search_cities(q: str):
 
 @app.get("/material")
 def material_info():
-    """Return Sikacrete-733 W 3D key parameters."""
     return {
         "product":          PRODUCT_NAME,
         "pot_life": {
@@ -189,36 +167,37 @@ def material_info():
 
 @app.post("/optimize")
 async def optimize_endpoint(
-    file:              UploadFile    = File(...),
-    # Printer config (from Option B manual config or Option A profile)
-    printer_name:      str           = Form("Custom 3DCP Printer"),
-    nozzle_diameter_mm: float        = Form(25.0),
-    max_speed_mm_s:    float         = Form(100.0),
-    min_speed_mm_s:    float         = Form(15.0),
-    max_mass_flow_l_min: float       = Form(8.0),
-    hose_length_m:     float         = Form(15.0),
-    hose_internal_diam_mm: float     = Form(50.0),
-    acceleration_mm_s2: float        = Form(500.0),
-    uses_e_axis:       bool          = Form(False),
-    # Base speed (from printer setup or manual config)
-    base_speed_mm_s:   float         = Form(60.0),
-    # Layer height — 0 means auto-compute from nozzle
-    layer_height_m:    float         = Form(0.0),
-    # Weather — city for live fetch OR manual fallback values
-    city:              Optional[str] = Form(None),
-    temperature:       float         = Form(20.0),
-    humidity:          float         = Form(65.0),
-    wind_speed:        float         = Form(8.0),
-    ground_slope:      float         = Form(0.0),
-    weather_blocks:    Optional[str] = Form(None),
-    print_start_hour:  float         = Form(8.0),
-    # Max layers (for testing)
-    max_layers:        Optional[int] = Form(None),
+    file:                  UploadFile     = File(...),
+    # Printer config
+    printer_name:          str            = Form("Custom 3DCP Printer"),
+    nozzle_diameter_mm:    float          = Form(25.0),
+    bead_compression:      float          = Form(0.6),   # layer height = nozzle × this
+    max_speed_mm_s:        float          = Form(100.0),
+    min_speed_mm_s:        float          = Form(15.0),
+    max_mass_flow_l_min:   float          = Form(8.0),
+    hose_length_m:         float          = Form(15.0),
+    hose_internal_diam_mm: float          = Form(50.0),
+    acceleration_mm_s2:    float          = Form(500.0),
+    uses_e_axis:           bool           = Form(False),
+    # Base speed
+    base_speed_mm_s:       float          = Form(60.0),
+    # Layer height — 0 means auto-compute from nozzle × bead_compression
+    layer_height_m:        float          = Form(0.0),
+    # Weather
+    city:                  Optional[str]  = Form(None),
+    temperature:           float          = Form(20.0),
+    humidity:              float          = Form(65.0),
+    wind_speed:            float          = Form(8.0),
+    ground_slope:          float          = Form(0.0),
+    weather_blocks:        Optional[str]  = Form(None),
+    print_start_hour:      float          = Form(8.0),
+    # Max layers
+    max_layers:            Optional[int]  = Form(None),
     # Deprecated — kept for backwards compat
-    cement_mix_name:   Optional[str] = Form(None),
-    print_speed:       Optional[float] = Form(None),
-    # Uniform scale factor applied to mesh before slicing
-    print_scale:       float         = Form(1.0),
+    cement_mix_name:       Optional[str]  = Form(None),
+    print_speed:           Optional[float] = Form(None),
+    # Scale factor
+    print_scale:           float          = Form(1.0),
 ):
     fname = file.filename or ""
     allowed_exts = (".stl", ".obj", ".stp", ".step", ".dxf", ".ifc")
@@ -235,20 +214,24 @@ async def optimize_endpoint(
 
     # ── Build printer profile ─────────────────────────────────────────────────
     printer = {
-        "nozzle_diameter_mm":      nozzle_diameter_mm,
-        "max_speed_mm_s":          max_speed_mm_s,
-        "min_speed_mm_s":          min_speed_mm_s,
-        "max_mass_flow_l_min":     max_mass_flow_l_min,
-        "hose_length_m":           hose_length_m,
-        "hose_internal_diam_mm":   hose_internal_diam_mm,
-        "acceleration_mm_s2":      acceleration_mm_s2,
-        "pump_lag_s":              max(1.0, hose_length_m * 0.15),
+        "nozzle_diameter_mm":    nozzle_diameter_mm,
+        "max_speed_mm_s":        max_speed_mm_s,
+        "min_speed_mm_s":        min_speed_mm_s,
+        "max_mass_flow_l_min":   max_mass_flow_l_min,
+        "hose_length_m":         hose_length_m,
+        "hose_internal_diam_mm": hose_internal_diam_mm,
+        "acceleration_mm_s2":    acceleration_mm_s2,
+        "pump_lag_s":            max(1.0, hose_length_m * 0.15),
     }
 
-    # ── Auto layer height from nozzle if not specified ────────────────────────
+    # ── Layer height from nozzle × bead compression ───────────────────────────
+    # bead_compression: 0.5 = conservative (strong bond), 0.6 = industry standard,
+    # 0.8 = aggressive (fast build). Pi auto-calibrates from test extrusion.
     if layer_height_m <= 0:
-        from sika733 import layer_height_for_speed
-        layer_height_m = layer_height_for_speed(base_speed_mm_s, nozzle_diameter_mm)
+        layer_height_m = float(
+            max(LAYER_HEIGHT_MIN_M,
+                min(LAYER_HEIGHT_MAX_M, (nozzle_diameter_mm * bead_compression) / 1000.0))
+        )
 
     # ── Weather schedule ──────────────────────────────────────────────────────
     weather_sched: WeatherSchedule
@@ -274,7 +257,7 @@ async def optimize_endpoint(
             temperature, humidity, wind_speed, ground_slope,
         )
 
-    avg_cond  = average_conditions(weather_sched)
+    avg_cond   = average_conditions(weather_sched)
     worst_cond = worst_conditions(weather_sched)
 
     # ── Parse and slice ───────────────────────────────────────────────────────
@@ -294,46 +277,41 @@ async def optimize_endpoint(
     # ── RL optimise ───────────────────────────────────────────────────────────
     try:
         toolpath, layer_params, stats = optimize(
-            geometry      = geometry,
-            layer_metas   = layer_metas,
-            weather_sched = weather_sched,
-            model_path    = MODEL_PATH,
-            printer       = printer,
+            geometry        = geometry,
+            layer_metas     = layer_metas,
+            weather_sched   = weather_sched,
+            model_path      = MODEL_PATH,
+            printer         = printer,
             base_speed_mm_s = base_speed_mm_s,
-            max_layers    = max_layers,
+            max_layers      = max_layers,
         )
     except Exception as e:
         raise HTTPException(500, f"Optimisation failed: {e}")
 
     # ── G-code ────────────────────────────────────────────────────────────────
     gcode_str = toolpath_to_gcode(
-        toolpath      = toolpath,
-        layer_params  = layer_params,
-        printer_name  = printer_name,
-        uses_e_axis   = uses_e_axis,
+        toolpath       = toolpath,
+        layer_params   = layer_params,
+        printer_name   = printer_name,
+        uses_e_axis    = uses_e_axis,
         nozzle_diam_mm = nozzle_diameter_mm,
     )
 
-    elapsed    = round(time.time() - start, 2)
-    result_id  = str(uuid.uuid4())
+    elapsed   = round(time.time() - start, 2)
+    result_id = str(uuid.uuid4())
 
-    # Save G-code
     with open(f"{RESULTS_DIR}/{result_id}.gcode", "w", encoding="utf-8") as f:
         f.write(gcode_str)
 
-    # Save toolpath JSON — include gap markers for window/door openings
     import math as _math
-    GAP_THRESHOLD_M = 0.002  # 2mm in metres
+    GAP_THRESHOLD_M = 0.002
 
     def serialise_layer(segs):
         out = []
         for i, s in enumerate(segs):
             if i > 0:
-                prev = segs[i-1]
-                gap = _math.hypot(
-                    s[0][0] - prev[1][0],
-                    s[0][1] - prev[1][1],
-                )
+                prev = segs[i - 1]
+                gap  = _math.hypot(s[0][0] - prev[1][0], s[0][1] - prev[1][1])
                 if gap > GAP_THRESHOLD_M:
                     out.append({"gap": True})
             out.append({"x0": s[0][0], "y0": s[0][1], "x1": s[1][0], "y1": s[1][1]})
@@ -341,10 +319,13 @@ async def optimize_endpoint(
 
     toolpath_json = [serialise_layer(layer) for layer in toolpath]
     with open(f"{RESULTS_DIR}/{result_id}.json", "w") as f:
-        json.dump({"toolpath": toolpath_json, "layer_params": [lp.to_dict() for lp in layer_params]}, f)
+        json.dump({
+            "toolpath":     toolpath_json,
+            "layer_params": [lp.to_dict() for lp in layer_params],
+        }, f)
 
-    est_s    = stats.get("estimated_print_time_s", 0)
-    est_str  = format_print_time(est_s)
+    est_s   = stats.get("estimated_print_time_s", 0)
+    est_str = format_print_time(est_s)
 
     speed_profile = [
         {"layer": lp.layer_idx, "speed_mm_s": lp.print_speed_mm_s, "risk": lp.risk_score}
@@ -352,35 +333,36 @@ async def optimize_endpoint(
     ]
 
     return {
-        "result_id":       result_id,
-        "elapsed_seconds": elapsed,
-        "geometry":        {**geo_meta, "file_name": fname},
+        "result_id":              result_id,
+        "elapsed_seconds":        elapsed,
+        "geometry":               {**geo_meta, "file_name": fname},
         "material": {
-            "name":           PRODUCT_NAME,
-            "pot_life_20c":   60,
+            "name":              PRODUCT_NAME,
+            "pot_life_20c":      60,
             "pot_life_at_worst": round(pot_life_at_temp(worst_cond["temperature"]), 1),
         },
         "printer": {
-            "name":              printer_name,
-            "nozzle_mm":         nozzle_diameter_mm,
-            "layer_height_mm":   round(layer_height_m * 1000, 1),
-            "effective_speed":   stats.get("avg_print_speed_mm_s", base_speed_mm_s),
+            "name":             printer_name,
+            "nozzle_mm":        nozzle_diameter_mm,
+            "bead_compression": bead_compression,
+            "layer_height_mm":  round(layer_height_m * 1000, 1),
+            "effective_speed":  stats.get("avg_print_speed_mm_s", base_speed_mm_s),
         },
         "weather": {
-            "source":       weather_sched.source,
-            "city":         weather_sched.city or "manual",
-            "avg":          avg_cond,
-            "worst":        worst_cond,
-            "blocks_used":  len(weather_sched.blocks) + len(weather_sched.snapshots),
+            "source":      weather_sched.source,
+            "city":        weather_sched.city or "manual",
+            "avg":         avg_cond,
+            "worst":       worst_cond,
+            "blocks_used": len(weather_sched.blocks) + len(weather_sched.snapshots),
         },
-        "optimization":    {**stats},
-        "estimated_print_time": est_str,
+        "optimization":           {**stats},
+        "estimated_print_time":   est_str,
         "estimated_print_time_s": est_s,
-        "speed_profile":   speed_profile,
-        "toolpath":        toolpath_json,
-        "gcode_lines":     len(gcode_str.splitlines()),
-        "gcode_preview":   "\n".join(gcode_str.splitlines()[:40]),
-        "layer_stats":     [
+        "speed_profile":          speed_profile,
+        "toolpath":               toolpath_json,
+        "gcode_lines":            len(gcode_str.splitlines()),
+        "gcode_preview":          "\n".join(gcode_str.splitlines()[:40]),
+        "layer_stats": [
             {
                 "layer":            lm["index"],
                 "z_height_mm":      round(lm["z_height_m"] * 1000, 1),
@@ -443,4 +425,5 @@ def _manual_schedule(
         timestamp_h = 0.0,
     )]
     sched.source = "manual"
-    return sched
+    return sched#   f o r c e   r e d e p l o y  
+ 
