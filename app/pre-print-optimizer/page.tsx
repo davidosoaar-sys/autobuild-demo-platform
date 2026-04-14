@@ -266,6 +266,7 @@ export default function PrePrintOptimizer() {
       const hoseDiam  = (mc?.hoseInternalDiam ?? 50)   as number;
       const accel     = (mc?.acceleration     ?? 500)  as number;
       const layerH    = (nozzleMm * beadComp) / 1000;
+      console.log('[AutoBuild] nozzle:', nozzleMm, 'bead:', beadComp, 'layerH_mm:', nozzleMm * beadComp, 'mc:', mc);
 
       // Silent scan — uses same nozzle + computed layer height
       try {
