@@ -255,13 +255,24 @@ export default function PrePrintOptimizer() {
     setPhase('optimizing'); setErrorMsg(''); setStepIdx(0);
     const ticker = setInterval(() => setStepIdx(i => Math.min(i+1, STEPS.length-1)), 950);
     try {
-      // Silent scan
+      // Pull printer config dynamically — everything flows from nozzle × beadCompression
+      const mc       = activeProject?.printer?.manualConfig;
+      const nozzleMm = mc?.nozzleDiameter   ?? parseFloat(activeProject?.printer?.nozzle    ?? '25')  || 25;
+      const beadComp = mc?.beadCompression  ?? 0.6;
+      const maxSpd   = mc?.maxVelocity      ?? parseFloat(activeProject?.printer?.maxSpeed  ?? '100') || 100;
+      const minSpd   = mc?.minFlowRate      ?? 15;
+      const flowRate = mc?.maxFlowRate      ?? 8;
+      const hoseLen  = mc?.hoseLength       ?? 15;
+      const hoseDiam = mc?.hoseInternalDiam ?? 50;
+      const accel    = mc?.acceleration     ?? 500;
+      const layerH   = (nozzleMm * beadComp) / 1000; // metres
+
+      // Silent scan — uses same nozzle + computed layer height
       try {
-        const nozzle = parseFloat(activeProject?.printer?.nozzle ?? '25') || 25;
         const sf = new FormData();
-        sf.append('file', file);
-        sf.append('nozzle_diameter_mm', String(nozzle));
-        sf.append('layer_height_m', '0.012');
+        sf.append('file',               file);
+        sf.append('nozzle_diameter_mm', String(nozzleMm));
+        sf.append('layer_height_m',     String(layerH));
         const sr = await fetch(`${API}/scan`, { method:'POST', body:sf });
         if (sr.ok) {
           const sd: ScanResult = await sr.json();
@@ -272,17 +283,24 @@ export default function PrePrintOptimizer() {
 
       // Optimize
       const form = new FormData();
-      form.append('file',             file);
-      form.append('printer_name',     activeProject?.printer?.name || 'COBOD BOD2');
-      form.append('cement_mix_name',  parameters.cementMix);
-      form.append('temperature',      String(parameters.temperature));
-      form.append('humidity',         String(parameters.humidity));
-      form.append('wind_speed',       String(parameters.windSpeed));
-      form.append('ground_slope',     String(parameters.groundSlope));
-      form.append('print_speed',      String(printSpeed));
-      form.append('print_start_hour', String(weatherStart));
-      form.append('print_scale',      String(printScale));
-      // No max_layers cap — use full geometry height
+      form.append('file',                  file);
+      form.append('printer_name',          activeProject?.printer?.name || 'Custom Printer');
+      form.append('nozzle_diameter_mm',    String(nozzleMm));
+      form.append('bead_compression',      String(beadComp));
+      form.append('max_speed_mm_s',        String(maxSpd));
+      form.append('min_speed_mm_s',        String(minSpd));
+      form.append('max_mass_flow_l_min',   String(flowRate));
+      form.append('hose_length_m',         String(hoseLen));
+      form.append('hose_internal_diam_mm', String(hoseDiam));
+      form.append('acceleration_mm_s2',    String(accel));
+      form.append('cement_mix_name',       parameters.cementMix);
+      form.append('temperature',           String(parameters.temperature));
+      form.append('humidity',              String(parameters.humidity));
+      form.append('wind_speed',            String(parameters.windSpeed));
+      form.append('ground_slope',          String(parameters.groundSlope));
+      form.append('print_speed',           String(printSpeed));
+      form.append('print_start_hour',      String(weatherStart));
+      form.append('print_scale',           String(printScale));
       if (city) form.append('city', city);
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
 
@@ -293,7 +311,6 @@ export default function PrePrintOptimizer() {
       if (data.geometry.num_layers > 0) setTotalLayers(data.geometry.num_layers);
       setPhase('done');
       setActiveTab('results');
-      // Auto-switch to Scan tab if issues found
       setSidebarPanel(scanResult && scanResult.counts.total > 0 ? 'scan' : 'results');
     } catch (e: any) {
       setErrorMsg(e.message || 'Optimisation failed');
