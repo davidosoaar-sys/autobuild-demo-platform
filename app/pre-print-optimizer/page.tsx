@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { useProjects } from '@/lib/project-store';
+import { useProjects, ManualPrinterConfig } from '@/lib/project-store';
 import AppNav from '@/components/AppNav';
 import ParameterInputs from './components/ParameterInputs';
 import FileUpload, { SiteDimensions } from './components/FileUpload';
@@ -256,16 +256,16 @@ export default function PrePrintOptimizer() {
     const ticker = setInterval(() => setStepIdx(i => Math.min(i+1, STEPS.length-1)), 950);
     try {
       // Pull printer config dynamically — everything flows from nozzle × beadCompression
-      const mc       = activeProject?.printer?.manualConfig;
-      const nozzleMm = mc?.nozzleDiameter   ?? parseFloat(activeProject?.printer?.nozzle    ?? '25')  || 25;
-      const beadComp = mc?.beadCompression  ?? 0.6;
-      const maxSpd   = mc?.maxVelocity      ?? parseFloat(activeProject?.printer?.maxSpeed  ?? '100') || 100;
-      const minSpd   = mc?.minFlowRate      ?? 15;
-      const flowRate = mc?.maxFlowRate      ?? 8;
-      const hoseLen  = mc?.hoseLength       ?? 15;
-      const hoseDiam = mc?.hoseInternalDiam ?? 50;
-      const accel    = mc?.acceleration     ?? 500;
-      const layerH   = (nozzleMm * beadComp) / 1000; // metres
+      const mc        = activeProject?.printer?.manualConfig as ManualPrinterConfig | undefined;
+      const nozzleMm  = (mc?.nozzleDiameter   ?? parseFloat(activeProject?.printer?.nozzle    ?? '25')  ?? 25)  as number;
+      const beadComp  = (mc?.beadCompression  ?? 0.6)  as number;
+      const maxSpd    = (mc?.maxVelocity      ?? parseFloat(activeProject?.printer?.maxSpeed  ?? '100') ?? 100) as number;
+      const minSpd    = (mc?.minFlowRate      ?? 15)   as number;
+      const flowRate  = (mc?.maxFlowRate      ?? 8)    as number;
+      const hoseLen   = (mc?.hoseLength       ?? 15)   as number;
+      const hoseDiam  = (mc?.hoseInternalDiam ?? 50)   as number;
+      const accel     = (mc?.acceleration     ?? 500)  as number;
+      const layerH    = (nozzleMm * beadComp) / 1000;
 
       // Silent scan — uses same nozzle + computed layer height
       try {
