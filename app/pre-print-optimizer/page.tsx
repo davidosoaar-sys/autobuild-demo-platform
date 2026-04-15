@@ -328,8 +328,8 @@ export default function PrePrintOptimizer() {
     if (!result) return;
     const t = await (await fetch(`${API}/gcode/${result.result_id}`)).text();
     Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(new Blob([t],{type:'text/plain'})),
-      download: `autobuild_${result.result_id.slice(0,8)}.gcode`,
+      href:     URL.createObjectURL(new Blob([t], { type: 'text/plain' })),
+      download: `autobuild_${result.result_id.slice(0, 8)}.txt`,
     }).click();
   };
 
