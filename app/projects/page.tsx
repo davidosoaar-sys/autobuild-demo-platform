@@ -223,9 +223,7 @@ function ProjectCard({ project, onOpen, onDelete }: {
         {confirmDelete ? (
           <>
             <button onClick={onDelete}
-              className={`px-3 py-2 text-xs font-semibold rounded-xl transition-colors ${
-                isPrinting ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-50 text-red-600 hover:bg-red-100'
-              }`}>
+              className="px-3 py-2 text-xs font-semibold rounded-xl transition-colors bg-red-500 text-white hover:bg-red-600">
               Confirm
             </button>
             <button onClick={() => setConfirmDelete(false)}
