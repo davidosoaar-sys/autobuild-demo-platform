@@ -305,7 +305,10 @@ export default function PrePrintOptimizer() {
       if (city) form.append('city', city);
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
 
-      const res = await fetch(`${API}/optimize`, { method:'POST', body:form });
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 min
+      const res = await fetch(`${API}/optimize`, { method:'POST', body:form, signal: controller.signal });
+      clearTimeout(timeoutId);
       if (!res.ok) { const e = await res.json().catch(()=>({detail:'Unknown'})); throw new Error(e.detail); }
       const data: OptimizeResult = await res.json();
       setResult(data);
