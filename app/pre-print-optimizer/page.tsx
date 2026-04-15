@@ -759,25 +759,8 @@ export default function PrePrintOptimizer() {
                   onWeatherChange={(b,h)=>{setWeatherBlocks(b);setWeatherStart(h);}}
                   onCementChange={(c:string)=>setParameters(p=>({...p,cementMix:c}))}
                   onCityChange={setCity}
+                  onStartHourChange={(h)=>setWeatherStart(h)}
                 />
-                <div className="bg-white border border-gray-100 rounded-2xl p-5">
-                  <h3 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-4">Print Configuration</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-black mb-1.5">Total Layers</label>
-                      <input type="number" value={totalLayers} min={1}
-                        onChange={e=>setTotalLayers(parseInt(e.target.value)||1)}
-                        className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black text-black"/>
-                      <p className="text-[10px] text-black/30 mt-1">Auto-set from geometry</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-black mb-1.5">Print Speed (mm/s)</label>
-                      <input type="number" value={printSpeed} min={1}
-                        onChange={e=>setPrintSpeed(parseInt(e.target.value)||1)}
-                        className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black text-black"/>
-                    </div>
-                  </div>
-                </div>
               </div>
               <div>
                 <LayerVisualization file={file} toolpath={[]} numLayers={0}

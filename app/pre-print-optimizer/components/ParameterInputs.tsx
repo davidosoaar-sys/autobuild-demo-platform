@@ -17,92 +17,56 @@ interface Parameters {
 }
 
 interface ParameterInputsProps {
-  parameters:       Parameters;
-  onChange:         (params: Parameters) => void;
-  onWeatherChange?: (blocks: WeatherBlock[], startHour: number) => void;
-  onCementChange?:  (cement: string) => void;
-  onCityChange?:    (city: string) => void;
+  parameters:         Parameters;
+  onChange:           (params: Parameters) => void;
+  onWeatherChange?:   (blocks: WeatherBlock[], startHour: number) => void;
+  onCementChange?:    (cement: string) => void;
+  onCityChange?:      (city: string) => void;
+  onStartHourChange?: (hour: number) => void;
 }
 
-interface CityResult {
-  name: string; country: string; state: string; display: string;
-}
+interface CityResult { name: string; country: string; state: string; display: string; }
 
 interface LiveWeather {
   temperature: number; humidity: number; wind_speed: number;
   description: string; pot_life_min: number; risk_score: number;
 }
 
+interface ForecastHour {
+  hour: number; temperature: number; humidity: number;
+  wind_speed: number; description: string; risk: number;
+}
+
 // ── Material catalogue ────────────────────────────────────────────────────────
 
 export const MATERIALS = [
   {
-    id:             'sika-733-3d',
-    name:           'Sikacrete®-733 3D',
-    region:         'UK / CA / DE',
-    colour:         'Grey powder',
-    waterRatio:     '13–14%',
-    strength28d:    '35 MPa',
-    potLife20c:     60,
-    potLife30c:     40,
-    potLife10c:     80,
-    layerMin:       6,
-    layerMax:       40,
-    grainSize:      3,
-    spreadFlow:     130,
-    density:        2.2,
-    co2:            'Reduced (recycled SCM)',
+    id:'sika-733-3d', name:'Sikacrete®-733 3D', region:'UK / CA / DE',
+    colour:'Grey powder', waterRatio:'13–14%', strength28d:'35 MPa',
+    potLife20c:60, potLife30c:40, potLife10c:80,
+    layerMin:6, layerMax:40, grainSize:3, spreadFlow:130, density:2.2,
+    co2:'Reduced (recycled SCM)',
   },
   {
-    id:             'sika-733w-3d-us',
-    name:           'Sikacrete®-733 W 3D',
-    region:         'USA',
-    colour:         'White powder',
-    waterRatio:     '15–17%',
-    strength28d:    '50 MPa',
-    potLife20c:     60,
-    potLife30c:     40,
-    potLife10c:     80,
-    layerMin:       6,
-    layerMax:       20,
-    grainSize:      3,
-    spreadFlow:     130,
-    density:        2.1,
-    co2:            'Reduced (recycled waste)',
+    id:'sika-733w-3d-us', name:'Sikacrete®-733 W 3D', region:'USA',
+    colour:'White powder', waterRatio:'15–17%', strength28d:'50 MPa',
+    potLife20c:60, potLife30c:40, potLife10c:80,
+    layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, density:2.1,
+    co2:'Reduced (recycled waste)',
   },
   {
-    id:             'sika-733w-3d-gcc',
-    name:           'Sikacrete®-733 W 3D (GCC)',
-    region:         'Gulf / UAE / KSA',
-    colour:         'White powder',
-    waterRatio:     '15–17%',
-    strength28d:    '35 MPa',
-    potLife20c:     60,
-    potLife30c:     40,
-    potLife10c:     80,
-    layerMin:       6,
-    layerMax:       20,
-    grainSize:      3,
-    spreadFlow:     130,
-    density:        2.1,
-    co2:            'Reduced (recycled waste)',
+    id:'sika-733w-3d-gcc', name:'Sikacrete®-733 W 3D (GCC)', region:'Gulf / UAE / KSA',
+    colour:'White powder', waterRatio:'15–17%', strength28d:'35 MPa',
+    potLife20c:60, potLife30c:40, potLife10c:80,
+    layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, density:2.1,
+    co2:'Reduced (recycled waste)',
   },
   {
-    id:             'custom',
-    name:           'Custom Mortar',
-    region:         '—',
-    colour:         '—',
-    waterRatio:     '—',
-    strength28d:    '—',
-    potLife20c:     60,
-    potLife30c:     40,
-    potLife10c:     80,
-    layerMin:       6,
-    layerMax:       20,
-    grainSize:      3,
-    spreadFlow:     130,
-    density:        2.1,
-    co2:            '—',
+    id:'custom', name:'Custom Mortar', region:'—',
+    colour:'—', waterRatio:'—', strength28d:'—',
+    potLife20c:60, potLife30c:40, potLife10c:80,
+    layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, density:2.1,
+    co2:'—',
   },
 ];
 
@@ -114,18 +78,18 @@ function hourToLabel(h: number): string {
 }
 
 function newBlock(startH: number): WeatherBlock {
-  return { id: Math.random().toString(36).slice(2), start_hour: startH, end_hour: startH + 2, temperature: 26, humidity: 60, wind_speed: 8, ground_slope: 2, notes: '' };
+  return { id: Math.random().toString(36).slice(2), start_hour:startH, end_hour:startH+2, temperature:26, humidity:60, wind_speed:8, ground_slope:0, notes:'' };
 }
 
-function potLifeColor(min: number): string {
-  if (min >= 60) return 'text-emerald-600';
-  if (min >= 45) return 'text-amber-500';
-  return 'text-red-500';
-}
+function potLifeColor(min: number) { return min >= 60 ? 'text-emerald-600' : min >= 45 ? 'text-amber-500' : 'text-red-500'; }
+function riskColor(r: number)      { return r < 20 ? 'text-emerald-400' : r < 50 ? 'text-amber-400' : 'text-red-400'; }
 
 // ── City search ───────────────────────────────────────────────────────────────
 
-function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeather) => void }) {
+function CitySearch({ onSelect, startHour }: {
+  onSelect: (city: string, weather: LiveWeather) => void;
+  startHour: number;
+}) {
   const [query,    setQuery]    = useState('');
   const [results,  setResults]  = useState<CityResult[]>([]);
   const [loading,  setLoading]  = useState(false);
@@ -133,6 +97,7 @@ function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeathe
   const [open,     setOpen]     = useState(false);
   const [selected, setSelected] = useState('');
   const [weather,  setWeather]  = useState<LiveWeather | null>(null);
+  const [forecast, setForecast] = useState<ForecastHour[]>([]);
   const [error,    setError]    = useState('');
   const debounce = useRef<NodeJS.Timeout | null>(null);
 
@@ -142,8 +107,7 @@ function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeathe
     try {
       const res  = await fetch(`${API}/weather/search?q=${encodeURIComponent(q)}`);
       const data = await res.json();
-      setResults(Array.isArray(data) ? data : []);
-      setOpen(true);
+      setResults(Array.isArray(data) ? data : []); setOpen(true);
     } catch { setResults([]); }
     finally { setLoading(false); }
   }, []);
@@ -156,29 +120,34 @@ function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeathe
 
   const handleSelect = async (city: CityResult) => {
     setOpen(false); setQuery(city.display); setSelected(city.name);
-    setFetching(true); setError('');
+    setFetching(true); setError(''); setForecast([]);
+    const cityStr = city.name + ',' + city.country;
     try {
-      const res  = await fetch(`${API}/weather/current?city=${encodeURIComponent(city.name + ',' + city.country)}`);
+      const res = await fetch(`${API}/weather/current?city=${encodeURIComponent(cityStr)}`);
       if (!res.ok) throw new Error('City not found');
       const data: LiveWeather = await res.json();
-      setWeather(data); onSelect(city.name + ',' + city.country, data);
+      setWeather(data); onSelect(cityStr, data);
+
+      // Try hourly forecast
+      try {
+        const fRes = await fetch(`${API}/weather/forecast?city=${encodeURIComponent(cityStr)}&start_hour=${startHour}&hours=8`);
+        if (fRes.ok) { const fd = await fRes.json(); if (Array.isArray(fd)) setForecast(fd); }
+      } catch { /* optional */ }
     } catch {
       setError('Could not fetch weather — using manual input'); setWeather(null);
     } finally { setFetching(false); }
   };
 
   return (
-    <div className="mb-5">
+    <div className="mb-4">
       <label className="text-xs font-medium text-black mb-1.5 block">
-        Site City
-        <span className="text-black/30 font-normal ml-1.5">— fetches live weather</span>
+        Site City <span className="text-black/30 font-normal">— live weather + forecast</span>
       </label>
       <div className="relative">
         <input type="text" value={query} placeholder="Search any city worldwide…"
           onChange={e => handleInput(e.target.value)}
           onFocus={() => results.length > 0 && setOpen(true)}
-          className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black placeholder:text-black/20 pr-8"
-        />
+          className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black placeholder:text-black/20 pr-8"/>
         {loading && (
           <svg className="absolute right-3 top-3 animate-spin w-4 h-4 text-black/30" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
@@ -191,7 +160,7 @@ function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeathe
               <button key={i} onClick={() => handleSelect(r)}
                 className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
                 <span className="font-medium text-black">{r.name}</span>
-                <span className="text-black/40 ml-1.5 text-xs">{r.state}{r.state ? ', ' : ''}{r.country}</span>
+                <span className="text-black/40 ml-1.5 text-xs">{r.state}{r.state?', ':''}{r.country}</span>
               </button>
             ))}
           </div>
@@ -210,7 +179,7 @@ function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeathe
       {weather && !fetching && (
         <div className="mt-3 bg-black rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest">Live Weather · {selected}</p>
+            <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest">Live · {selected}</p>
             <span className="text-[10px] text-emerald-400 font-medium">● Live</span>
           </div>
           <div className="grid grid-cols-3 gap-2 mb-3">
@@ -225,7 +194,7 @@ function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeathe
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-2">
             <div>
               <p className="text-[9px] text-white/30 uppercase tracking-wider mb-0.5">Pot Life</p>
               <p className={`text-sm font-bold ${potLifeColor(weather.pot_life_min)} brightness-150`}>{weather.pot_life_min} min</p>
@@ -235,8 +204,28 @@ function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeathe
               <p className="text-sm font-bold text-white">{weather.risk_score}/100</p>
             </div>
           </div>
-          <p className="text-[10px] text-white/25 mt-2 capitalize">{weather.description}</p>
-          <p className="text-[9px] text-white/15 mt-1">Parameters auto-filled. You can still adjust manually.</p>
+          <p className="text-[10px] text-white/25 capitalize">{weather.description}</p>
+
+          {/* Hourly forecast timeline */}
+          {forecast.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <p className="text-[9px] text-white/30 uppercase tracking-widest mb-2">Forecast from {hourToLabel(startHour)}</p>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {forecast.map((f, i) => (
+                  <div key={i} className={`flex-shrink-0 rounded-lg px-2 py-1.5 text-center min-w-[52px] ${
+                    f.risk > 50 ? 'bg-red-500/20' : f.risk > 20 ? 'bg-amber-400/15' : 'bg-white/5'
+                  }`}>
+                    <p className="text-[8px] text-white/30 mb-0.5">{hourToLabel(f.hour)}</p>
+                    <p className="text-[11px] font-bold text-white">{f.temperature}°</p>
+                    <p className={`text-[8px] font-semibold ${riskColor(f.risk)}`}>
+                      {f.risk > 50 ? '⚠ High' : f.risk > 20 ? 'Med' : 'OK'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[9px] text-white/15 mt-1.5">RL adapts speed per hour</p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -246,7 +235,7 @@ function CitySearch({ onSelect }: { onSelect: (city: string, weather: LiveWeathe
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ParameterInputs({
-  parameters, onChange, onWeatherChange, onCementChange, onCityChange,
+  parameters, onChange, onWeatherChange, onCementChange, onCityChange, onStartHourChange,
 }: ParameterInputsProps) {
   const [useBlocks,  setUseBlocks]  = useState(false);
   const [startHour,  setStartHour]  = useState(8.0);
@@ -265,7 +254,7 @@ export default function ParameterInputs({
   };
 
   const addBlock = () => {
-    const lastEnd = blocks.length > 0 ? blocks[blocks.length - 1].end_hour : startHour;
+    const lastEnd = blocks.length > 0 ? blocks[blocks.length-1].end_hour : startHour;
     const updated = [...blocks, newBlock(lastEnd)];
     setBlocks(updated); onWeatherChange?.(updated, startHour);
   };
@@ -275,21 +264,22 @@ export default function ParameterInputs({
     setBlocks(updated); onWeatherChange?.(updated, startHour);
   };
 
+  const handleStartHour = (h: number) => {
+    setStartHour(h); onWeatherChange?.(blocks, h); onStartHourChange?.(h);
+  };
+
   const handleCityWeather = (city: string, weather: LiveWeather) => {
     onCityChange?.(city);
     onChange({ ...parameters, temperature: Math.round(weather.temperature), humidity: Math.round(weather.humidity), windSpeed: Math.round(weather.wind_speed) });
   };
 
-  const handleMaterialChange = (id: string) => {
-    setMaterialId(id);
-    onCementChange?.(id);
-  };
+  const handleMaterialChange = (id: string) => { setMaterialId(id); onCementChange?.(id); };
 
+  // No slope field
   const ENV_FIELDS = [
     { key:'temperature' as keyof Parameters, label:'Temperature', unit:'°C',   min:5,  max:45, step:0.5 },
     { key:'humidity'    as keyof Parameters, label:'Humidity',    unit:'%',    min:30, max:100, step:1 },
     { key:'windSpeed'   as keyof Parameters, label:'Wind Speed',  unit:'km/h', min:0,  max:60, step:0.5 },
-    { key:'groundSlope' as keyof Parameters, label:'Ground Slope', unit:'°',  min:0,  max:15, step:0.1 },
   ];
 
   return (
@@ -297,7 +287,7 @@ export default function ParameterInputs({
 
       {/* Environmental Conditions */}
       <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-4">
           <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest">Environmental Conditions</h2>
           <div className="flex items-center gap-1 bg-gray-50 border border-gray-100 rounded-xl p-1">
             <button onClick={() => setUseBlocks(false)}
@@ -311,7 +301,30 @@ export default function ParameterInputs({
           </div>
         </div>
 
-        <CitySearch onSelect={handleCityWeather}/>
+        {/* Print start time — always visible */}
+        <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <svg className="w-4 h-4 text-black/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <div className="flex-1">
+            <p className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-1">Print Start Time</p>
+            <div className="flex items-center gap-2">
+              <input type="time"
+                value={`${String(Math.floor(startHour)).padStart(2,'0')}:${String(Math.round((startHour%1)*60)).padStart(2,'0')}`}
+                onChange={e => {
+                  const [hh,mm] = e.target.value.split(':').map(Number);
+                  handleStartHour(hh + mm/60);
+                }}
+                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg outline-none focus:border-black transition-colors text-black bg-white"/>
+              <span className="text-xs text-black/40">{hourToLabel(startHour)}</span>
+            </div>
+          </div>
+          <p className="text-[10px] text-black/25 text-right leading-relaxed hidden sm:block">
+            RL adapts speed<br/>to hourly forecast
+          </p>
+        </div>
+
+        <CitySearch onSelect={handleCityWeather} startHour={startHour}/>
 
         {!useBlocks && (
           <div className="space-y-5">
@@ -341,13 +354,6 @@ export default function ParameterInputs({
 
         {useBlocks && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <label className="text-xs font-medium text-black flex-shrink-0">Print starts at</label>
-              <input type="number" min={0} max={23} step={0.5} value={startHour}
-                onChange={e => { setStartHour(Number(e.target.value)); onWeatherChange?.(blocks, Number(e.target.value)); }}
-                className="w-20 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black"/>
-              <span className="text-xs text-black/40">{hourToLabel(startHour)}</span>
-            </div>
             <div className="space-y-3">
               {blocks.map((block, idx) => (
                 <div key={block.id} className="border border-gray-100 rounded-2xl p-4">
@@ -379,7 +385,6 @@ export default function ParameterInputs({
                       { key:'temperature', label:'Temp °C',    min:5,  max:45 },
                       { key:'humidity',    label:'Humidity %', min:20, max:100 },
                       { key:'wind_speed',  label:'Wind km/h',  min:0,  max:60 },
-                      { key:'ground_slope',label:'Slope °',    min:0,  max:15 },
                     ].map(f => (
                       <div key={f.key}>
                         <label className="text-[10px] text-black/40 mb-1 block">{f.label}</label>
@@ -413,22 +418,15 @@ export default function ParameterInputs({
           </Link>
         </div>
 
-        {/* Dropdown */}
         <div className="mb-4">
-          <select
-            value={materialId}
-            onChange={e => handleMaterialChange(e.target.value)}
-            className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black bg-white appearance-none cursor-pointer"
-          >
+          <select value={materialId} onChange={e => handleMaterialChange(e.target.value)}
+            className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black bg-white appearance-none cursor-pointer">
             {MATERIALS.map(m => (
-              <option key={m.id} value={m.id}>
-                {m.name}{m.region !== '—' ? ` — ${m.region}` : ''}
-              </option>
+              <option key={m.id} value={m.id}>{m.name}{m.region !== '—' ? ` — ${m.region}` : ''}</option>
             ))}
           </select>
         </div>
 
-        {/* Selected material quick stats */}
         {materialId !== 'custom' && (
           <div className="bg-black rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
@@ -457,12 +455,9 @@ export default function ParameterInputs({
           </div>
         )}
 
-        {/* Custom mortar */}
         {materialId === 'custom' && (
           <div className="space-y-3">
-            <p className="text-[10px] text-black/40 mb-3">
-              Enter your mortar parameters so the RL optimizer can adapt print speed, wait times, and risk scoring to your mix.
-            </p>
+            <p className="text-[10px] text-black/40 mb-3">Enter your mortar parameters so the RL optimizer can adapt.</p>
             {[
               { key:'pot_life_20c',     label:'Pot life @ 20°C (min)',  placeholder:'60',   type:'number' },
               { key:'pot_life_30c',     label:'Pot life @ 30°C (min)',  placeholder:'40',   type:'number' },
@@ -479,8 +474,7 @@ export default function ParameterInputs({
                   value={customMix[field.key] ?? ''}
                   onChange={e => {
                     const updated = { ...customMix, [field.key]: e.target.value };
-                    setCustomMix(updated);
-                    onCementChange?.('custom:' + JSON.stringify(updated));
+                    setCustomMix(updated); onCementChange?.('custom:' + JSON.stringify(updated));
                   }}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black placeholder:text-black/20"/>
               </div>
@@ -488,7 +482,6 @@ export default function ParameterInputs({
           </div>
         )}
 
-        {/* Batch number */}
         <div className="mt-4">
           <label className="block text-xs font-medium text-black mb-1.5">Batch Number</label>
           <input type="text" value={parameters.batchNumber}
