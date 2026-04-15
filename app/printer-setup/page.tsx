@@ -6,39 +6,34 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useProjects } from '@/lib/project-store';
 import AppNav from '@/components/AppNav';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 type SetupMode = 'choose' | 'connect' | 'manual' | 'pi';
 
 interface ManualConfig {
-  printerName:        string;
-  // 1. Nozzle
-  nozzleDiameter:     number;
-  nozzleShape:        'round' | 'square' | 'rectangular' | 'teeth';
-  // 2. Print Space
-  printSpaceX:        number;   // mm
-  printSpaceY:        number;   // mm
-  printSpaceZ:        number;   // mm
-  // 3. Pump & Delivery
-  pumpType:           'rotor-stator' | 'piston';
-  hoseLength:         number;
-  hoseInternalDiam:   number;
-  maxFlowRate:        number;   // L/min
-  minFlowRate:        number;   // L/min
-  // 4. Machine Kinematics
-  maxVelocity:        number;   // mm/s
-  acceleration:       number;   // mm/s²
-  jerkDeviation:      number;
-  // 5. Aggregate & Material
-  aggregatePrinterSize: number; // mm — max aggregate the printer can handle
-  initialSetTime:     number;
-  slumpValue:         number;
+  printerName:          string;
+  nozzleDiameter:       number;
+  nozzleShape:          'round' | 'square' | 'rectangular' | 'teeth';
+  beadCompression:      number;
+  printSpaceX:          number;
+  printSpaceY:          number;
+  printSpaceZ:          number;
+  pumpType:             'rotor-stator' | 'piston';
+  hoseLength:           number;
+  hoseInternalDiam:     number;
+  maxFlowRate:          number;
+  minFlowRate:          number;
+  maxVelocity:          number;
+  acceleration:         number;
+  jerkDeviation:        number;
+  aggregatePrinterSize: number;
+  initialSetTime:       number;
+  slumpValue:           number;
 }
 
 const DEFAULT_CONFIG: ManualConfig = {
   printerName:          'Custom Printer',
   nozzleDiameter:       25,
   nozzleShape:          'round',
+  beadCompression:      0.6,
   printSpaceX:          6000,
   printSpaceY:          4000,
   printSpaceZ:          3000,
@@ -55,28 +50,25 @@ const DEFAULT_CONFIG: ManualConfig = {
   slumpValue:           5,
 };
 
-// ── Field definitions — shown in definition panel ─────────────────────────────
-
 const FIELD_DEFS: Record<string, { title: string; why: string; unit: string }> = {
-  nozzleDiameter:       { title:'Nozzle Diameter',         unit:'mm',    why:'Sets the width of each concrete bead. The slicer uses this to compute bead footprint and print path spacing. Smaller = higher resolution, slower. Larger = faster, less detail.' },
-  nozzleShape:          { title:'Nozzle Shape',            unit:'—',     why:'Round is self-centring and most common. Square gives flat-top layers with better inter-layer bond. Rectangular suits high aspect-ratio beads. Teeth (serrated) improves mechanical keying between layers.' },
-  printSpaceX:          { title:'Print Space X',           unit:'mm',    why:'Maximum travel distance in X. The optimizer uses this to validate that the sliced toolpath fits within the machine envelope.' },
-  printSpaceY:          { title:'Print Space Y',           unit:'mm',    why:'Maximum travel distance in Y.' },
-  printSpaceZ:          { title:'Print Space Z',           unit:'mm',    why:'Maximum build height. Toolpaths exceeding this are flagged before printing starts.' },
-  pumpType:             { title:'Pump Type',               unit:'—',     why:'Rotor-stator pumps are the industry standard for 3DCP — high pressure, continuous flow, handles stiff mixes. Piston pumps give more precise volumetric control for high-viscosity or fibre-reinforced mixes.' },
-  hoseLength:           { title:'Hose Length',             unit:'m',     why:'The RL agent uses this to calculate hydraulic lag — how long after a pump command change before concrete actually exits the nozzle. Longer hose = more lag = earlier pump stop/start commands in G-code.' },
-  hoseInternalDiam:     { title:'Hose Internal Diameter',  unit:'mm',    why:'Combined with hose length, this gives the volume of concrete in transit at any moment. Used to calculate lag time and pressure drop across the delivery system.' },
-  maxFlowRate:          { title:'Max Flow Rate',           unit:'L/min', why:'Physical maximum the pump can deliver. The slicer uses this with bead geometry to compute the maximum achievable print speed without starving the nozzle.' },
-  minFlowRate:          { title:'Min Flow Rate',           unit:'L/min', why:'Minimum stable flow before the pump surges or the mix segregates. Sets the floor on print speed during slow cornering or fine detail sections.' },
-  maxVelocity:          { title:'Max Velocity',            unit:'mm/s',  why:'Maximum print head travel speed. The RL agent never commands motion above this. Separate from flow rate — the real speed limit is the lower of: max velocity and flow-rate-limited speed.' },
-  acceleration:         { title:'Acceleration',            unit:'mm/s²', why:'How quickly the print head can change speed. Low acceleration = smooth motion, less vibration, better layer quality. High = faster print but may cause bead width variation at corners.' },
-  jerkDeviation:        { title:'Junction Deviation',      unit:'mm/s',  why:'Controls speed through corners. Low values = slow smooth corners (better quality). High values = fast aggressive cornering (more vibration). Tune to your frame stiffness.' },
-  aggregatePrinterSize: { title:'Max Aggregate Size',      unit:'mm',    why:'The largest aggregate particle the printer can pass without blockage. The material system will warn if the selected mix has aggregate larger than this value.' },
-  initialSetTime:       { title:'Initial Set Time',        unit:'min',   why:'Time window before the mix loses workability at 20°C. The RL agent uses this with live temperature data to urgency-tune print speed — hotter conditions shorten this window.' },
-  slumpValue:           { title:'Slump / Workability',     unit:'/10',   why:'How fluid the mix is. Higher slump = more flowable, easier to pump, but may sag on steep walls. Lower = stiffer, self-supporting, harder to pump. Tune to your mix design.' },
+  nozzleDiameter:       { title:'Nozzle Diameter',        unit:'mm',    why:'Sets the width of each concrete bead. The slicer uses this to compute bead footprint and print path spacing. Smaller = higher resolution, slower. Larger = faster, less detail.' },
+  nozzleShape:          { title:'Nozzle Shape',           unit:'—',     why:'Round is self-centring and most common. Square gives flat-top layers with better inter-layer bond. Rectangular suits high aspect-ratio beads. Teeth (serrated) improves mechanical keying between layers.' },
+  beadCompression:      { title:'Bead Compression',       unit:'ratio', why:'How much the wet concrete bead gets compressed against the layer below. Layer height = nozzle diameter × this value. 0.5 = lightly compressed (strong bond, slow build). 0.6 = industry standard (COBOD, Apis Cor). 0.8 = aggressive (fast build, weaker bond). When the Pi is connected it auto-calibrates this from a test extrusion — camera measures actual bead height and sets this value exactly. The RL agent uses this to compute print time and interlayer wait.' },
+  printSpaceX:          { title:'Print Space X',          unit:'mm',    why:'Maximum travel distance in X. The optimizer uses this to validate that the sliced toolpath fits within the machine envelope.' },
+  printSpaceY:          { title:'Print Space Y',          unit:'mm',    why:'Maximum travel distance in Y.' },
+  printSpaceZ:          { title:'Print Space Z',          unit:'mm',    why:'Maximum build height. Toolpaths exceeding this are flagged before printing starts.' },
+  pumpType:             { title:'Pump Type',              unit:'—',     why:'Rotor-stator pumps are the industry standard for 3DCP — high pressure, continuous flow, handles stiff mixes. Piston pumps give more precise volumetric control for high-viscosity or fibre-reinforced mixes.' },
+  hoseLength:           { title:'Hose Length',            unit:'m',     why:'The RL agent uses this to calculate hydraulic lag — how long after a pump command change before concrete actually exits the nozzle. Longer hose = more lag = earlier pump stop/start commands in G-code.' },
+  hoseInternalDiam:     { title:'Hose Internal Diameter', unit:'mm',    why:'Combined with hose length, this gives the volume of concrete in transit at any moment. Used to calculate lag time and pressure drop across the delivery system.' },
+  maxFlowRate:          { title:'Max Flow Rate',          unit:'L/min', why:'Physical maximum the pump can deliver. The slicer uses this with bead geometry to compute the maximum achievable print speed without starving the nozzle.' },
+  minFlowRate:          { title:'Min Flow Rate',          unit:'L/min', why:'Minimum stable flow before the pump surges or the mix segregates. Sets the floor on print speed during slow cornering or fine detail sections.' },
+  maxVelocity:          { title:'Max Velocity',           unit:'mm/s',  why:'Maximum print head travel speed. The RL agent never commands motion above this. Separate from flow rate — the real speed limit is the lower of max velocity and flow-rate-limited speed.' },
+  acceleration:         { title:'Acceleration',           unit:'mm/s²', why:'How quickly the print head can change speed. Low acceleration = smooth motion, less vibration, better layer quality. High = faster print but may cause bead width variation at corners.' },
+  jerkDeviation:        { title:'Junction Deviation',     unit:'mm/s',  why:'Controls speed through corners. Low values = slow smooth corners (better quality). High values = fast aggressive cornering (more vibration). Tune to your frame stiffness.' },
+  aggregatePrinterSize: { title:'Max Aggregate Size',     unit:'mm',    why:'The largest aggregate particle the printer can pass without blockage. The material system will warn if the selected mix has aggregate larger than this value.' },
+  initialSetTime:       { title:'Initial Set Time',       unit:'min',   why:'Time window before the mix loses workability at 20°C. The RL agent uses this with live temperature data to urgency-tune print speed — hotter conditions shorten this window.' },
+  slumpValue:           { title:'Slump / Workability',    unit:'/10',   why:'How fluid the mix is. Higher slump = more flowable, easier to pump, but may sag on steep walls. Lower = stiffer, self-supporting, harder to pump. Tune to your mix design.' },
 };
-
-// ── Known printers ────────────────────────────────────────────────────────────
 
 const PRINTERS = [
   { name:'COBOD BOD2',  type:'Gantry', nozzle:'25 mm', maxSpeed:'100 mm/s', origin:'Denmark', desc:'Industry-leading gantry, deployed in 50+ countries' },
@@ -85,8 +77,6 @@ const PRINTERS = [
   { name:'Apis Cor',    type:'Crane',  nozzle:'22 mm', maxSpeed:'75 mm/s',  origin:'USA',     desc:'Portable crane-type with rapid on-site deployment' },
   { name:'ICON Vulcan', type:'Gantry', nozzle:'28 mm', maxSpeed:'90 mm/s',  origin:'USA',     desc:'Lavacrete system, US military and NASA programs' },
 ];
-
-// ── UI helpers ─────────────────────────────────────────────────────────────────
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -97,15 +87,10 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
   );
 }
 
-function Field({
-  fieldKey, label, unit, value, onChange, type = 'number',
-  min, max, step, onFocus, children,
-}: {
-  fieldKey?: string; label: string; unit?: string;
-  value?: number | string; onChange?: (v: any) => void;
-  type?: 'number' | 'text'; min?: number; max?: number; step?: number;
-  onFocus?: (key: string) => void;
-  children?: React.ReactNode;
+function Field({ fieldKey, label, unit, value, onChange, type = 'number', min, max, step, onFocus, children }: {
+  fieldKey?: string; label: string; unit?: string; value?: number | string;
+  onChange?: (v: any) => void; type?: 'number' | 'text'; min?: number; max?: number; step?: number;
+  onFocus?: (key: string) => void; children?: React.ReactNode;
 }) {
   return (
     <div>
@@ -113,66 +98,49 @@ function Field({
         <label className="text-xs font-medium text-black">{label}</label>
         {unit && <span className="text-[10px] text-black/30">({unit})</span>}
         {fieldKey && FIELD_DEFS[fieldKey] && (
-          <button
-            type="button"
-            onClick={() => onFocus?.(fieldKey)}
-            className="ml-auto w-4 h-4 rounded-full border border-black/20 flex items-center justify-center hover:border-black transition-colors"
-          >
+          <button type="button" onClick={() => onFocus?.(fieldKey)}
+            className="ml-auto w-4 h-4 rounded-full border border-black/20 flex items-center justify-center hover:border-black transition-colors">
             <span className="text-[9px] text-black/40 font-bold">i</span>
           </button>
         )}
       </div>
       {children ?? (
-        <input
-          type={type} value={value} min={min} max={max} step={step}
+        <input type={type} value={value} min={min} max={max} step={step}
           onFocus={() => fieldKey && onFocus?.(fieldKey)}
           onChange={e => onChange?.(type === 'number' ? Number(e.target.value) : e.target.value)}
-          className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black"
-        />
+          className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black"/>
       )}
     </div>
   );
 }
 
-function Select({
-  fieldKey, label, value, onChange, options, onFocus,
-}: {
-  fieldKey?: string; label: string; value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-  onFocus?: (key: string) => void;
+function Select({ fieldKey, label, value, onChange, options, onFocus }: {
+  fieldKey?: string; label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[]; onFocus?: (key: string) => void;
 }) {
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-1.5">
         <label className="text-xs font-medium text-black">{label}</label>
         {fieldKey && FIELD_DEFS[fieldKey] && (
-          <button
-            type="button"
-            onClick={() => onFocus?.(fieldKey)}
-            className="ml-auto w-4 h-4 rounded-full border border-black/20 flex items-center justify-center hover:border-black transition-colors"
-          >
+          <button type="button" onClick={() => onFocus?.(fieldKey)}
+            className="ml-auto w-4 h-4 rounded-full border border-black/20 flex items-center justify-center hover:border-black transition-colors">
             <span className="text-[9px] text-black/40 font-bold">i</span>
           </button>
         )}
       </div>
-      <select
-        value={value} onChange={e => onChange(e.target.value)}
+      <select value={value} onChange={e => onChange(e.target.value)}
         onFocus={() => fieldKey && onFocus?.(fieldKey)}
-        className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black bg-white appearance-none cursor-pointer"
-      >
+        className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black bg-white appearance-none cursor-pointer">
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </div>
   );
 }
 
-function SliderField({
-  fieldKey, label, value, onChange, min, max, step, unit, formatValue, onFocus,
-}: {
+function SliderField({ fieldKey, label, value, onChange, min, max, step, unit, formatValue, onFocus }: {
   fieldKey?: string; label: string; value: number; onChange: (v: number) => void;
-  min: number; max: number; step: number; unit?: string;
-  formatValue?: (v: number) => string;
+  min: number; max: number; step: number; unit?: string; formatValue?: (v: number) => string;
   onFocus?: (key: string) => void;
 }) {
   const display = formatValue ? formatValue(value) : `${value}${unit ?? ''}`;
@@ -181,22 +149,17 @@ function SliderField({
       <div className="flex items-center gap-1.5 mb-1.5">
         <label className="text-xs font-medium text-black">{label}</label>
         {fieldKey && FIELD_DEFS[fieldKey] && (
-          <button
-            type="button"
-            onClick={() => onFocus?.(fieldKey)}
-            className="w-4 h-4 rounded-full border border-black/20 flex items-center justify-center hover:border-black transition-colors"
-          >
+          <button type="button" onClick={() => onFocus?.(fieldKey)}
+            className="w-4 h-4 rounded-full border border-black/20 flex items-center justify-center hover:border-black transition-colors">
             <span className="text-[9px] text-black/40 font-bold">i</span>
           </button>
         )}
         <span className="ml-auto text-xs font-mono font-bold text-black">{display}</span>
       </div>
-      <input
-        type="range" min={min} max={max} step={step} value={value}
+      <input type="range" min={min} max={max} step={step} value={value}
         onFocus={() => fieldKey && onFocus?.(fieldKey)}
         onChange={e => onChange(Number(e.target.value))}
-        className="w-full accent-black h-1"
-      />
+        className="w-full accent-black h-1"/>
       <div className="flex justify-between mt-1">
         <span className="text-[10px] text-black/25">{min}{unit}</span>
         <span className="text-[10px] text-black/25">{max}{unit}</span>
@@ -205,36 +168,27 @@ function SliderField({
   );
 }
 
-// ── Definition panel ──────────────────────────────────────────────────────────
-
 function DefinitionPanel({ fieldKey, onClose }: { fieldKey: string | null; onClose: () => void }) {
   const def = fieldKey ? FIELD_DEFS[fieldKey] : null;
   return (
     <AnimatePresence>
-      {def && (
-        <motion.div
-          initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
+      {def ? (
+        <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 16 }} transition={{ duration: 0.2 }}
-          className="sticky top-24 bg-black rounded-2xl p-5 self-start"
-        >
+          className="sticky top-24 bg-black rounded-2xl p-5 self-start">
           <div className="flex items-start justify-between mb-3">
             <div>
               <p className="text-[9px] text-white/30 uppercase tracking-widest mb-1">Field Definition</p>
               <p className="text-sm font-bold text-white">{def.title}</p>
-              {def.unit !== '—' && (
-                <p className="text-[10px] font-mono text-white/40 mt-0.5">Unit: {def.unit}</p>
-              )}
+              {def.unit !== '—' && <p className="text-[10px] font-mono text-white/40 mt-0.5">Unit: {def.unit}</p>}
             </div>
             <button onClick={onClose} className="text-white/30 hover:text-white transition-colors text-lg leading-none">×</button>
           </div>
           <p className="text-[11px] text-white/60 leading-relaxed">{def.why}</p>
         </motion.div>
-      )}
-      {!def && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="sticky top-24 bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl p-5 self-start"
-        >
+      ) : (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="sticky top-24 bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl p-5 self-start">
           <p className="text-xs text-black/30 text-center">
             Click the <span className="font-bold">i</span> button next to any field to see what it means and why it matters.
           </p>
@@ -243,8 +197,6 @@ function DefinitionPanel({ fieldKey, onClose }: { fieldKey: string | null; onClo
     </AnimatePresence>
   );
 }
-
-// ── Raspberry Pi discovery flow ───────────────────────────────────────────────
 
 const PI_STEPS = [
   'Broadcasting discovery packet on local network…',
@@ -258,8 +210,7 @@ const PI_STEPS = [
 ];
 
 function PiDiscoveryFlow({ onConnected, onBack }: {
-  onConnected: (name: string, specs: any) => void;
-  onBack: () => void;
+  onConnected: (name: string, specs: any) => void; onBack: () => void;
 }) {
   const [scanning,   setScanning]   = useState(false);
   const [logLines,   setLogLines]   = useState<string[]>([]);
@@ -274,35 +225,21 @@ function PiDiscoveryFlow({ onConnected, onBack }: {
       i++;
       if (i >= PI_STEPS.length) {
         clearInterval(iv);
-        // Simulate specs read from printer EEPROM via Pi
         const specs = {
-          name:             'COBOD BOD2 (via Pi)',
-          nozzleDiameter:   25,
-          nozzleShape:      'round',
-          maxVelocity:      100,
-          minFlowRate:      1,
-          maxFlowRate:      8,
-          printSpaceX:      9000,
-          printSpaceY:      6000,
-          printSpaceZ:      3500,
-          hoseLength:       15,
-          hoseInternalDiam: 50,
-          pumpType:         'rotor-stator',
-          acceleration:     500,
-          jerkDeviation:    8,
-          aggregatePrinterSize: 4,
-          initialSetTime:   45,
-          slumpValue:       5,
+          name: 'COBOD BOD2 (via Pi)', nozzleDiameter: 25, nozzleShape: 'round',
+          beadCompression: 0.6, maxVelocity: 100, minFlowRate: 1, maxFlowRate: 8,
+          printSpaceX: 9000, printSpaceY: 6000, printSpaceZ: 3500,
+          hoseLength: 15, hoseInternalDiam: 50, pumpType: 'rotor-stator',
+          acceleration: 500, jerkDeviation: 8, aggregatePrinterSize: 4,
+          initialSetTime: 45, slumpValue: 5,
         };
-        setPiSpecs(specs);
-        setDiscovered(true);
+        setPiSpecs(specs); setDiscovered(true);
       }
     }, 480);
   };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-4xl">
-      {/* Left */}
       <div>
         <div className="bg-white border border-gray-100 rounded-2xl p-6 mb-4">
           <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center mb-4">
@@ -315,33 +252,22 @@ function PiDiscoveryFlow({ onConnected, onBack }: {
             The AutoBuild Pi dongle connects to your printer's controller via USB serial, then broadcasts specs over your local Wi-Fi. AutoBuild detects it automatically and loads the full printer profile — no manual entry needed.
           </p>
           <div className="space-y-2">
-            {[
-              'Plug Pi dongle into printer USB port',
-              'Connect Pi to site Wi-Fi',
-              'Click Scan below',
-            ].map((step, i) => (
+            {['Plug Pi dongle into printer USB port', 'Connect Pi to site Wi-Fi', 'Click Scan below'].map((step, i) => (
               <div key={i} className="flex items-center gap-3">
-                <div className="w-5 h-5 rounded-full bg-black text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
-                  {i + 1}
-                </div>
+                <div className="w-5 h-5 rounded-full bg-black text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
                 <p className="text-xs text-black/60">{step}</p>
               </div>
             ))}
           </div>
         </div>
         <div className="flex gap-3">
-          <button onClick={onBack}
-            className="px-4 py-2.5 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">
-            Back
-          </button>
+          <button onClick={onBack} className="px-4 py-2.5 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">Back</button>
           <button onClick={handleScan} disabled={scanning && !discovered}
             className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/90 disabled:opacity-40 transition-colors">
             {scanning && !discovered ? 'Scanning…' : 'Scan Network'}
           </button>
         </div>
       </div>
-
-      {/* Right: log + specs */}
       <div>
         <div className="bg-black rounded-2xl p-5 font-mono text-[11px] min-h-[200px] mb-4">
           {logLines.length === 0 && <p className="text-white/20">Waiting for scan…</p>}
@@ -351,11 +277,8 @@ function PiDiscoveryFlow({ onConnected, onBack }: {
               {line}
             </motion.p>
           ))}
-          {scanning && !discovered && (
-            <span className="inline-block w-2 h-3.5 bg-white/60 animate-pulse ml-0.5"/>
-          )}
+          {scanning && !discovered && <span className="inline-block w-2 h-3.5 bg-white/60 animate-pulse ml-0.5"/>}
         </div>
-
         {discovered && piSpecs && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             className="bg-white border border-gray-100 rounded-2xl p-4 mb-4">
@@ -363,12 +286,12 @@ function PiDiscoveryFlow({ onConnected, onBack }: {
             <p className="text-sm font-bold text-black mb-3">{piSpecs.name}</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
               {[
-                ['Nozzle',       `${piSpecs.nozzleDiameter}mm ${piSpecs.nozzleShape}`],
-                ['Max velocity', `${piSpecs.maxVelocity} mm/s`],
-                ['Flow range',   `${piSpecs.minFlowRate}–${piSpecs.maxFlowRate} L/min`],
-                ['Print space',  `${piSpecs.printSpaceX}×${piSpecs.printSpaceY}×${piSpecs.printSpaceZ}mm`],
-                ['Pump',         piSpecs.pumpType],
-                ['Aggregate',    `≤ ${piSpecs.aggregatePrinterSize}mm`],
+                ['Nozzle',           `${piSpecs.nozzleDiameter}mm ${piSpecs.nozzleShape}`],
+                ['Bead Compression', `${piSpecs.beadCompression}× → ${(piSpecs.nozzleDiameter * piSpecs.beadCompression).toFixed(1)}mm layers`],
+                ['Max velocity',     `${piSpecs.maxVelocity} mm/s`],
+                ['Flow range',       `${piSpecs.minFlowRate}–${piSpecs.maxFlowRate} L/min`],
+                ['Print space',      `${piSpecs.printSpaceX}×${piSpecs.printSpaceY}×${piSpecs.printSpaceZ}mm`],
+                ['Pump',             piSpecs.pumpType],
               ].map(([l, v]) => (
                 <div key={l}>
                   <p className="text-[9px] text-black/30 uppercase tracking-wider">{l}</p>
@@ -387,21 +310,13 @@ function PiDiscoveryFlow({ onConnected, onBack }: {
   );
 }
 
-// ── Connect flow (Option A) ───────────────────────────────────────────────────
-
 const LOG_STEPS = [
-  'Initialising serial interface…',
-  'Sending CONNECT command…',
-  'Handshake acknowledged…',
-  'Querying printer firmware…',
-  'Loading printer profile…',
-  'Calibrating extrusion baseline…',
-  'Connection established.',
+  'Initialising serial interface…', 'Sending CONNECT command…', 'Handshake acknowledged…',
+  'Querying printer firmware…', 'Loading printer profile…', 'Calibrating extrusion baseline…', 'Connection established.',
 ];
 
 function ConnectFlow({ onConnected, onBack }: {
-  onConnected: (printer: typeof PRINTERS[0]) => void;
-  onBack: () => void;
+  onConnected: (printer: typeof PRINTERS[0]) => void; onBack: () => void;
 }) {
   const [selected,   setSelected]   = useState<typeof PRINTERS[0] | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -427,9 +342,7 @@ function ConnectFlow({ onConnected, onBack }: {
           {PRINTERS.map(p => (
             <button key={p.name}
               onClick={() => { setSelected(p); setConnected(false); setLogLines([]); setConnecting(false); }}
-              className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
-                selected?.name === p.name ? 'bg-black border-black' : 'bg-white border-gray-100 hover:border-black'
-              }`}>
+              className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${selected?.name === p.name ? 'bg-black border-black' : 'bg-white border-gray-100 hover:border-black'}`}>
               <div className="flex items-start justify-between">
                 <div>
                   <p className={`text-sm font-semibold ${selected?.name===p.name?'text-white':'text-black'}`}>{p.name}</p>
@@ -445,7 +358,6 @@ function ConnectFlow({ onConnected, onBack }: {
           ))}
         </div>
       </div>
-
       <div>
         <h2 className="text-sm font-semibold text-black mb-4">Connection Log</h2>
         <div className="bg-black rounded-2xl p-5 font-mono text-[11px] min-h-[280px]">
@@ -459,10 +371,7 @@ function ConnectFlow({ onConnected, onBack }: {
           {connecting && !connected && <span className="inline-block w-2 h-3.5 bg-white/60 animate-pulse ml-0.5"/>}
         </div>
         <div className="mt-4 flex gap-3">
-          <button onClick={onBack}
-            className="px-4 py-2.5 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">
-            Back
-          </button>
+          <button onClick={onBack} className="px-4 py-2.5 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">Back</button>
           {!connected ? (
             <button onClick={handleConnect} disabled={!selected || connecting}
               className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/90 disabled:opacity-30 transition-colors">
@@ -484,22 +393,16 @@ function ConnectFlow({ onConnected, onBack }: {
   );
 }
 
-// ── Manual config form (Option B) ─────────────────────────────────────────────
-
-function ManualConfigForm({ onSave, onBack }: {
-  onSave: (cfg: ManualConfig) => void;
-  onBack: () => void;
-}) {
+function ManualConfigForm({ onSave, onBack }: { onSave: (cfg: ManualConfig) => void; onBack: () => void }) {
   const [cfg,      setCfg]      = useState<ManualConfig>(DEFAULT_CONFIG);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const set = (key: keyof ManualConfig) => (val: any) => setCfg(c => ({ ...c, [key]: val }));
 
   const hydraulicVolume = (Math.PI * (cfg.hoseInternalDiam/2/1000)**2 * cfg.hoseLength * 1000).toFixed(2);
+  const computedLayerH  = (cfg.nozzleDiameter * cfg.beadCompression).toFixed(1);
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-6 max-w-5xl">
-
-      {/* Left: form */}
       <div>
         {/* Printer name */}
         <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
@@ -508,7 +411,7 @@ function ManualConfigForm({ onSave, onBack }: {
 
         {/* 1. Nozzle */}
         <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
-          <SectionHeader title="1. Nozzle" subtitle="Shape and size of the concrete extrusion nozzle"/>
+          <SectionHeader title="1. Nozzle" subtitle="Shape, size, and bead compression factor"/>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <Field fieldKey="nozzleDiameter" label="Nozzle Diameter" unit="mm"
               value={cfg.nozzleDiameter} onChange={set('nozzleDiameter')}
@@ -520,8 +423,26 @@ function ManualConfigForm({ onSave, onBack }: {
                 { value:'square',      label:'Square — flat-top layers' },
                 { value:'rectangular', label:'Rectangular — high aspect ratio' },
                 { value:'teeth',       label:'Teeth (serrated) — improved layer bond' },
-              ]}
-            />
+              ]}/>
+          </div>
+          <div className="mt-5">
+            <SliderField fieldKey="beadCompression" label="Bead Compression"
+              value={cfg.beadCompression} onChange={set('beadCompression')}
+              min={0.5} max={0.8} step={0.01} onFocus={setFocusKey}
+              formatValue={v => {
+                const lh = (cfg.nozzleDiameter * v).toFixed(1);
+                if (v <= 0.54) return `${v.toFixed(2)}× — Conservative (${lh}mm layers)`;
+                if (v <= 0.64) return `${v.toFixed(2)}× — Standard (${lh}mm layers)`;
+                if (v <= 0.74) return `${v.toFixed(2)}× — Fast build (${lh}mm layers)`;
+                return `${v.toFixed(2)}× — Aggressive (${lh}mm layers)`;
+              }}/>
+            <div className="mt-3 flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
+              <span className="text-[10px] text-black/40">Computed layer height</span>
+              <span className="text-sm font-bold font-mono text-black">{computedLayerH} mm</span>
+            </div>
+            <p className="text-[10px] text-black/30 mt-1.5">
+              {cfg.nozzleDiameter}mm × {cfg.beadCompression.toFixed(2)} = {computedLayerH}mm · Pi auto-calibrates from test extrusion
+            </p>
           </div>
         </div>
 
@@ -529,15 +450,9 @@ function ManualConfigForm({ onSave, onBack }: {
         <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
           <SectionHeader title="2. Print Space" subtitle="Machine envelope — maximum build volume"/>
           <div className="grid grid-cols-3 gap-5">
-            <Field fieldKey="printSpaceX" label="X" unit="mm"
-              value={cfg.printSpaceX} onChange={set('printSpaceX')}
-              min={100} max={30000} step={100} onFocus={setFocusKey}/>
-            <Field fieldKey="printSpaceY" label="Y" unit="mm"
-              value={cfg.printSpaceY} onChange={set('printSpaceY')}
-              min={100} max={30000} step={100} onFocus={setFocusKey}/>
-            <Field fieldKey="printSpaceZ" label="Z" unit="mm"
-              value={cfg.printSpaceZ} onChange={set('printSpaceZ')}
-              min={100} max={20000} step={100} onFocus={setFocusKey}/>
+            <Field fieldKey="printSpaceX" label="X" unit="mm" value={cfg.printSpaceX} onChange={set('printSpaceX')} min={100} max={30000} step={100} onFocus={setFocusKey}/>
+            <Field fieldKey="printSpaceY" label="Y" unit="mm" value={cfg.printSpaceY} onChange={set('printSpaceY')} min={100} max={30000} step={100} onFocus={setFocusKey}/>
+            <Field fieldKey="printSpaceZ" label="Z" unit="mm" value={cfg.printSpaceZ} onChange={set('printSpaceZ')} min={100} max={20000} step={100} onFocus={setFocusKey}/>
           </div>
           <p className="text-[10px] text-black/30 mt-3 font-mono">
             Volume: {((cfg.printSpaceX/1000)*(cfg.printSpaceY/1000)*(cfg.printSpaceZ/1000)).toFixed(1)} m³
@@ -548,28 +463,18 @@ function ManualConfigForm({ onSave, onBack }: {
         <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
           <SectionHeader title="3. Pump & Delivery" subtitle="Flow rate limits and hydraulic lag parameters"/>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Select fieldKey="pumpType" label="Pump Type"
-              value={cfg.pumpType} onChange={set('pumpType')} onFocus={setFocusKey}
+            <Select fieldKey="pumpType" label="Pump Type" value={cfg.pumpType} onChange={set('pumpType')} onFocus={setFocusKey}
               options={[
                 { value:'rotor-stator', label:'Rotor-Stator — high pressure, common' },
                 { value:'piston',       label:'Piston — precise, high viscosity' },
-              ]}
-            />
-            <Field fieldKey="hoseLength" label="Hose Length" unit="m"
-              value={cfg.hoseLength} onChange={set('hoseLength')}
-              min={1} max={100} step={0.5} onFocus={setFocusKey}/>
+              ]}/>
+            <Field fieldKey="hoseLength" label="Hose Length" unit="m" value={cfg.hoseLength} onChange={set('hoseLength')} min={1} max={100} step={0.5} onFocus={setFocusKey}/>
             <div>
-              <Field fieldKey="hoseInternalDiam" label="Hose Internal Diameter" unit="mm"
-                value={cfg.hoseInternalDiam} onChange={set('hoseInternalDiam')}
-                min={20} max={100} step={1} onFocus={setFocusKey}/>
+              <Field fieldKey="hoseInternalDiam" label="Hose Internal Diameter" unit="mm" value={cfg.hoseInternalDiam} onChange={set('hoseInternalDiam')} min={20} max={100} step={1} onFocus={setFocusKey}/>
               <p className="text-[10px] text-black/30 mt-1.5 font-mono">Volume in hose: {hydraulicVolume} L</p>
             </div>
-            <Field fieldKey="maxFlowRate" label="Max Flow Rate" unit="L/min"
-              value={cfg.maxFlowRate} onChange={set('maxFlowRate')}
-              min={1} max={40} step={0.5} onFocus={setFocusKey}/>
-            <Field fieldKey="minFlowRate" label="Min Flow Rate" unit="L/min"
-              value={cfg.minFlowRate} onChange={set('minFlowRate')}
-              min={0.1} max={10} step={0.1} onFocus={setFocusKey}/>
+            <Field fieldKey="maxFlowRate" label="Max Flow Rate" unit="L/min" value={cfg.maxFlowRate} onChange={set('maxFlowRate')} min={1} max={40} step={0.5} onFocus={setFocusKey}/>
+            <Field fieldKey="minFlowRate" label="Min Flow Rate" unit="L/min" value={cfg.minFlowRate} onChange={set('minFlowRate')} min={0.1} max={10} step={0.1} onFocus={setFocusKey}/>
           </div>
         </div>
 
@@ -577,18 +482,13 @@ function ManualConfigForm({ onSave, onBack }: {
         <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
           <SectionHeader title="4. Machine Kinematics" subtitle="Speed limits so the RL agent never exceeds physical capability"/>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field fieldKey="maxVelocity" label="Max Velocity" unit="mm/s"
-              value={cfg.maxVelocity} onChange={set('maxVelocity')}
-              min={10} max={300} step={5} onFocus={setFocusKey}/>
-            <Field fieldKey="acceleration" label="Acceleration" unit="mm/s²"
-              value={cfg.acceleration} onChange={set('acceleration')}
-              min={50} max={3000} step={50} onFocus={setFocusKey}/>
+            <Field fieldKey="maxVelocity" label="Max Velocity" unit="mm/s" value={cfg.maxVelocity} onChange={set('maxVelocity')} min={10} max={300} step={5} onFocus={setFocusKey}/>
+            <Field fieldKey="acceleration" label="Acceleration" unit="mm/s²" value={cfg.acceleration} onChange={set('acceleration')} min={50} max={3000} step={50} onFocus={setFocusKey}/>
             <div className="sm:col-span-2">
               <SliderField fieldKey="jerkDeviation" label="Junction Deviation"
                 value={cfg.jerkDeviation} onChange={set('jerkDeviation')}
                 min={1} max={20} step={0.5} unit=" mm/s" onFocus={setFocusKey}
-                formatValue={v => v<=5?`${v} mm/s — Smooth`:v<=12?`${v} mm/s — Balanced`:`${v} mm/s — Aggressive`}
-              />
+                formatValue={v => v<=5?`${v} mm/s — Smooth`:v<=12?`${v} mm/s — Balanced`:`${v} mm/s — Aggressive`}/>
             </div>
           </div>
         </div>
@@ -602,39 +502,32 @@ function ManualConfigForm({ onSave, onBack }: {
                 value={cfg.aggregatePrinterSize} onChange={set('aggregatePrinterSize')}
                 min={0} max={20} step={0.5} onFocus={setFocusKey}/>
               {cfg.aggregatePrinterSize > cfg.nozzleDiameter * 0.35 && (
-                <p className="text-[10px] text-amber-600 mt-1">
-                  Exceeds recommended max ({(cfg.nozzleDiameter*0.35).toFixed(1)}mm) — clog risk
-                </p>
+                <p className="text-[10px] text-amber-600 mt-1">Exceeds recommended max ({(cfg.nozzleDiameter*0.35).toFixed(1)}mm) — clog risk</p>
               )}
             </div>
-            <Field fieldKey="initialSetTime" label="Initial Set Time" unit="min at 20°C"
-              value={cfg.initialSetTime} onChange={set('initialSetTime')}
-              min={5} max={120} step={1} onFocus={setFocusKey}/>
+            <Field fieldKey="initialSetTime" label="Initial Set Time" unit="min at 20°C" value={cfg.initialSetTime} onChange={set('initialSetTime')} min={5} max={120} step={1} onFocus={setFocusKey}/>
             <div className="sm:col-span-2">
               <SliderField fieldKey="slumpValue" label="Slump / Workability"
                 value={cfg.slumpValue} onChange={set('slumpValue')}
                 min={1} max={10} step={0.5} onFocus={setFocusKey}
-                formatValue={v => v<=3?`${v}/10 — Stiff`:v<=6?`${v}/10 — Balanced`:`${v}/10 — Wet, may sag`}
-              />
+                formatValue={v => v<=3?`${v}/10 — Stiff`:v<=6?`${v}/10 — Balanced`:`${v}/10 — Wet, may sag`}/>
             </div>
           </div>
         </div>
 
         {/* Summary */}
         <div className="bg-black rounded-2xl p-5 mb-6">
-          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-4">
-            Configuration Summary — What the RL sees
-          </p>
+          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-4">Configuration Summary — What the RL sees</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-white/10 rounded-xl overflow-hidden">
             {[
-              { label:'Nozzle',      value:`${cfg.nozzleDiameter}mm ${cfg.nozzleShape}` },
-              { label:'Print Space', value:`${(cfg.printSpaceX/1000).toFixed(1)}×${(cfg.printSpaceY/1000).toFixed(1)}×${(cfg.printSpaceZ/1000).toFixed(1)}m` },
-              { label:'Max Vel',     value:`${cfg.maxVelocity} mm/s` },
-              { label:'Flow Range',  value:`${cfg.minFlowRate}–${cfg.maxFlowRate} L/min` },
-              { label:'Pump',        value:cfg.pumpType },
-              { label:'Set Window',  value:`${cfg.initialSetTime} min` },
-              { label:'Slump',       value:`${cfg.slumpValue}/10` },
-              { label:'Aggregate',   value:`≤ ${cfg.aggregatePrinterSize}mm` },
+              { label:'Nozzle',       value:`${cfg.nozzleDiameter}mm ${cfg.nozzleShape}` },
+              { label:'Layer Height', value:`${computedLayerH}mm (${cfg.beadCompression.toFixed(2)}×)` },
+              { label:'Print Space',  value:`${(cfg.printSpaceX/1000).toFixed(1)}×${(cfg.printSpaceY/1000).toFixed(1)}×${(cfg.printSpaceZ/1000).toFixed(1)}m` },
+              { label:'Max Vel',      value:`${cfg.maxVelocity} mm/s` },
+              { label:'Flow Range',   value:`${cfg.minFlowRate}–${cfg.maxFlowRate} L/min` },
+              { label:'Pump',         value:cfg.pumpType },
+              { label:'Set Window',   value:`${cfg.initialSetTime} min` },
+              { label:'Aggregate',    value:`≤ ${cfg.aggregatePrinterSize}mm` },
             ].map((s,i) => (
               <div key={i} className="bg-black px-4 py-3">
                 <p className="text-[9px] text-white/30 uppercase tracking-wider mb-1">{s.label}</p>
@@ -645,24 +538,15 @@ function ManualConfigForm({ onSave, onBack }: {
         </div>
 
         <div className="flex gap-3">
-          <button onClick={onBack}
-            className="px-5 py-3 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">
-            Back
-          </button>
-          <button onClick={() => onSave(cfg)}
-            className="flex-1 py-3 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/90 transition-colors">
-            Save & Continue
-          </button>
+          <button onClick={onBack} className="px-5 py-3 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">Back</button>
+          <button onClick={() => onSave(cfg)} className="flex-1 py-3 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/90 transition-colors">Save & Continue</button>
         </div>
       </div>
 
-      {/* Right: definition panel */}
-      <DefinitionPanel fieldKey={focusKey} onClose={() => setFocusKey(null)} />
+      <DefinitionPanel fieldKey={focusKey} onClose={() => setFocusKey(null)}/>
     </div>
   );
 }
-
-// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function PrinterSetupPage() {
   const router = useRouter();
@@ -683,13 +567,7 @@ export default function PrinterSetupPage() {
     if (activeProject) {
       updateProject(activeProject.id, {
         status: 'pre-print',
-        printer: {
-          name,
-          type:     'Gantry',
-          nozzle:   `${specs.nozzleDiameter} mm`,
-          maxSpeed: `${specs.maxVelocity} mm/s`,
-          manualConfig: specs,
-        },
+        printer: { name, type: 'Gantry', nozzle: `${specs.nozzleDiameter} mm`, maxSpeed: `${specs.maxVelocity} mm/s`, manualConfig: specs },
       });
     }
     router.push('/pre-print-optimizer');
@@ -700,10 +578,11 @@ export default function PrinterSetupPage() {
       updateProject(activeProject.id, {
         status: 'pre-print',
         printer: {
-          name:     cfg.printerName,
-          type:     'Custom',
-          nozzle:   `${cfg.nozzleDiameter} mm`,
-          maxSpeed: `${cfg.maxVelocity} mm/s`,
+          name:         cfg.printerName,
+          type:         'Custom',
+          nozzle:       `${cfg.nozzleDiameter} mm`,
+          maxSpeed:     `${cfg.maxVelocity} mm/s`,
+          layerHeight:  cfg.nozzleDiameter * cfg.beadCompression,
           manualConfig: cfg,
         },
       });
@@ -717,7 +596,6 @@ export default function PrinterSetupPage() {
       <div className="max-w-5xl mx-auto px-6 py-8">
         <AnimatePresence mode="wait">
 
-          {/* Choose */}
           {mode === 'choose' && (
             <motion.div key="choose" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}}>
               <div className="mb-8">
@@ -725,8 +603,6 @@ export default function PrinterSetupPage() {
                 <p className="text-black/50 text-sm mt-1">How would you like to configure your printer?</p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-2xl">
-
-                {/* Pi */}
                 <button onClick={() => setMode('pi')}
                   className="group text-left bg-white border-2 border-gray-100 rounded-2xl p-6 hover:border-black transition-all">
                   <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-4">
@@ -736,13 +612,9 @@ export default function PrinterSetupPage() {
                   </div>
                   <p className="text-black/50 text-xs font-bold mb-1">Recommended</p>
                   <p className="text-black text-base font-semibold mb-2">Wireless Connection</p>
-                  <p className="text-black/40 text-xs leading-relaxed">
-                    Plug the AutoBuild Pi into your printer. It auto-discovers the printer name and all specs over Wi-Fi.
-                  </p>
+                  <p className="text-black/40 text-xs leading-relaxed">Plug the AutoBuild Pi into your printer. It auto-discovers the printer name and all specs over Wi-Fi.</p>
                   <div className="mt-4 text-black/30 text-xs font-medium group-hover:text-black transition-colors">Auto-configure →</div>
                 </button>
-
-                {/* Manual */}
                 <button onClick={() => setMode('manual')}
                   className="group text-left bg-white border-2 border-gray-100 rounded-2xl p-6 hover:border-black transition-all">
                   <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-4">
@@ -753,24 +625,18 @@ export default function PrinterSetupPage() {
                   </div>
                   <p className="text-black/50 text-xs font-bold mb-1">Option A</p>
                   <p className="text-black text-base font-semibold mb-2">Manual Config</p>
-                  <p className="text-black/40 text-xs leading-relaxed">
-                    Enter nozzle, pump, kinematics and aggregate specs for any custom printer.
-                  </p>
+                  <p className="text-black/40 text-xs leading-relaxed">Enter nozzle, pump, kinematics and aggregate specs for any custom printer.</p>
                   <div className="mt-4 text-black/30 text-xs font-medium group-hover:text-black transition-colors">5 sections →</div>
                 </button>
-
               </div>
             </motion.div>
           )}
 
-          {/* Pi discovery */}
           {mode === 'pi' && (
             <motion.div key="pi" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}}>
               <div className="flex items-center gap-3 mb-8">
                 <button onClick={() => setMode('choose')} className="text-black/40 hover:text-black transition-colors">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
-                  </svg>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
                 </button>
                 <div>
                   <h1 className="text-2xl font-bold text-black">Pi Wireless Dongle</h1>
@@ -781,14 +647,11 @@ export default function PrinterSetupPage() {
             </motion.div>
           )}
 
-          {/* Connect */}
           {mode === 'connect' && (
             <motion.div key="connect" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}}>
               <div className="flex items-center gap-3 mb-8">
                 <button onClick={() => setMode('choose')} className="text-black/40 hover:text-black transition-colors">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
-                  </svg>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
                 </button>
                 <div>
                   <h1 className="text-2xl font-bold text-black">Connect to Printer</h1>
@@ -799,14 +662,11 @@ export default function PrinterSetupPage() {
             </motion.div>
           )}
 
-          {/* Manual */}
           {mode === 'manual' && (
             <motion.div key="manual" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}}>
               <div className="flex items-center gap-3 mb-8">
                 <button onClick={() => setMode('choose')} className="text-black/40 hover:text-black transition-colors">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
-                  </svg>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
                 </button>
                 <div>
                   <h1 className="text-2xl font-bold text-black">Manual Hardware Configuration</h1>
