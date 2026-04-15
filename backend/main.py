@@ -425,5 +425,4 @@ def _manual_schedule(
         timestamp_h = 0.0,
     )]
     sched.source = "manual"
-    return sched#   f o r c e   r e d e p l o y  
- 
+    return sched
