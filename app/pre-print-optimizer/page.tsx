@@ -257,14 +257,14 @@ export default function PrePrintOptimizer() {
     try {
       // Pull printer config dynamically — everything flows from nozzle × beadCompression
       const mc        = activeProject?.printer?.manualConfig as ManualPrinterConfig | undefined;
-      const nozzleMm  = (mc?.nozzleDiameter   ?? parseFloat(activeProject?.printer?.nozzle    ?? '25')  ?? 25)  as number;
-      const beadComp  = (mc?.beadCompression  ?? 0.6)  as number;
-      const maxSpd    = (mc?.maxVelocity      ?? parseFloat(activeProject?.printer?.maxSpeed  ?? '100') ?? 100) as number;
-      const minSpd    = (mc?.minFlowRate      ?? 15)   as number;
-      const flowRate  = (mc?.maxFlowRate      ?? 8)    as number;
-      const hoseLen   = (mc?.hoseLength       ?? 15)   as number;
-      const hoseDiam  = (mc?.hoseInternalDiam ?? 50)   as number;
-      const accel     = (mc?.acceleration     ?? 500)  as number;
+      const nozzleMm  = (mc?.nozzleDiameter   != null ? mc.nozzleDiameter   : parseFloat(activeProject?.printer?.nozzle    ?? '25')  || 25)  as number;
+      const beadComp  = (mc?.beadCompression  != null ? mc.beadCompression  : 0.6) as number;
+      const maxSpd    = (mc?.maxVelocity      != null ? mc.maxVelocity      : parseFloat(activeProject?.printer?.maxSpeed  ?? '100') || 100) as number;
+      const minSpd    = (mc?.minFlowRate      != null ? mc.minFlowRate      : 15)  as number;
+      const flowRate  = (mc?.maxFlowRate      != null ? mc.maxFlowRate      : 8)   as number;
+      const hoseLen   = (mc?.hoseLength       != null ? mc.hoseLength       : 15)  as number;
+      const hoseDiam  = (mc?.hoseInternalDiam != null ? mc.hoseInternalDiam : 50)  as number;
+      const accel     = (mc?.acceleration     != null ? mc.acceleration     : 500) as number;
       const layerH    = (nozzleMm * beadComp) / 1000;
       console.log('[AutoBuild] nozzle:', nozzleMm, 'bead:', beadComp, 'layerH_mm:', nozzleMm * beadComp, 'mc:', mc);
 
