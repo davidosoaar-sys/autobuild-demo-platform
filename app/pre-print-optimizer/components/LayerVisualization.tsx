@@ -303,67 +303,91 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // beadW = nozzle diameter (passed as metres), beadH = layer height + overlap
-  // Rectangular cross-section (no inset) — prevents grooves between layers
-  const beadW  = (nozzleDiameter ?? layerHeight * 1.67); // nozzleDiameter in metres
-  const beadH  = layerHeight * 1.8;
+  // Bead cross-section: flat base, rounded dome crown — real extruded concrete profile
+  // beadW = full nozzle width, beadH = layer height with slight overlap
+  const beadW = (nozzleDiameter ?? layerHeight * 1.67) * 0.88;
+  const beadH = layerHeight * 1.15;
 
   const fullGeo = useMemo(() => {
-    const total     = allSegs.length;
+    const total = allSegs.length;
     if (total === 0) return null;
 
-    const positions = new Float32Array(total * 8 * 3);
-    const normals   = new Float32Array(total * 8 * 3);
-    const indices   = new Uint32Array(total * 36);
+    // Cross-section profile: 6 points
+    // 0: bottom-left, 1: bottom-right (flat base)
+    // 2: shoulder-left, 3: shoulder-right (where dome starts)
+    // 4: crown-left, 5: crown-right (top of dome, inset)
+    // Crown = half-ellipse arc: 5 profile verts per end = 10 verts per seg
+    // Triangles: base quad + 2 side quads + dome quad = 4 quads = 8 tris = 24 indices per seg
+    // We use 5 profile verts per end × 2 ends = 10 verts per seg
+    // Profile (local coords, y up, x across):
+    //   v0 = (-hw,   0      )  bottom-left
+    //   v1 = (-hw,   h*0.5  )  mid-left
+    //   v2 = (-hw*0.7, h    )  crown-left
+    //   v3 = ( hw*0.7, h    )  crown-right
+    //   v4 = ( hw,   h*0.5  )  mid-right
+    //   v5 = ( hw,   0      )  bottom-right
+    // 6 verts × 2 ends = 12 verts, 5 quads × 2 tris = 10 tris = 30 indices
+
+    const PROFILE = 6;
+    const vertsPerSeg  = PROFILE * 2;
+    const trisPerSeg   = (PROFILE - 1) * 2; // 5 quads × 2 tris each
+    const idxPerSeg    = trisPerSeg * 3;
+
+    const positions = new Float32Array(total * vertsPerSeg * 3);
+    const normals   = new Float32Array(total * vertsPerSeg * 3);
+    const indices   = new Uint32Array(total * idxPerSeg);
+
+    const hw = beadW * 0.5;
+    const h  = beadH;
+
+    // Profile offsets (across, up) — 6 points making rounded bead shape
+    const px = [-hw, -hw,      -hw * 0.55, hw * 0.55,  hw,      hw     ];
+    const py = [0,    h * 0.42,  h,          h,          h * 0.42, 0     ];
 
     for (let i = 0; i < total; i++) {
-      const s   = allSegs[i];
-      const dx  = s.e[0] - s.s[0];
-      const dz  = s.e[2] - s.s[2];
+      const s  = allSegs[i];
+      const dx = s.e[0] - s.s[0];
+      const dz = s.e[2] - s.s[2];
       const len = Math.sqrt(dx*dx + dz*dz);
-      if (len < 0.001) continue;
+      if (len < 0.0005) continue;
 
-      const nx  = -dz / len;
-      const nz  =  dx / len;
-      const hw  = beadW * 0.5;
-      const y0  = s.s[1] - beadH * 0.1;
-      const y1  = s.s[1] + beadH * 0.9;
-      const ins = 0; // rectangular cross-section — no inset, no grooves
+      const nx = -dz / len;  // normal across bead width
+      const nz =  dx / len;
 
-      const vb    = i * 8;
-      const verts: [number,number,number][] = [
-        [s.s[0]-nx*hw,       y0, s.s[2]-nz*hw],
-        [s.s[0]+nx*hw,       y0, s.s[2]+nz*hw],
-        [s.e[0]+nx*hw,       y0, s.e[2]+nz*hw],
-        [s.e[0]-nx*hw,       y0, s.e[2]-nz*hw],
-        [s.s[0]-nx*(hw-ins), y1, s.s[2]-nz*(hw-ins)],
-        [s.s[0]+nx*(hw-ins), y1, s.s[2]+nz*(hw-ins)],
-        [s.e[0]+nx*(hw-ins), y1, s.e[2]+nz*(hw-ins)],
-        [s.e[0]-nx*(hw-ins), y1, s.e[2]-nz*(hw-ins)],
-      ];
+      const vb = i * vertsPerSeg;
+      const y0 = s.s[1]; // layer center Y
 
-      for (let v = 0; v < 8; v++) {
-        positions[(vb+v)*3+0] = verts[v][0];
-        positions[(vb+v)*3+1] = verts[v][1];
-        positions[(vb+v)*3+2] = verts[v][2];
-        normals[(vb+v)*3+1]   = v >= 4 ? 1 : -1;
+      // Start end (vi=0..5) and finish end (vi=6..11)
+      for (let p = 0; p < PROFILE; p++) {
+        const across = px[p];
+        const up     = py[p];
+
+        // start end
+        positions[(vb + p) * 3 + 0] = s.s[0] + nx * across;
+        positions[(vb + p) * 3 + 1] = y0 + up;
+        positions[(vb + p) * 3 + 2] = s.s[2] + nz * across;
+
+        // finish end
+        positions[(vb + PROFILE + p) * 3 + 0] = s.e[0] + nx * across;
+        positions[(vb + PROFILE + p) * 3 + 1] = y0 + up;
+        positions[(vb + PROFILE + p) * 3 + 2] = s.e[2] + nz * across;
       }
 
-      const ib   = i * 36;
-      const tris = [
-        vb+4,vb+5,vb+6, vb+4,vb+6,vb+7,
-        vb+0,vb+2,vb+1, vb+0,vb+3,vb+2,
-        vb+0,vb+1,vb+5, vb+0,vb+5,vb+4,
-        vb+2,vb+3,vb+7, vb+2,vb+7,vb+6,
-        vb+3,vb+0,vb+4, vb+3,vb+4,vb+7,
-        vb+1,vb+2,vb+6, vb+1,vb+6,vb+5,
-      ];
-      for (let ti = 0; ti < 36; ti++) indices[ib+ti] = tris[ti];
+      // Build quads along the extrusion (connecting start ring to end ring)
+      const ib = i * idxPerSeg;
+      let ti = 0;
+      for (let p = 0; p < PROFILE - 1; p++) {
+        const a = vb + p;
+        const b = vb + p + 1;
+        const c = vb + PROFILE + p + 1;
+        const d = vb + PROFILE + p;
+        indices[ib + ti++] = a; indices[ib + ti++] = b; indices[ib + ti++] = c;
+        indices[ib + ti++] = a; indices[ib + ti++] = c; indices[ib + ti++] = d;
+      }
     }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('normal',   new THREE.BufferAttribute(normals,   3));
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
     geo.computeVertexNormals();
     return geo;
@@ -371,10 +395,11 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
 
   useEffect(() => {
     if (!fullGeo) return;
+    const idxPerSeg = (6 - 1) * 2 * 3; // 30
     if (progress <= 0 || progress >= 1) {
       fullGeo.setDrawRange(0, Infinity);
     } else {
-      fullGeo.setDrawRange(0, Math.max(segIdx, 0) * 36);
+      fullGeo.setDrawRange(0, Math.max(segIdx, 0) * idxPerSeg);
     }
   }, [fullGeo, progress, segIdx, allSegs.length]);
 
@@ -383,8 +408,8 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
       {fullGeo && (
         <mesh geometry={fullGeo}>
           <meshStandardMaterial
-            color={new THREE.Color(pathColor).lerp(new THREE.Color('#9a9a96'), 0.45)}
-            roughness={0.97}
+            color={pathColor}
+            roughness={0.92}
             metalness={0.0}
             side={THREE.DoubleSide}
           />
@@ -395,13 +420,13 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
       <group position={nozzle}>
         <mesh rotation={[-Math.PI/2,0,0]}>
           <ringGeometry args={[beadW*0.6, beadW*1.2, 24]}/>
-          <meshBasicMaterial color={pathColor} transparent opacity={0.5}/>
+          <meshBasicMaterial color={pathColor} transparent opacity={0.4}/>
         </mesh>
         <mesh>
           <sphereGeometry args={[beadW*0.5, 16, 16]}/>
           <meshBasicMaterial color="#ffffff"/>
         </mesh>
-        <mesh position={[0, -beadH*0.4, 0]}>
+        <mesh position={[0, -beadH*0.5, 0]}>
           <sphereGeometry args={[beadW*0.3, 10, 10]}/>
           <meshBasicMaterial color={pathColor} transparent opacity={0.9}/>
         </mesh>
