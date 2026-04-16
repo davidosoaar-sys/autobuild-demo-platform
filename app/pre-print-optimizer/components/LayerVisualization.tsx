@@ -280,12 +280,14 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
-        // Skip segments shorter than 0.5mm — these produce zero-area triangles
-        // in the geometry builder (len < 0.0005 → continue leaves indices at 0)
-        // which skews the drawRange count and causes visible missing-bead gaps.
         const dx = seg.x1 - seg.x0;
         const dy = seg.y1 - seg.y0;
-        if (dx * dx + dy * dy < 2.5e-7) return;
+        // Filter segments shorter than 40% of nozzle diameter.
+        // Segments where len << beadW render as open-ended discs (the tube is
+        // shorter than it is wide), appearing lighter and visually larger than
+        // the surrounding rod-shaped beads due to DoubleSide back-face exposure.
+        const minLen = nozzleDiameter * 0.4;
+        if (dx * dx + dy * dy < minLen * minLen) return;
         out.push({
           s: [seg.x0, y, -seg.y0],
           e: [seg.x1, y, -seg.y1],
@@ -294,7 +296,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
       });
     });
     return out;
-  }, [toolpath, layerHeight]);
+  }, [toolpath, layerHeight, nozzleDiameter]);
 
   if (allSegs.length === 0) return null;
 
@@ -356,7 +358,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
       const dx = s.e[0] - s.s[0];
       const dz = s.e[2] - s.s[2];
       const len = Math.sqrt(dx*dx + dz*dz);
-      if (len < 0.0005) continue;
+      if (len < 1e-9) continue; // safety only — allSegs pre-filter guarantees len >= nozzleDiameter*0.4
 
       const nx = -dz / len;  // normal across bead width
       const nz =  dx / len;
