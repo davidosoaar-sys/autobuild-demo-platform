@@ -143,6 +143,57 @@ def search_cities(q: str):
         raise HTTPException(502, str(e))
 
 
+@app.get("/weather/forecast")
+def get_forecast(city: str, start_hour: float = 8.0, hours: int = 8):
+    """
+    Fetch hourly forecast for a city starting at a given hour.
+    Returns up to `hours` forecast blocks for the RL optimizer.
+    """
+    try:
+        resp = requests.get(
+            f"{OW_BASE}/forecast",
+            params={"q": city, "appid": OW_KEY, "units": "metric", "cnt": 16},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("list", [])
+
+        result = []
+        for item in items:
+            import datetime
+            dt   = datetime.datetime.fromtimestamp(item["dt"])
+            hour = dt.hour + dt.minute / 60.0
+
+            # Filter to items at or after start_hour
+            if hour < start_hour and len(result) == 0:
+                continue
+
+            temp     = item["main"]["temp"]
+            humidity = item["main"]["humidity"]
+            wind     = item["wind"]["speed"] * 3.6  # m/s → km/h
+            desc     = item["weather"][0]["description"] if item.get("weather") else ""
+            risk     = composite_risk_score(temp, humidity, wind)
+
+            result.append({
+                "hour":        round(hour, 2),
+                "temperature": round(temp, 1),
+                "humidity":    round(humidity, 1),
+                "wind_speed":  round(wind, 1),
+                "description": desc,
+                "risk":        round(risk, 1),
+            })
+
+            if len(result) >= hours:
+                break
+
+        return result
+    except requests.HTTPError as e:
+        raise HTTPException(502, f"Weather API error: {e}")
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
 # ── Sika 733 info ─────────────────────────────────────────────────────────────
 
 @app.get("/material")
