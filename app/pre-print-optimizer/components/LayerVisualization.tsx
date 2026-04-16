@@ -303,10 +303,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // ── ONE change from original: beadH increased to close gaps ──
-  const lhMM   = layerHeight;
-  const beadW  = lhMM * 1.4;
-  const beadH  = lhMM * 1.5; // was lhMM — increased to close gaps between layers
+  // beadW = nozzle diameter (passed as metres), beadH = layer height + overlap
+  // Rectangular cross-section (no inset) — prevents grooves between layers
+  const beadW  = (nozzleDiameter ?? layerHeight * 1.67); // nozzleDiameter in metres
+  const beadH  = layerHeight * 1.8;
 
   const fullGeo = useMemo(() => {
     const total     = allSegs.length;
@@ -326,9 +326,9 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
       const nx  = -dz / len;
       const nz  =  dx / len;
       const hw  = beadW * 0.5;
-      const y0  = s.s[1] - beadH * 0.05;
-      const y1  = s.s[1] + beadH * 0.95;
-      const ins = hw * 0.18;
+      const y0  = s.s[1] - beadH * 0.1;
+      const y1  = s.s[1] + beadH * 0.9;
+      const ins = 0; // rectangular cross-section — no inset, no grooves
 
       const vb    = i * 8;
       const verts: [number,number,number][] = [
@@ -803,30 +803,24 @@ export default function LayerVisualization({
         </div>
       </div>
 
-      {/* Progress counter */}
-      {toolpath.length > 0 && (
-        <div className="absolute top-4 z-10" style={{right: panelW+16}}>
-          <div className="px-3 py-1.5 rounded-xl border border-white/10"
-            style={{background:'rgba(0,0,0,0.55)',backdropFilter:'blur(12px)'}}>
-            <p className="text-white text-xs font-mono">{progress}%</p>
-          </div>
-        </div>
-      )}
+      
 
       {/* Playback bar */}
       {toolpath.length > 0 && (
-        <div className="absolute bottom-3 left-4 z-10" style={{right: panelW+16}}>
-          <PlaybackBar
-            progress={progress} isPlaying={isPlaying}
-            onReset={()=>{setAnimProgress(0);setIsPlaying(false);}}
-            onToggle={()=>setIsPlaying(p=>!p)}
-            onEnd={()=>{setIsPlaying(false);setAnimProgress(1);}}
-            onScrub={v=>{setIsPlaying(false);setAnimProgress(v);}}
-            mode={mode} onModeChange={setMode}
-            pathColor={pathColor} onPathColorChange={setPathColor}
-            showModel={showModel} onShowModel={setShowModel}
-            showToolpath={showToolpath} onShowToolpath={setShowToolpath}
-          />
+        <div className="absolute bottom-3 left-4 right-4 z-10 flex justify-center">
+          <div className="w-full max-w-3xl">
+            <PlaybackBar
+              progress={progress} isPlaying={isPlaying}
+              onReset={()=>{setAnimProgress(0);setIsPlaying(false);}}
+              onToggle={()=>setIsPlaying(p=>!p)}
+              onEnd={()=>{setIsPlaying(false);setAnimProgress(1);}}
+              onScrub={v=>{setIsPlaying(false);setAnimProgress(v);}}
+              mode={mode} onModeChange={setMode}
+              pathColor={pathColor} onPathColorChange={setPathColor}
+              showModel={showModel} onShowModel={setShowModel}
+              showToolpath={showToolpath} onShowToolpath={setShowToolpath}
+            />
+          </div>
         </div>
       )}
 
