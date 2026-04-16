@@ -343,7 +343,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
     // Profile offsets (across, up) — 6 points making rounded bead shape
     // Base starts below layer center, crown extends above — fills gaps in both directions
     const px = [-hw, -hw,      -hw * 0.55, hw * 0.55,  hw,      hw    ];
-    const py = [-h * 0.35, h * 0.2, h * 0.65, h * 0.65, h * 0.2, -h * 0.35];
+    const py = [-h * 0.5, h * 0.05, h * 1.0, h * 1.0, h * 0.05, -h * 0.5];
 
     for (let i = 0; i < total; i++) {
       const s  = allSegs[i];
