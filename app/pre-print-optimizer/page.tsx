@@ -41,6 +41,7 @@ interface OptimizeResult {
   gcode_lines: number; gcode_preview: string;
   layer_stats?: LayerStat[];
   estimated_print_time?: string;
+  estimated_print_time_s?: number;
 }
 
 interface WeatherBlock { id: string; start_hour: number; end_hour: number; temperature: number; humidity: number; wind_speed: number; ground_slope: number; notes: string; }
@@ -52,9 +53,14 @@ function fmtTime(m: number): string {
   return `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`;
 }
 
-function calcEstTime(r: OptimizeResult, speed: number): string {
-  const s = r.printer?.effective_speed ?? speed;
-  return fmtTime(Math.max(r.optimization.total_travel_mm / s / 60 + (r.geometry.num_layers * 2) / 60, 1));
+function calcEstFinish(startHour: number, printTimeSec: number): string {
+  const totalMin  = printTimeSec / 60;
+  const finishH   = startHour + totalMin / 60;
+  const hh        = Math.floor(finishH) % 24;
+  const mm        = Math.round((finishH % 1) * 60);
+  const ampm      = hh >= 12 ? 'PM' : 'AM';
+  const disp      = hh > 12 ? hh - 12 : hh === 0 ? 12 : hh;
+  return `${disp}:${String(mm).padStart(2,'0')} ${ampm}`;
 }
 
 // ── Factors ───────────────────────────────────────────────────────────────────
@@ -83,11 +89,6 @@ function buildFactors(result: OptimizeResult, params: Parameters): Factor[] {
   else if (wind > 8) factors.push({ label:'Moderate Wind', value:`${wind} km/h`, impact:'Minor adjustment to elevated layer segment order', ok:false });
   else factors.push({ label:'Wind Speed', value:`${wind} km/h`, impact:'Calm conditions — no wind compensation needed', ok:true });
 
-  const slope = (avg['ground_slope'] ?? params.groundSlope) as number;
-  if (slope > 5) factors.push({ label:'Steep Slope', value:`${slope}°`, impact:'Sequence starts uphill to prevent fresh bead drift', ok:false });
-  else if (slope > 2) factors.push({ label:'Ground Slope', value:`${slope}°`, impact:'Mild slope — start position adjusted for bead stability', ok:false });
-  else factors.push({ label:'Ground', value:`${slope}° slope`, impact:'Level site — no topographic compensation required', ok:true });
-
   const openTime   = cement.open_time_min ?? 45;
   const riskScore  = cement.risk_score    ?? 0;
   const cementName = cement.display_name  ?? params.cementMix;
@@ -108,7 +109,7 @@ const STEPS = [
   { label:'Slicing into layers',         detail:'Generating printable segments per layer' },
   { label:'Initialising RL agent',       detail:'Loading trained PPO policy' },
   { label:'Running agent on each layer', detail:'Selecting optimal segment order' },
-  { label:'Adapting to conditions',      detail:'Temperature · humidity · wind · slope' },
+  { label:'Adapting to conditions',      detail:'Temperature · humidity · wind' },
   { label:'Generating G-code',          detail:'Converting toolpath to printer commands' },
 ];
 
@@ -226,7 +227,7 @@ export default function PrePrintOptimizer() {
   const [file,          setFile]          = useState<File | null>(null);
   const [sitePlanData,  setSitePlanData]  = useState<import('./components/SitePlanReader').SitePlanData | null>(null);
   const [site,          setSite]          = useState<SiteDimensions>({ width:12, length:10, slope:0 });
-  const [parameters,    setParameters]    = useState<Parameters>({ temperature:24, humidity:65, windSpeed:8, groundSlope:2, cementMix:'standard', batchNumber:'' });
+  const [parameters,    setParameters]    = useState<Parameters>({ temperature:24, humidity:65, windSpeed:8, groundSlope:0, cementMix:'standard', batchNumber:'' });
   const [weatherBlocks, setWeatherBlocks] = useState<WeatherBlock[]>([]);
   const [weatherStart,  setWeatherStart]  = useState(8.0);
   const [city,          setCity]          = useState('');
@@ -244,18 +245,13 @@ export default function PrePrintOptimizer() {
     if (phase === 'error') setPhase('idle');
   }, [file]);
 
-  const handleParamsChange = (p: Parameters) => {
-    setParameters(p);
-    setSite(s => ({ ...s, slope: p.groundSlope }));
-  };
+  const handleParamsChange = (p: Parameters) => setParameters(p);
 
-  // ── Optimize — scan fires silently first, result lands in Scan sidebar tab ─
   const handleOptimize = async () => {
     if (!file) return;
     setPhase('optimizing'); setErrorMsg(''); setStepIdx(0);
     const ticker = setInterval(() => setStepIdx(i => Math.min(i+1, STEPS.length-1)), 950);
     try {
-      // Pull printer config dynamically — everything flows from nozzle × beadCompression
       const mc        = activeProject?.printer?.manualConfig as ManualPrinterConfig | undefined;
       const nozzleMm  = (mc?.nozzleDiameter   != null ? mc.nozzleDiameter   : parseFloat(activeProject?.printer?.nozzle    ?? '25')  || 25)  as number;
       const beadComp  = (mc?.beadCompression  != null ? mc.beadCompression  : 0.6) as number;
@@ -266,12 +262,11 @@ export default function PrePrintOptimizer() {
       const hoseDiam  = (mc?.hoseInternalDiam != null ? mc.hoseInternalDiam : 50)  as number;
       const accel     = (mc?.acceleration     != null ? mc.acceleration     : 500) as number;
       const layerH    = (nozzleMm * beadComp) / 1000;
-      console.log('[AutoBuild] nozzle:', nozzleMm, 'bead:', beadComp, 'layerH_mm:', nozzleMm * beadComp, 'mc:', mc);
 
-      // Silent scan — uses same nozzle + computed layer height
+      // Silent scan
       try {
         const sf = new FormData();
-        sf.append('file',               file);
+        sf.append('file', file);
         sf.append('nozzle_diameter_mm', String(nozzleMm));
         sf.append('layer_height_m',     String(layerH));
         const sr = await fetch(`${API}/scan`, { method:'POST', body:sf });
@@ -298,7 +293,7 @@ export default function PrePrintOptimizer() {
       form.append('temperature',           String(parameters.temperature));
       form.append('humidity',              String(parameters.humidity));
       form.append('wind_speed',            String(parameters.windSpeed));
-      form.append('ground_slope',          String(parameters.groundSlope));
+      form.append('ground_slope',          '0');
       form.append('print_speed',           String(printSpeed));
       form.append('print_start_hour',      String(weatherStart));
       form.append('print_scale',           String(printScale));
@@ -306,7 +301,7 @@ export default function PrePrintOptimizer() {
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
 
       const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 min
+      const timeoutId  = setTimeout(() => controller.abort(), 5 * 60 * 1000);
       const res = await fetch(`${API}/optimize`, { method:'POST', body:form, signal: controller.signal });
       clearTimeout(timeoutId);
       if (!res.ok) { const e = await res.json().catch(()=>({detail:'Unknown'})); throw new Error(e.detail); }
@@ -339,10 +334,15 @@ export default function PrePrintOptimizer() {
     router.push('/live-monitoring');
   };
 
-  const resolvedSite: SiteDimensions = { ...site, slope: parameters.groundSlope };
+  // Slope always 0 — foundation handles it
+  const resolvedSite: SiteDimensions = { ...site, slope: 0 };
   const isResults = activeTab === 'results' && !!result;
-  const estTime   = result ? calcEstTime(result, printSpeed) : null;
   const factors   = result ? buildFactors(result, parameters) : [];
+
+  // Estimated finish time
+  const estFinish = result?.estimated_print_time_s
+    ? calcEstFinish(weatherStart, result.estimated_print_time_s)
+    : null;
 
   const scanBadge = scanResult
     ? scanResult.counts.errors   > 0 ? { txt: String(scanResult.counts.errors),   cls:'bg-red-500'    }
@@ -363,7 +363,6 @@ export default function PrePrintOptimizer() {
       {/* ── RESULTS ── */}
       {isResults && result && (
         <motion.div className="absolute inset-0" initial={{opacity:0}} animate={{opacity:1}}>
-
           <LayerVisualization
             file={file} toolpath={result.toolpath}
             numLayers={result.geometry.num_layers} layerHeight={result.geometry.layer_height}
@@ -438,18 +437,56 @@ export default function PrePrintOptimizer() {
 
                   {sidebarPanel==='results' && (
                     <motion.div key="res" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-1.5">
-                      <StatRow label="Est. Print Time"   value={result.estimated_print_time??estTime??'—'} highlight delay={0.00}/>
-                      <StatRow label="Layers"            value={String(result.geometry.num_layers)}       delay={0.03}/>
-                      <StatRow label="Layer Height"      value={`${result.printer?.layer_height_mm??'—'} mm`} delay={0.06}/>
-                      <StatRow label="Nozzle"            value={`${result.printer?.nozzle_mm??'—'} mm`}  delay={0.09}/>
-                      <StatRow label="Total Segments"    value={String(result.optimization.total_segments)} delay={0.12}/>
-                      <StatRow label="Travel Saved"      value={`${result.optimization.time_saved_pct}%`} delay={0.15}/>
-                      <StatRow label="Env Risk"          value={`${result.optimization.env_risk_score}/100`} delay={0.18}/>
-                      <StatRow label="Print Speed"       value={`${result.printer?.effective_speed??printSpeed} mm/s`} delay={0.21}/>
-                      <StatRow label="G-code Lines"      value={String(result.gcode_lines)}              delay={0.24}/>
-                      <StatRow label="Computed In"       value={`${result.elapsed_seconds}s`}            delay={0.27}/>
+                      {/* Print time + finish time hero */}
+                      <motion.div initial={{opacity:0,y:6}} animate={{opacity:1,y:0}}
+                        className="rounded-xl p-3 border border-white/10 bg-white/8 mb-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] text-white/40 uppercase tracking-widest">Est. Print Time</span>
+                          <span className="text-[9px] text-white/20 font-mono">starts {weatherStart < 12 ? `${Math.floor(weatherStart)}:00 AM` : `${Math.floor(weatherStart)-12||12}:00 PM`}</span>
+                        </div>
+                        <p className="text-2xl font-bold text-white font-mono">{result.estimated_print_time ?? '—'}</p>
+                        {estFinish && (
+                          <p className="text-[10px] text-white/40 mt-1">
+                            Est. finish: <span className="text-white/70 font-semibold">{estFinish}</span>
+                          </p>
+                        )}
+                      </motion.div>
 
-                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.30}}
+                      {/* Weather during print */}
+                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.05}}
+                        className="rounded-xl p-3 border border-white/8 bg-white/4 mb-1">
+                        <p className="text-[9px] text-white/30 uppercase tracking-widest mb-2">Conditions During Print</p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { label:'Temp', value:`${parameters.temperature}°C` },
+                            { label:'Humidity', value:`${parameters.humidity}%` },
+                            { label:'Wind', value:`${parameters.windSpeed} km/h` },
+                          ].map((s,i) => (
+                            <div key={i} className="bg-white/5 rounded-lg px-2 py-1.5 text-center">
+                              <p className="text-[8px] text-white/25 mb-0.5">{s.label}</p>
+                              <p className="text-[11px] font-bold text-white">{s.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-[9px] text-white/30">Env Risk</span>
+                          <span className={`text-[10px] font-bold ${
+                            result.optimization.env_risk_score < 20 ? 'text-emerald-400' :
+                            result.optimization.env_risk_score < 50 ? 'text-amber-400' : 'text-red-400'
+                          }`}>{result.optimization.env_risk_score}/100</span>
+                        </div>
+                      </motion.div>
+
+                      <StatRow label="Layers"         value={String(result.geometry.num_layers)}           delay={0.08}/>
+                      <StatRow label="Layer Height"   value={`${result.printer?.layer_height_mm??'—'} mm`} delay={0.10}/>
+                      <StatRow label="Nozzle"         value={`${result.printer?.nozzle_mm??'—'} mm`}       delay={0.12}/>
+                      <StatRow label="Total Segments" value={String(result.optimization.total_segments)}   delay={0.14}/>
+                      <StatRow label="Travel Saved"   value={`${result.optimization.time_saved_pct}%`}     delay={0.16}/>
+                      <StatRow label="Print Speed"    value={`${result.printer?.effective_speed??printSpeed} mm/s`} delay={0.18}/>
+                      <StatRow label="G-code Lines"   value={String(result.gcode_lines)}                   delay={0.20}/>
+                      <StatRow label="Computed In"    value={`${result.elapsed_seconds}s`}                 delay={0.22}/>
+
+                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.24}}
                         className="rounded-xl p-3 border border-white/8 mt-2" style={{background:'rgba(255,255,255,0.04)'}}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[11px] text-white/50">Model Scale</span>
@@ -464,7 +501,7 @@ export default function PrePrintOptimizer() {
                         </button>
                       </motion.div>
 
-                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.34}}
+                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.28}}
                         className="rounded-xl p-3 border border-white/6" style={{background:'rgba(255,255,255,0.04)'}}>
                         <p className="text-[9px] text-white/25 uppercase tracking-wider mb-1.5">G-code preview</p>
                         <pre className="text-[9px] text-white/40 font-mono leading-relaxed overflow-x-auto max-h-20">{result.gcode_preview}</pre>
@@ -474,45 +511,31 @@ export default function PrePrintOptimizer() {
 
                   {sidebarPanel==='layers' && (
                     <motion.div key="layers" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-2">
-
-                      {/* ── Speed profile chart ── */}
                       {(result.layer_stats??[]).length > 0 && (() => {
-                        const stats = result.layer_stats!;
+                        const stats  = result.layer_stats!;
                         const speeds = stats.map(ls => ls.print_speed_mm_s);
-                        const temps  = stats.map(ls => ls.temperature_c ?? 20);
                         const minS   = Math.min(...speeds);
                         const maxS   = Math.max(...speeds);
-                        const minT   = Math.min(...temps);
-                        const maxT   = Math.max(...temps);
-                        const barW   = Math.max(2, Math.floor(270 / stats.length));
-
-                        // colour bar by temperature: cool=blue, ideal=white, hot=amber
                         const tempColor = (t: number) => {
-                          if (t < 15) return '#60a5fa';       // blue — cool
-                          if (t <= 25) return '#e5e5e5';      // white — ideal
-                          if (t <= 30) return '#fbbf24';      // amber — warm
-                          return '#f87171';                   // red — hot
+                          if (t < 15) return '#60a5fa';
+                          if (t <= 25) return '#e5e5e5';
+                          if (t <= 30) return '#fbbf24';
+                          return '#f87171';
                         };
-
                         return (
                           <div className="rounded-xl border border-white/8 p-3" style={{background:'rgba(255,255,255,0.04)'}}>
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-[9px] text-white/40 uppercase tracking-wider">Speed profile</span>
                               <span className="text-[9px] font-mono text-white/25">{minS}–{maxS} mm/s</span>
                             </div>
-
-                            {/* Bar chart */}
                             <div className="flex items-end gap-px h-16 w-full overflow-hidden rounded-lg">
                               {stats.map((ls, i) => {
                                 const h  = maxS === minS ? 50 : ((ls.print_speed_mm_s - minS) / (maxS - minS)) * 100;
                                 const cl = tempColor(ls.temperature_c ?? 20);
                                 return (
                                   <div key={i} className="flex-1 flex flex-col justify-end group relative">
-                                    <div
-                                      className="rounded-sm transition-opacity group-hover:opacity-100 opacity-80"
-                                      style={{ height: `${Math.max(8, h)}%`, background: cl }}
-                                    />
-                                    {/* Tooltip on hover */}
+                                    <div className="rounded-sm transition-opacity group-hover:opacity-100 opacity-80"
+                                      style={{ height: `${Math.max(8, h)}%`, background: cl }}/>
                                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:flex flex-col items-center z-10 pointer-events-none">
                                       <div className="rounded-lg px-2 py-1 text-[8px] font-mono text-white whitespace-nowrap"
                                         style={{background:'rgba(0,0,0,0.85)'}}>
@@ -523,23 +546,14 @@ export default function PrePrintOptimizer() {
                                 );
                               })}
                             </div>
-
-                            {/* Legend */}
                             <div className="flex items-center gap-3 mt-2">
-                              {[
-                                {color:'#60a5fa', label:'< 15°C'},
-                                {color:'#e5e5e5', label:'15–25°C'},
-                                {color:'#fbbf24', label:'25–30°C'},
-                                {color:'#f87171', label:'> 30°C'},
-                              ].map(l => (
+                              {[{color:'#60a5fa',label:'< 15°C'},{color:'#e5e5e5',label:'15–25°C'},{color:'#fbbf24',label:'25–30°C'},{color:'#f87171',label:'> 30°C'}].map(l => (
                                 <div key={l.label} className="flex items-center gap-1">
                                   <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{background:l.color}}/>
                                   <span className="text-[8px] text-white/25">{l.label}</span>
                                 </div>
                               ))}
                             </div>
-
-                            {/* Speed range annotation */}
                             <div className="flex justify-between mt-1.5">
                               <span className="text-[8px] text-white/15 font-mono">Layer 1</span>
                               <span className="text-[8px] text-white/15 font-mono">Layer {stats.length}</span>
@@ -548,23 +562,16 @@ export default function PrePrintOptimizer() {
                         );
                       })()}
 
-                      {/* ── Per-layer cards ── */}
                       <p className="text-[9px] text-white/25 uppercase tracking-wider pt-1">Per-layer detail</p>
                       {(result.layer_stats??[]).map((ls,i)=>{
-                        // Estimate time for this layer: perimeter / speed
-                        const layerTimeSec = ls.print_speed_mm_s > 0
-                          ? ls.perimeter_mm / ls.print_speed_mm_s
-                          : 0;
-                        const layerTimeStr = layerTimeSec < 60
-                          ? `${Math.round(layerTimeSec)}s`
-                          : `${Math.floor(layerTimeSec/60)}m ${Math.round(layerTimeSec%60)}s`;
+                        const layerTimeSec = ls.print_speed_mm_s > 0 ? ls.perimeter_mm / ls.print_speed_mm_s : 0;
+                        const layerTimeStr = layerTimeSec < 60 ? `${Math.round(layerTimeSec)}s` : `${Math.floor(layerTimeSec/60)}m ${Math.round(layerTimeSec%60)}s`;
                         const temp = ls.temperature_c ?? '—';
                         const tempColor =
                           typeof temp === 'number' && temp > 30 ? 'text-red-400'
                           : typeof temp === 'number' && temp > 25 ? 'text-amber-300'
                           : typeof temp === 'number' && temp < 15 ? 'text-blue-400'
                           : 'text-white/60';
-
                         return (
                           <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.008}}
                             className="rounded-xl p-2.5 border border-white/5 bg-white/4 hover:bg-white/6 transition-colors">
@@ -572,8 +579,6 @@ export default function PrePrintOptimizer() {
                               <span className="text-[10px] font-bold text-white">Layer {ls.layer+1}</span>
                               <span className="text-[9px] font-mono text-white/30">{ls.z_height_mm}mm</span>
                             </div>
-
-                            {/* Key stats: time, temp, speed — prominent */}
                             <div className="grid grid-cols-3 gap-1 mb-2">
                               <div className="rounded-lg px-2 py-1.5 border border-white/6 bg-white/3 text-center">
                                 <p className="text-[8px] text-white/25 mb-0.5">Est. time</p>
@@ -581,37 +586,23 @@ export default function PrePrintOptimizer() {
                               </div>
                               <div className="rounded-lg px-2 py-1.5 border border-white/6 bg-white/3 text-center">
                                 <p className="text-[8px] text-white/25 mb-0.5">Temp</p>
-                                <p className={`text-[10px] font-bold font-mono ${tempColor}`}>
-                                  {typeof temp === 'number' ? `${temp}°C` : '—'}
-                                </p>
+                                <p className={`text-[10px] font-bold font-mono ${tempColor}`}>{typeof temp === 'number' ? `${temp}°C` : '—'}</p>
                               </div>
                               <div className="rounded-lg px-2 py-1.5 border border-white/6 bg-white/3 text-center">
                                 <p className="text-[8px] text-white/25 mb-0.5">Speed</p>
                                 <p className="text-[10px] font-bold font-mono text-white">{ls.print_speed_mm_s}<span className="text-[7px] text-white/30">mm/s</span></p>
                               </div>
                             </div>
-
-                            {/* Secondary stats */}
                             <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                              {[
-                                ['Segments',  String(ls.segments)],
-                                ['Perimeter', `${ls.perimeter_mm}mm`],
-                                ['Area',      `${ls.area_cm2}cm²`],
-                                ['Risk',      `${ls.risk_score}/100`],
-                              ].map(([l,v])=>(
+                              {[['Segments',String(ls.segments)],['Perimeter',`${ls.perimeter_mm}mm`],['Area',`${ls.area_cm2}cm²`],['Risk',`${ls.risk_score}/100`]].map(([l,v])=>(
                                 <div key={l} className="flex justify-between">
                                   <span className="text-[9px] text-white/25">{l}</span>
                                   <span className="text-[9px] font-mono text-white/60">{v}</span>
                                 </div>
                               ))}
                             </div>
-
-                            {/* Risk bar */}
                             <div className="mt-1.5 h-0.5 bg-white/5 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{
-                                width:`${ls.risk_score}%`,
-                                background:ls.risk_score<20?'#22c55e':ls.risk_score<50?'#f59e0b':'#ef4444'
-                              }}/>
+                              <div className="h-full rounded-full" style={{width:`${ls.risk_score}%`,background:ls.risk_score<20?'#22c55e':ls.risk_score<50?'#f59e0b':'#ef4444'}}/>
                             </div>
                           </motion.div>
                         );
@@ -632,7 +623,6 @@ export default function PrePrintOptimizer() {
                     <motion.div key="scan" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-2">
                       {scanResult ? (
                         <>
-                          {/* Score header */}
                           <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-white/8 bg-white/4 mb-1">
                             <div className="relative flex-shrink-0 w-10 h-10">
                               <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
@@ -650,8 +640,6 @@ export default function PrePrintOptimizer() {
                               <p className="text-[9px] text-white/30 mt-0.5">{scanResult.verdict_msg}</p>
                             </div>
                           </div>
-
-                          {/* Mesh info */}
                           {scanResult.info?.dimensions_m && (
                             <div className="flex flex-wrap gap-x-3 gap-y-1 px-1 pb-1">
                               {[
@@ -668,8 +656,6 @@ export default function PrePrintOptimizer() {
                               ))}
                             </div>
                           )}
-
-                          {/* Issues */}
                           {scanResult.issues.length > 0
                             ? scanResult.issues.map((issue,i)=><ScanIssueRow key={issue.id} issue={issue} delay={i*0.04}/>)
                             : <p className="text-[11px] text-white/30 text-center py-6">No issues found</p>
@@ -708,7 +694,7 @@ export default function PrePrintOptimizer() {
 
               <div className="px-3 py-2 border-t border-white/5 flex-shrink-0">
                 <p className="text-[9px] text-white/20 font-mono">
-                  {result.geometry.num_layers} layers · {estTime} · {resolvedSite.width}m × {resolvedSite.length}m
+                  {result.geometry.num_layers} layers · {result.estimated_print_time} · {resolvedSite.width}m × {resolvedSite.length}m
                 </p>
               </div>
             </div>
