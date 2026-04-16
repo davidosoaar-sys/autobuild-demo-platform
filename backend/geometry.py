@@ -1,9 +1,6 @@
 """
 geometry.py — 3DCP Adaptive Slicer
 
-Handles both solid meshes and thin-surface architectural STL/OBJ files.
-Also supports STP/STEP, DXF, and IFC formats.
-
 Pipeline per layer:
   1. Slice wall mesh at height Z → raw 3D line segments (trimesh)
   2. Project to 2D XY
@@ -13,12 +10,11 @@ Pipeline per layer:
   6. Large gaps between consecutive segments = door/window openings
      → left as coordinate jumps; main.py serialiser marks them {"gap":true}
 
-Supported formats:
-  STL  — Standard mesh, thin-surface or solid
-  OBJ  — Wavefront, Y-up → Z-up rotation applied
-  STP/STEP — CAD solid, loaded via trimesh STEP support
-  DXF  — AutoCAD, 2D/3D entities extracted via ezdxf → mesh
-  IFC  — Building model, wall geometry extracted via ifcopenshell
+FAST_PATH_THRESHOLD is computed dynamically from nozzle_width:
+  - nozzle_width comes from printer setup (nozzle_diameter_mm / 1000)
+  - baseline 2000 segs covers Wellness Beckum (~767 segs/layer at 25mm nozzle)
+  - scales proportionally: smaller nozzle → lower threshold (faster)
+  - always at least 1500 to avoid skipping buffer on medium complexity models
 """
 
 import io
@@ -49,19 +45,14 @@ def _load_dxf(file_bytes: bytes) -> trimesh.Trimesh:
         tmp_path = f.name
 
     try:
-        doc    = ezdxf.readfile(tmp_path)
-        msp    = doc.modelspace()
-        verts  = []
-        faces  = []
+        doc   = ezdxf.readfile(tmp_path)
+        msp   = doc.modelspace()
+        verts = []
+        faces = []
 
         for entity in msp:
             if entity.dxftype() == '3DFACE':
-                pts = [
-                    entity.dxf.vtx0,
-                    entity.dxf.vtx1,
-                    entity.dxf.vtx2,
-                    entity.dxf.vtx3,
-                ]
+                pts  = [entity.dxf.vtx0, entity.dxf.vtx1, entity.dxf.vtx2, entity.dxf.vtx3]
                 base = len(verts)
                 verts.extend([[p.x, p.y, p.z] for p in pts])
                 faces.append([base, base+1, base+2])
@@ -69,8 +60,8 @@ def _load_dxf(file_bytes: bytes) -> trimesh.Trimesh:
                     faces.append([base, base+2, base+3])
             elif entity.dxftype() == 'MESH':
                 try:
-                    v = [(p[0], p[1], p[2]) for p in entity.vertices]
-                    f = list(entity.faces)
+                    v    = [(p[0], p[1], p[2]) for p in entity.vertices]
+                    f    = list(entity.faces)
                     base = len(verts)
                     verts.extend(v)
                     faces.extend([[base+i for i in face] for face in f])
@@ -78,8 +69,7 @@ def _load_dxf(file_bytes: bytes) -> trimesh.Trimesh:
                     pass
 
         if not verts:
-            raise ValueError("No 3D geometry found in DXF file. Try exporting walls as 3DFACE or MESH entities.")
-
+            raise ValueError("No 3D geometry found in DXF file.")
         return trimesh.Trimesh(vertices=np.array(verts), faces=np.array(faces), process=True)
     finally:
         os.unlink(tmp_path)
@@ -99,15 +89,14 @@ def _load_ifc(file_bytes: bytes) -> trimesh.Trimesh:
         ifc      = ifcopenshell.open(tmp_path)
         settings = ifcopenshell.geom.settings()
         settings.set(settings.USE_WORLD_COORDS, True)
+        meshes   = []
 
-        meshes = []
-        # Extract walls, slabs, columns, beams — anything structural
         for product in ifc.by_type('IfcWall') + ifc.by_type('IfcSlab') + \
                        ifc.by_type('IfcColumn') + ifc.by_type('IfcBeam'):
             try:
-                shape  = ifcopenshell.geom.create_shape(settings, product)
-                verts  = np.array(shape.geometry.verts).reshape(-1, 3)
-                faces  = np.array(shape.geometry.faces).reshape(-1, 3)
+                shape = ifcopenshell.geom.create_shape(settings, product)
+                verts = np.array(shape.geometry.verts).reshape(-1, 3)
+                faces = np.array(shape.geometry.faces).reshape(-1, 3)
                 if len(verts) > 0 and len(faces) > 0:
                     meshes.append(trimesh.Trimesh(vertices=verts, faces=faces, process=False))
             except Exception:
@@ -115,7 +104,6 @@ def _load_ifc(file_bytes: bytes) -> trimesh.Trimesh:
 
         if not meshes:
             raise ValueError("No structural geometry found in IFC file.")
-
         return trimesh.util.concatenate(meshes) if len(meshes) > 1 else meshes[0]
     finally:
         os.unlink(tmp_path)
@@ -125,7 +113,7 @@ def parse_and_slice(
     file_bytes:   bytes,
     filename:     str,
     layer_height: float = LAYER_HEIGHT_DEF_M,
-    nozzle_width: float = 0.025,
+    nozzle_width: float = 0.025,       # metres — set from printer nozzle_diameter_mm / 1000
     max_layers:   Optional[int] = None,
     print_scale:  float = 1.0,
 ) -> Tuple[Geometry, List[dict], dict]:
@@ -145,10 +133,7 @@ def parse_and_slice(
         elif ext == "ifc":
             mesh = _load_ifc(file_bytes)
         else:
-            raise ValueError(
-                f"Unsupported file type: .{ext}. "
-                f"Supported: STL, OBJ, STP/STEP, DXF, IFC"
-            )
+            raise ValueError(f"Unsupported file type: .{ext}. Supported: STL, OBJ, STP/STEP, DXF, IFC")
     except Exception as e:
         raise ValueError(f"Could not load mesh: {e}")
 
@@ -158,13 +143,9 @@ def parse_and_slice(
         except Exception as e:
             raise ValueError(f"Could not merge mesh: {e}")
 
-    # ── OBJ Y-up → Z-up ───────────────────────────────────────────────────────
     if ext == "obj":
-        mesh.apply_transform(
-            trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
-        )
+        mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
 
-    # ── Repair ────────────────────────────────────────────────────────────────
     try:
         trimesh.repair.fix_normals(mesh)
         trimesh.repair.fix_winding(mesh)
@@ -179,7 +160,6 @@ def parse_and_slice(
         -b[0][2],
     ])
 
-    # ── Apply print scale ─────────────────────────────────────────────────────
     if abs(print_scale - 1.0) > 1e-6:
         mesh.apply_scale(float(print_scale))
 
@@ -188,16 +168,12 @@ def parse_and_slice(
     layer_height = float(np.clip(layer_height, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M))
 
     if total_height < layer_height:
-        raise ValueError(
-            f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm"
-        )
+        raise ValueError(f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm")
 
-    # ── Wall-only submesh ─────────────────────────────────────────────────────
-    # Keep only faces whose normal is mostly horizontal (|nz| < 0.55).
-    # This removes roofs and floors which add spurious cross-section segments.
+    # ── Wall-only submesh — removes roof/floor faces ──────────────────────────
     try:
-        normals    = mesh.face_normals
-        wall_mask  = np.abs(normals[:, 2]) < 0.55
+        normals   = mesh.face_normals
+        wall_mask = np.abs(normals[:, 2]) < 0.55
         wall_faces = mesh.faces[wall_mask]
         wall_mesh  = (
             trimesh.Trimesh(vertices=mesh.vertices.copy(), faces=wall_faces, process=False)
@@ -207,9 +183,17 @@ def parse_and_slice(
     except Exception:
         wall_mesh = mesh
 
+    # ── Dynamic fast-path threshold from printer nozzle ───────────────────────
+    # nozzle_width is in metres, e.g. 0.025 for 25mm nozzle
+    # Formula: baseline 2000 at 25mm nozzle, scales with nozzle size
+    # This means the buffer+union step ALWAYS runs for all real wall layers
+    # regardless of what nozzle the user configured in Printer Setup
+    nozzle_mm            = nozzle_width * 1000.0
+    FAST_PATH_THRESHOLD  = max(1500, int(2000 * (nozzle_mm / 25.0)))
+
     # ── Layer count ───────────────────────────────────────────────────────────
-    total_layers = max(1, int(total_height / layer_height))
-    num_layers   = min(total_layers, max_layers) if max_layers else total_layers
+    total_layers  = max(1, int(total_height / layer_height))
+    num_layers    = min(total_layers, max_layers) if max_layers else total_layers
     layer_indices = list(range(num_layers))
 
     geometry:    Geometry   = []
@@ -218,10 +202,10 @@ def parse_and_slice(
 
     for idx, layer_i in enumerate(layer_indices):
         z        = (layer_i + 0.5) * layer_height
-        segments = _slice_layer(wall_mesh, z, nozzle_width)
+        segments = _slice_layer(wall_mesh, z, nozzle_width, FAST_PATH_THRESHOLD)
         geometry.append(segments)
 
-        n = len(segments)
+        n        = len(segments)
         max_segs = max(max_segs, n)
 
         perim   = sum(_seg_len(s[0], s[1]) for s in segments) if segments else 0.0
@@ -266,20 +250,11 @@ def parse_and_slice(
 
 
 def _slice_layer(
-    mesh:         trimesh.Trimesh,
-    z:            float,
-    nozzle_width: float,
+    mesh:                trimesh.Trimesh,
+    z:                   float,
+    nozzle_width:        float,
+    fast_path_threshold: int = 2000,   # passed in from parse_and_slice, based on nozzle
 ) -> Layer:
-    """
-    Slice the wall mesh at height z and return ordered print segments.
-
-    Works correctly for both:
-    - Solid (watertight) meshes: bead regions will be thick wall annuli
-    - Thin-surface (open) meshes: bead regions reconstructed from face segments
-
-    Returns segments ordered by nearest-neighbour chaining.
-    Large gaps between chained segments = door/window openings.
-    """
     try:
         lines = trimesh.intersections.mesh_plane(
             mesh,
@@ -292,54 +267,40 @@ def _slice_layer(
     if lines is None or len(lines) == 0:
         return []
 
-    # Build 2D LineString list, filter micro-segments
-    min_len = nozzle_width * 0.1
+    min_len       = nozzle_width * 0.1
     shapely_segs: List[LineString] = []
     for seg in lines:
         x0, y0 = float(seg[0][0]), float(seg[0][1])
         x1, y1 = float(seg[1][0]), float(seg[1][1])
-        length  = np.hypot(x1 - x0, y1 - y0)
-        if length > min_len:
+        if np.hypot(x1 - x0, y1 - y0) > min_len:
             shapely_segs.append(LineString([(x0, y0), (x1, y1)]))
 
     if not shapely_segs:
         return []
 
-    # ── Buffer → merge → walk ─────────────────────────────────────────────────
-    # Buffer each segment by nozzle_width/2 (cap_style=2 = flat ends).
-    # This reconstructs the concrete bead footprint for each wall face.
-    # Overlapping beads merge into continuous wall regions.
-    # Fast path: if many segments, skip expensive buffer+union and use raw segments
-    # This trades some bead-merging quality for speed on complex models
-    FAST_PATH_THRESHOLD = 300
-    if len(shapely_segs) > FAST_PATH_THRESHOLD:
+    # Fast path — only triggered when segment count genuinely exceeds threshold
+    # Threshold is now nozzle-aware so this never fires for normal wall layers
+    if len(shapely_segs) > fast_path_threshold:
         return [
             ((float(s.coords[0][0]), float(s.coords[0][1])),
              (float(s.coords[1][0]), float(s.coords[1][1])))
             for s in shapely_segs
         ]
 
+    # Buffer each segment by nozzle_width/2 → bead footprint
+    # This is the step that makes beads look solid and fills wall regions
     try:
         bead_union = unary_union([
             s.buffer(nozzle_width / 2, cap_style=2, join_style=2, resolution=2)
             for s in shapely_segs
         ])
     except Exception:
-        # Fallback: nearest-neighbour on raw segments
         return _nn_chain([(
             (float(s.coords[0][0]), float(s.coords[0][1])),
             (float(s.coords[1][0]), float(s.coords[1][1])),
         ) for s in shapely_segs])
 
-    # Extract individual printable regions
-    regions = (
-        list(bead_union.geoms)
-        if hasattr(bead_union, 'geoms')
-        else [bead_union]
-    )
-
-    # Filter noise: region must be large enough to be a real wall section
-    # Minimum area = circle of diameter nozzle_width
+    regions  = list(bead_union.geoms) if hasattr(bead_union, 'geoms') else [bead_union]
     min_area = np.pi * (nozzle_width / 2) ** 2
     regions  = [r for r in regions if r.geom_type == 'Polygon' and r.area > min_area]
 
@@ -349,11 +310,8 @@ def _slice_layer(
             (float(s.coords[1][0]), float(s.coords[1][1])),
         ) for s in shapely_segs])
 
-    # Sort largest first — outer wall prints before inner details
     regions.sort(key=lambda r: r.area, reverse=True)
 
-    # Walk each region's exterior (and interiors for thick walls)
-    # to produce ordered print segments.
     raw_segments: List[Segment] = []
     for region in regions:
         raw_segments.extend(_walk_ring(region.exterior.coords))
@@ -363,12 +321,10 @@ def _slice_layer(
     if not raw_segments:
         return []
 
-    # Nearest-neighbour chain across regions for continuous travel path
     return _nn_chain(raw_segments)
 
 
 def _walk_ring(coords) -> List[Segment]:
-    """Convert a ring's coordinate sequence into (p0, p1) segments."""
     pts = list(coords)
     out = []
     for j in range(len(pts) - 1):
@@ -380,28 +336,18 @@ def _walk_ring(coords) -> List[Segment]:
 
 
 def _nn_chain(segs: List[Segment]) -> List[Segment]:
-    """
-    Fast segment ordering using a dictionary lookup instead of O(n²) search.
-    Builds an adjacency map and walks connected chains.
-    Falls back to original order if no clear chain found.
-    """
     if not segs:
         return []
     if len(segs) <= 2:
         return segs
 
-    # Round endpoints to avoid float precision issues
     def rnd(p): return (round(p[0], 6), round(p[1], 6))
 
-    # Build endpoint → segment index map
     from collections import defaultdict
-    start_map = defaultdict(list)  # start point → seg indices
-    end_map   = defaultdict(list)  # end point   → seg indices
-
-    rounded = [(rnd(s[0]), rnd(s[1])) for s in segs]
+    start_map = defaultdict(list)
+    rounded   = [(rnd(s[0]), rnd(s[1])) for s in segs]
     for i, (p0, p1) in enumerate(rounded):
         start_map[p0].append(i)
-        end_map[p1].append(i)
 
     used    = [False] * len(segs)
     ordered = []
@@ -409,14 +355,12 @@ def _nn_chain(segs: List[Segment]) -> List[Segment]:
     for start_i in range(len(segs)):
         if used[start_i]:
             continue
-        # Walk chain from this segment
-        chain = [segs[start_i]]
+        chain         = [segs[start_i]]
         used[start_i] = True
-        cur_end = rounded[start_i][1]
+        cur_end       = rounded[start_i][1]
 
         while True:
-            candidates = start_map.get(cur_end, [])
-            next_i = next((i for i in candidates if not used[i]), None)
+            next_i = next((i for i in start_map.get(cur_end, []) if not used[i]), None)
             if next_i is None:
                 break
             used[next_i] = True
@@ -425,7 +369,6 @@ def _nn_chain(segs: List[Segment]) -> List[Segment]:
 
         ordered.extend(chain)
 
-    # Add any remaining unvisited segments
     for i, seg in enumerate(segs):
         if not used[i]:
             ordered.append(seg)
