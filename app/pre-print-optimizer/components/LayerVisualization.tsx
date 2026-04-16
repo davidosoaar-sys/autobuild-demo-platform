@@ -280,6 +280,12 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
+        // Skip segments shorter than 0.5mm — these produce zero-area triangles
+        // in the geometry builder (len < 0.0005 → continue leaves indices at 0)
+        // which skews the drawRange count and causes visible missing-bead gaps.
+        const dx = seg.x1 - seg.x0;
+        const dy = seg.y1 - seg.y0;
+        if (dx * dx + dy * dy < 2.5e-7) return;
         out.push({
           s: [seg.x0, y, -seg.y0],
           e: [seg.x1, y, -seg.y1],
@@ -396,11 +402,13 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
 
   useEffect(() => {
     if (!fullGeo) return;
-    const idxPerSeg = (6 - 1) * 2 * 3; // 30
-    if (progress <= 0 || progress >= 1) {
+    const idxPerSeg = (6 - 1) * 2 * 3; // 30 — (PROFILE-1) quads × 2 tris × 3 indices
+    if (progress >= 1) {
       fullGeo.setDrawRange(0, Infinity);
     } else {
-      fullGeo.setDrawRange(0, Math.max(segIdx + 1, 1) * idxPerSeg);
+      // segIdx + 1: draw all indices up to and including the current segment.
+      // Without +1, segment segIdx itself is excluded (off-by-one missing bead).
+      fullGeo.setDrawRange(0, (segIdx + 1) * idxPerSeg);
     }
   }, [fullGeo, progress, segIdx, allSegs.length]);
 
