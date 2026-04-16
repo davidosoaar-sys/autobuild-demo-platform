@@ -41,50 +41,39 @@ function Sparkline({ data, color = '#fff', width = 60, height = 24 }: {
 }
 
 // ── PlumbIndicator ────────────────────────────────────────────────────────────
-// One line. One dot. Green = plumb. Red = off.
 function PlumbIndicator({ angle }: { angle: number }) {
   const isPlumb = Math.abs(angle) < 1;
   const isClose = Math.abs(angle) >= 1 && Math.abs(angle) < 5;
   const color   = isPlumb ? '#22c55e' : isClose ? '#fbbf24' : '#ef4444';
   const label   = isPlumb ? 'Plumb' : isClose ? 'Slight tilt' : 'Off plumb';
-
-  const RANGE = 15;
-  const pct   = ((Math.max(-RANGE, Math.min(RANGE, angle)) + RANGE) / (RANGE * 2)) * 100;
+  const RANGE   = 15;
+  const pct     = ((Math.max(-RANGE, Math.min(RANGE, angle)) + RANGE) / (RANGE * 2)) * 100;
 
   return (
     <div className="bg-black px-4 py-3 rounded-b-xl border-t border-white/8 flex items-center gap-4">
       <div className="flex items-center gap-2 flex-shrink-0">
-        <motion.div
-          className="w-2 h-2 rounded-full"
-          style={{ background: color }}
+        <motion.div className="w-2 h-2 rounded-full" style={{ background: color }}
           animate={{ opacity: isPlumb ? [1, 0.3, 1] : 1 }}
-          transition={{ duration: 1.2, repeat: Infinity }}
-        />
+          transition={{ duration: 1.2, repeat: Infinity }}/>
         <span className="text-[10px] font-semibold text-white/50">{label}</span>
         <span className="text-[11px] font-bold font-mono" style={{ color }}>
           {angle >= 0 ? '+' : ''}{angle.toFixed(1)}°
         </span>
       </div>
-      {/* Single track */}
       <div className="relative flex-1 h-px bg-white/15 rounded-full">
-        {/* Centre reference */}
         <div className="absolute left-1/2 -translate-x-1/2 -top-1.5 w-px h-4 bg-white/40 rounded-full"/>
-        {/* Moving dot */}
         <motion.div
           className="absolute top-1/2 w-3 h-3 rounded-full border-2 border-black shadow-lg"
           style={{ background: color, translateY: '-50%' }}
           animate={{ left: `${pct}%`, x: '-50%' }}
-          transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-        />
+          transition={{ type: 'spring', stiffness: 400, damping: 35 }}/>
       </div>
     </div>
   );
 }
 
 // ── CameraView ────────────────────────────────────────────────────────────────
-function CameraView({
-  camera, onAngleChange, onRename, onRemove,
-}: {
+function CameraView({ camera, onAngleChange, onRename, onRemove }: {
   camera: Camera;
   onAngleChange: (id: string, angle: Camera['angle']) => void;
   onRename: (id: string, label: string) => void;
@@ -95,9 +84,6 @@ function CameraView({
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const timerRef   = useRef<number | null>(null);
 
-  const roiRef = useRef<{x:number;y:number;w:number;h:number}|null>(null);
-  const dragRef = useRef<{startX:number;startY:number;dragging:boolean}>({startX:0,startY:0,dragging:false});
-
   const [streaming, setStreaming] = useState(false);
   const [error,     setError]     = useState('');
   const [editing,   setEditing]   = useState(false);
@@ -105,7 +91,6 @@ function CameraView({
   const [showPlumb, setShowPlumb] = useState(false);
   const [alignMode, setAlignMode] = useState<'vertical'|'horizontal'>('vertical');
   const [liveAngle, setLiveAngle] = useState(0);
-  const [result,    setResult]    = useState<{straight:boolean; angle:number} | null>(null);
 
   const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
 
@@ -116,13 +101,12 @@ function CameraView({
     if (!video || !canvas || !overlay || video.readyState < 2) return;
 
     const rect = overlay.getBoundingClientRect();
-    const ow = rect.width  || overlay.offsetWidth  || 640;
-    const oh = rect.height || overlay.offsetHeight || 360;
+    const ow = rect.width  || 640;
+    const oh = rect.height || 360;
     overlay.width = ow; overlay.height = oh;
     const octx = overlay.getContext('2d')!;
     octx.clearRect(0, 0, ow, oh);
 
-    // Capture frame
     const vw = video.videoWidth  || 640;
     const vh = video.videoHeight || 360;
     canvas.width = vw; canvas.height = vh;
@@ -133,7 +117,6 @@ function CameraView({
     const grey = new Float32Array(vw * vh);
     for (let i = 0; i < vw*vh; i++)
       grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
-
 
     const isHorizontal = alignMode === 'horizontal';
     const stepX = Math.max(1, Math.floor(vw/40));
@@ -152,39 +135,28 @@ function CameraView({
 
     let tilt = 0;
     if (pts.length > 5) {
-      const n     = pts.length;
-      const sumY  = pts.reduce((s,p)=>s+p.y,0);
-      const sumX  = pts.reduce((s,p)=>s+p.x,0);
-      const sumYY = pts.reduce((s,p)=>s+p.y*p.y,0);
-      const sumXY = pts.reduce((s,p)=>s+p.x*p.y,0);
+      const n=pts.length, sumY=pts.reduce((s,p)=>s+p.y,0), sumX=pts.reduce((s,p)=>s+p.x,0);
+      const sumYY=pts.reduce((s,p)=>s+p.y*p.y,0), sumXY=pts.reduce((s,p)=>s+p.x*p.y,0);
       const denom = n*sumYY - sumY*sumY;
       if (Math.abs(denom) > 1e-6)
         tilt = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
     }
 
-    const deviation = isHorizontal ? 90 - Math.abs(tilt) : tilt;
-    const absDev    = Math.abs(deviation);
-    const isGreen   = absDev <= 10;
-    const isYellow  = absDev > 10 && absDev <= 15;
-    const lineColor = isGreen ? 'rgba(34,197,94,0.95)' : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
-    const baseAngle = isHorizontal ? 90 : 0;
-    const rad       = ((tilt + baseAngle) * Math.PI) / 180;
-    const refRad    = (baseAngle * Math.PI) / 180;
-    const half      = oh * 0.45;
-
-    // Position line at centroid of detected edge points (in overlay coords)
-    const cx = pts.length > 0
-      ? (pts.reduce((s,p)=>s+p.x,0) / pts.length / vw) * ow
-      : ow / 2;
-    const cy = pts.length > 0
-      ? (pts.reduce((s,p)=>s+p.y,0) / pts.length / vh) * oh
-      : oh / 2;
+    const deviation  = isHorizontal ? 90 - Math.abs(tilt) : tilt;
+    const absDev     = Math.abs(deviation);
+    const isGreen    = absDev <= 10;
+    const isYellow   = absDev > 10 && absDev <= 15;
+    const lineColor  = isGreen ? 'rgba(34,197,94,0.95)' : isYellow ? 'rgba(251,191,36,0.95)' : 'rgba(239,68,68,0.95)';
+    const baseAngle  = isHorizontal ? 90 : 0;
+    const rad        = ((tilt + baseAngle) * Math.PI) / 180;
+    const refRad     = (baseAngle * Math.PI) / 180;
+    const half       = oh * 0.45;
+    const cx = pts.length > 0 ? (pts.reduce((s,p)=>s+p.x,0)/pts.length/vw)*ow : ow/2;
+    const cy = pts.length > 0 ? (pts.reduce((s,p)=>s+p.y,0)/pts.length/vh)*oh : oh/2;
 
     setLiveAngle(deviation);
-    setResult({ straight: isGreen, angle: deviation });
 
-    octx.strokeStyle = 'rgba(255,255,255,0.35)';
-    octx.lineWidth = 1.5; octx.setLineDash([6,5]);
+    octx.strokeStyle='rgba(255,255,255,0.35)'; octx.lineWidth=1.5; octx.setLineDash([6,5]);
     octx.beginPath();
     octx.moveTo(cx-Math.sin(refRad)*half, cy-Math.cos(refRad)*half);
     octx.lineTo(cx+Math.sin(refRad)*half, cy+Math.cos(refRad)*half);
@@ -198,66 +170,15 @@ function CameraView({
     octx.beginPath(); octx.arc(lx1,ly1,4,0,Math.PI*2); octx.fill();
     octx.beginPath(); octx.arc(lx2,ly2,4,0,Math.PI*2); octx.fill();
 
-    if (absDev > 0.5) {
-      octx.strokeStyle=lineColor; octx.lineWidth=1.5;
-      const arcStart=-Math.PI/2+refRad;
-      octx.beginPath(); octx.arc(cx,cy,36,arcStart,arcStart+(rad-refRad),deviation<0); octx.stroke();
-    }
-
-    const label=`${deviation>=0?'+':''}${deviation.toFixed(1)}°`;
+    const lbl=`${deviation>=0?'+':''}${deviation.toFixed(1)}°`;
     octx.font='bold 13px monospace';
-    const tw=octx.measureText(label).width+14;
+    const tw=octx.measureText(lbl).width+14;
     const bx2=cx+Math.sin(rad)*55+14, by2=cy-Math.cos(rad)*55;
     octx.fillStyle=lineColor;
     octx.beginPath(); octx.roundRect(bx2-tw/2,by2-11,tw,20,4); octx.fill();
-    octx.fillStyle='white'; octx.fillText(label,bx2-tw/2+7,by2+4);
-
-    const ml=isHorizontal?'HORIZONTAL':'VERTICAL';
-    const mw=octx.measureText(ml).width+12;
-    octx.font='bold 8px monospace';
-    octx.fillStyle='rgba(0,0,0,0.4)';
-    octx.beginPath(); octx.roundRect(8,oh-24,mw,16,3); octx.fill();
-    octx.fillStyle='rgba(255,255,255,0.7)';
-    octx.fillText(ml,12,oh-12);
+    octx.fillStyle='white'; octx.fillText(lbl,bx2-tw/2+7,by2+4);
   };
 
-
-  const getOverlayPos = (e: React.MouseEvent|React.TouchEvent, overlay: HTMLCanvasElement) => {
-    const rect = overlay.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  };
-
-  const handlePointerDown = (e: React.MouseEvent<HTMLCanvasElement>|React.TouchEvent<HTMLCanvasElement>) => {
-    if (!showPlumb || !streaming) return;
-    const overlay = overlayRef.current; if (!overlay) return;
-    const { x, y } = getOverlayPos(e, overlay);
-    // If clicking near reset button of existing ROI, clear it
-    if (roiRef.current) {
-      const r = roiRef.current;
-      if (x >= r.x+r.w-30 && x <= r.x+r.w && y >= r.y-18 && y <= r.y) {
-        roiRef.current = null; return;
-      }
-    }
-    dragRef.current = { startX: x, startY: y, dragging: true };
-    roiRef.current = null;
-  };
-
-  const handlePointerMove = (e: React.MouseEvent<HTMLCanvasElement>|React.TouchEvent<HTMLCanvasElement>) => {
-    if (!dragRef.current.dragging || !showPlumb) return;
-    const overlay = overlayRef.current; if (!overlay) return;
-    const { x, y } = getOverlayPos(e, overlay);
-    const sx = dragRef.current.startX, sy = dragRef.current.startY;
-    roiRef.current = {
-      x: Math.min(sx,x), y: Math.min(sy,y),
-      w: Math.abs(x-sx), h: Math.abs(y-sy),
-    };
-  };
-
-  const handlePointerUp = () => { dragRef.current.dragging = false; };
-
-  const handleOverlayClick = () => {};
   useEffect(() => {
     if (streaming && showPlumb) {
       const loop = () => { analyseFrame(); timerRef.current=window.setTimeout(loop,125) as unknown as number; };
@@ -281,7 +202,7 @@ function CameraView({
   const stopCamera = () => {
     if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t=>t.stop());
     if (videoRef.current) videoRef.current.srcObject=null;
-    lockedX.current=null; setStreaming(false); setResult(null);
+    setStreaming(false);
   };
 
   const saveLabel = () => { onRename(camera.id, label); setEditing(false); };
@@ -289,41 +210,37 @@ function CameraView({
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 flex-wrap gap-1">
         <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full ${streaming?'bg-red-500 animate-pulse':'bg-gray-300'}`}/>
+          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${streaming?'bg-red-500 animate-pulse':'bg-gray-300'}`}/>
           {editing ? (
             <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
               onBlur={saveLabel} onKeyDown={e=>e.key==='Enter'&&saveLabel()}
-              className="text-xs font-semibold border-b border-black outline-none bg-transparent w-32"/>
+              className="text-xs font-semibold border-b border-black outline-none bg-transparent w-28"/>
           ) : (
-            <button onClick={()=>setEditing(true)} className="text-xs font-semibold text-black hover:text-black/60">
+            <button onClick={()=>setEditing(true)} className="text-xs font-semibold text-black hover:text-black/60 truncate max-w-[120px]">
               {camera.label}
             </button>
           )}
           {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">● LIVE</span>}
         </div>
-        <div className="flex items-center gap-1 flex-wrap justify-end">
+        <div className="flex items-center gap-1 flex-wrap">
           {angles.map(a=>(
             <button key={a} onClick={()=>onAngleChange(camera.id,a)}
-              className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${camera.angle===a?'bg-black text-white':'text-black/30 hover:text-black'}`}>
+              className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${camera.angle===a?'bg-black text-white':'text-black/30 hover:text-black'}`}>
               {a}
             </button>
           ))}
-          <button onClick={()=>{ setShowPlumb(v=>!v); roiRef.current=null; }}
-            className={`ml-1 px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
-            Alignment
+          <button onClick={()=>setShowPlumb(v=>!v)}
+            className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
+            Align
           </button>
           {showPlumb && (
             <>
               <button onClick={()=>setAlignMode('vertical')}
-                className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode==='vertical'?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
-                V
-              </button>
+                className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode==='vertical'?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>V</button>
               <button onClick={()=>setAlignMode('horizontal')}
-                className={`px-2 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode==='horizontal'?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
-                H
-              </button>
+                className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode==='horizontal'?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>H</button>
             </>
           )}
         </div>
@@ -335,20 +252,18 @@ function CameraView({
           className={`absolute inset-0 w-full h-full object-cover ${streaming?'block':'hidden'}`}/>
         <canvas ref={canvasRef} className="hidden"/>
         <canvas ref={overlayRef}
-          onMouseDown={handlePointerDown} onMouseMove={handlePointerMove} onMouseUp={handlePointerUp}
-          onTouchStart={handlePointerDown} onTouchMove={handlePointerMove} onTouchEnd={handlePointerUp}
-          className={`absolute inset-0 w-full h-full z-10 ${streaming&&showPlumb?'block':'hidden'} ${showPlumb?'cursor-crosshair':'pointer-events-none'}`}/>
+          className={`absolute inset-0 w-full h-full z-10 ${streaming&&showPlumb?'block':'hidden'}`}/>
         {streaming && !showPlumb && (
           <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg z-10">
             <span className="text-[9px] text-white/70 font-mono uppercase">{camera.angle} view</span>
           </div>
         )}
         {!streaming && (
-          <div className="text-center z-10">
+          <div className="text-center z-10 px-4">
             <svg className="w-8 h-8 text-white/20 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
             </svg>
-            {error && <p className="text-red-400 text-[10px] mb-2 max-w-[200px] mx-auto">{error}</p>}
+            {error && <p className="text-red-400 text-[10px] mb-2">{error}</p>}
             <button onClick={startCamera}
               className="text-[11px] font-semibold text-white bg-white/10 border border-white/20 rounded-xl px-4 py-2 hover:bg-white/20">
               Connect Camera
@@ -363,7 +278,6 @@ function CameraView({
         )}
       </div>
 
-      {/* Plumb indicator — only when plumb active */}
       {showPlumb && <PlumbIndicator angle={liveAngle}/>}
     </div>
   );
@@ -404,7 +318,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
   };
 
   return (
-    <div className="grid grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Input Image</h3>
@@ -450,15 +364,15 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
               {results.map((r,i)=>(
                 <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.05}}
                   className={`flex items-center justify-between p-3 rounded-xl border ${r.detected?'bg-red-50 border-red-200':'bg-gray-50 border-gray-100'}`}>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${r.detected?'bg-red-500':'bg-emerald-500'}`}/>
-                    <span className={`text-xs font-semibold ${r.detected?'text-red-700':'text-black'}`}>{r.label}</span>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.detected?'bg-red-500':'bg-emerald-500'}`}/>
+                    <span className={`text-xs font-semibold truncate ${r.detected?'text-red-700':'text-black'}`}>{r.label}</span>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="hidden sm:block w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                       <div className={`h-full rounded-full ${r.detected?'bg-red-500':'bg-emerald-500'}`} style={{width:`${r.confidence*100}%`}}/>
                     </div>
-                    <span className={`text-[10px] font-mono font-bold w-10 text-right ${r.detected?'text-red-600':'text-black/40'}`}>{(r.confidence*100).toFixed(1)}%</span>
+                    <span className={`text-[10px] font-mono font-bold ${r.detected?'text-red-600':'text-black/40'}`}>{(r.confidence*100).toFixed(1)}%</span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${r.detected?'bg-red-100 text-red-700':'bg-emerald-100 text-emerald-700'}`}>{r.detected?'DETECTED':'CLEAR'}</span>
                   </div>
                 </motion.div>
@@ -484,11 +398,9 @@ function PrinterPositionGrid({ paused }: { paused: boolean }) {
   const animRef   = useRef<number | null>(null);
   const tRef      = useRef(0);
 
-  // Demo print path — rectangular layers spiraling inward
   const DEMO_PATH = (() => {
     const pts: {x:number;y:number}[] = [];
-    const layers = 3;
-    for (let l = 0; l < layers; l++) {
+    for (let l = 0; l < 3; l++) {
       const m = 0.08 + l * 0.04;
       pts.push({x:m,y:m},{x:1-m,y:m},{x:1-m,y:1-m},{x:m,y:1-m},{x:m,y:m});
     }
@@ -498,88 +410,45 @@ function PrinterPositionGrid({ paused }: { paused: boolean }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const draw = () => {
-      const w = canvas.offsetWidth;
-      const h = canvas.offsetHeight;
+      const w = canvas.offsetWidth, h = canvas.offsetHeight;
       if (w === 0 || h === 0) { animRef.current = requestAnimationFrame(draw); return; }
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d')!;
       ctx.clearRect(0, 0, w, h);
-
-      // Grid
-      const cols = 12, rows = 8;
-      ctx.strokeStyle = 'rgba(0,0,0,0.06)';
-      ctx.lineWidth = 0.5;
-      for (let i = 0; i <= cols; i++) {
-        ctx.beginPath(); ctx.moveTo(i/cols*w,0); ctx.lineTo(i/cols*w,h); ctx.stroke();
-      }
-      for (let i = 0; i <= rows; i++) {
-        ctx.beginPath(); ctx.moveTo(0,i/rows*h); ctx.lineTo(w,i/rows*h); ctx.stroke();
-      }
-
-      // Advance nozzle along demo path if not paused
+      const cols=12, rows=8;
+      ctx.strokeStyle='rgba(0,0,0,0.06)'; ctx.lineWidth=0.5;
+      for (let i=0;i<=cols;i++){ctx.beginPath();ctx.moveTo(i/cols*w,0);ctx.lineTo(i/cols*w,h);ctx.stroke();}
+      for (let i=0;i<=rows;i++){ctx.beginPath();ctx.moveTo(0,i/rows*h);ctx.lineTo(w,i/rows*h);ctx.stroke();}
       if (!paused) {
-        tRef.current += 0.004;
-        const total  = DEMO_PATH.length - 1;
-        const seg    = Math.floor(tRef.current % total);
-        const frac   = (tRef.current % total) - seg;
-        const a      = DEMO_PATH[seg % DEMO_PATH.length];
-        const b      = DEMO_PATH[(seg + 1) % DEMO_PATH.length];
-        posRef.current = { x: a.x + (b.x-a.x)*frac, y: a.y + (b.y-a.y)*frac };
-        pathRef.current.push({ ...posRef.current });
-        if (pathRef.current.length > 400) pathRef.current.shift();
+        tRef.current+=0.004;
+        const total=DEMO_PATH.length-1, seg=Math.floor(tRef.current%total), frac=(tRef.current%total)-seg;
+        const a=DEMO_PATH[seg%DEMO_PATH.length], b=DEMO_PATH[(seg+1)%DEMO_PATH.length];
+        posRef.current={x:a.x+(b.x-a.x)*frac, y:a.y+(b.y-a.y)*frac};
+        pathRef.current.push({...posRef.current});
+        if(pathRef.current.length>400) pathRef.current.shift();
       }
-
-      // Drawn path trace
-      if (pathRef.current.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(pathRef.current[0].x*w, pathRef.current[0].y*h);
-        for (let i = 1; i < pathRef.current.length; i++) {
-          ctx.lineTo(pathRef.current[i].x*w, pathRef.current[i].y*h);
-        }
-        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.stroke();
+      if (pathRef.current.length>1) {
+        ctx.beginPath(); ctx.moveTo(pathRef.current[0].x*w,pathRef.current[0].y*h);
+        for(let i=1;i<pathRef.current.length;i++) ctx.lineTo(pathRef.current[i].x*w,pathRef.current[i].y*h);
+        ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.stroke();
       }
-
-      // Nozzle dot
-      const nx = posRef.current.x * w;
-      const ny = posRef.current.y * h;
-
-      // Glow
-      const grd = ctx.createRadialGradient(nx,ny,0,nx,ny,18);
-      grd.addColorStop(0, 'rgba(0,0,0,0.15)');
-      grd.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grd;
-      ctx.beginPath(); ctx.arc(nx,ny,18,0,Math.PI*2); ctx.fill();
-
-      // Dot
-      ctx.fillStyle = '#000';
-      ctx.beginPath(); ctx.arc(nx,ny,5,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(nx,ny,2.5,0,Math.PI*2); ctx.fill();
-
-      // Crosshair lines
-      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-      ctx.lineWidth = 0.75;
-      ctx.setLineDash([3,3]);
+      const nx=posRef.current.x*w, ny=posRef.current.y*h;
+      const grd=ctx.createRadialGradient(nx,ny,0,nx,ny,18);
+      grd.addColorStop(0,'rgba(0,0,0,0.15)'); grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(nx,ny,18,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(nx,ny,5,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(nx,ny,2.5,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=0.75; ctx.setLineDash([3,3]);
       ctx.beginPath(); ctx.moveTo(nx,0); ctx.lineTo(nx,h); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0,ny); ctx.lineTo(w,ny); ctx.stroke();
       ctx.setLineDash([]);
-
-      // XY label
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.font = 'bold 9px monospace';
-      const lbl = `X:${(posRef.current.x*100).toFixed(1)}% Y:${(posRef.current.y*100).toFixed(1)}%`;
-      ctx.fillText(lbl, nx+8, ny-6);
-
-      animRef.current = requestAnimationFrame(draw);
+      ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.font='bold 9px monospace';
+      ctx.fillText(`X:${(posRef.current.x*100).toFixed(1)}% Y:${(posRef.current.y*100).toFixed(1)}%`,nx+8,ny-6);
+      animRef.current=requestAnimationFrame(draw);
     };
-
-    animRef.current = requestAnimationFrame(draw);
-    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+    animRef.current=requestAnimationFrame(draw);
+    return ()=>{ if(animRef.current) cancelAnimationFrame(animRef.current); };
   }, [paused]);
 
   return (
@@ -595,10 +464,10 @@ function PrinterPositionGrid({ paused }: { paused: boolean }) {
         </div>
       </div>
       <div className="p-3">
-        <canvas ref={canvasRef} className="w-full rounded-xl bg-gray-50" style={{height:160}}/>
+        <canvas ref={canvasRef} className="w-full rounded-xl bg-gray-50" style={{height:140}}/>
         <div className="flex justify-between mt-2 px-1">
           <span className="text-[8px] text-black/25 font-mono">0,0</span>
-          <span className="text-[8px] text-black/25 font-mono">Print bed — overhead</span>
+          <span className="text-[8px] text-black/25 font-mono">Print bed</span>
           <span className="text-[8px] text-black/25 font-mono">max,max</span>
         </div>
       </div>
@@ -616,14 +485,13 @@ export default function LiveMonitoring() {
   const [activeTab,   setActiveTab]   = useState<Tab>('monitor');
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsed,     setElapsed]     = useState(0);
-  const [cameraSize,  setCameraSize]  = useState<'sm'|'md'|'lg'|'full'>('md');
   const [alertLog,    setAlertLog]    = useState<{time:string;msg:string;level:'info'|'warn'|'error'}[]>([]);
   const [controls,    setControls]    = useState<PrinterControl>({ printSpeed:60, extrusionRate:100, pumpPressure:4.2, paused:false });
-  const [cameras,     setCameras]     = useState<Camera[]>([
-    { id:'1', label:'Camera 1', angle:'front',    active:true },
-    { id:'2', label:'Camera 2', angle:'overhead', active:true },
-  ]);
-  const [sensors, setSensors] = useState<SensorReading[]>([
+
+  // ── Starts with NO cameras ─────────────────────────────────────────────────
+  const [cameras, setCameras] = useState<Camera[]>([]);
+
+  const [sensors] = useState<SensorReading[]>([
     { label:'Ambient Temp',    value:'—', unit:'°C',    status:'ok', trend:'stable', history:[] },
     { label:'Humidity',        value:'—', unit:'%',     status:'ok', trend:'stable', history:[] },
     { label:'Wind Speed',      value:'—', unit:'km/h',  status:'ok', trend:'stable', history:[] },
@@ -635,9 +503,7 @@ export default function LiveMonitoring() {
   ]);
 
   useEffect(() => {
-    tickRef.current = setInterval(() => {
-      setElapsed(s=>s+1);
-    }, 1000);
+    tickRef.current = setInterval(() => setElapsed(s=>s+1), 1000);
     return ()=>{ if(tickRef.current) clearInterval(tickRef.current); };
   }, []);
 
@@ -652,7 +518,7 @@ export default function LiveMonitoring() {
     if(key!=='paused') addAlert(`${key} set to ${val}`,'info');
   };
 
-  const addCamera   = ()=>{ const id=String(Date.now()); setCameras(prev=>[...prev,{id,label:`Camera ${prev.length+1}`,angle:'front',active:true}]); };
+  const addCamera    = ()=>{ const id=String(Date.now()); setCameras(prev=>[...prev,{id,label:`Camera ${prev.length+1}`,angle:'front',active:true}]); };
   const removeCamera = (id:string)=>setCameras(prev=>prev.filter(c=>c.id!==id));
   const updateAngle  = (id:string,angle:Camera['angle'])=>setCameras(prev=>prev.map(c=>c.id===id?{...c,angle}:c));
   const renameCamera = (id:string,label:string)=>setCameras(prev=>prev.map(c=>c.id===id?{...c,label}:c));
@@ -677,73 +543,63 @@ export default function LiveMonitoring() {
     router.push('/report');
   };
 
-  const keySensors=sensors.slice(0,4);
+  const keySensors = sensors.slice(0,4);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-6">
       <AppNav currentStep="monitor"/>
       <style>{`footer{display:none!important}`}</style>
 
-      <div className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between sticky top-14 z-20">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <motion.div className="w-2 h-2 rounded-full bg-emerald-500"
-              animate={{opacity:controls.paused?1:[1,0.3,1]}} transition={{duration:1.2,repeat:Infinity}}/>
-            <span className="text-sm font-semibold">{controls.paused?'Paused':'Printing'}</span>
+      {/* ── Top bar ── */}
+      <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sticky top-14 z-20">
+        <div className="flex flex-wrap items-center gap-2 justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <motion.div className="w-2 h-2 rounded-full bg-emerald-500"
+                animate={{opacity:controls.paused?1:[1,0.3,1]}} transition={{duration:1.2,repeat:Infinity}}/>
+              <span className="text-sm font-semibold">{controls.paused?'Paused':'Printing'}</span>
+            </div>
+            <span className="text-xs font-mono text-black/40 hidden sm:block">{fmtElapsed()}</span>
+            {activeProject&&<span className="text-xs text-black/40 hidden md:block truncate max-w-[160px]">{activeProject.printer.name||'—'}</span>}
           </div>
-          <div className="h-4 w-px bg-gray-200"/>
-          <span className="text-xs font-mono text-black/40">{fmtElapsed()}</span>
-          {activeProject&&<><div className="h-4 w-px bg-gray-200"/><span className="text-xs text-black/40">{activeProject.printer.name||'—'}</span></>}
-        </div>
-        <div className="flex items-center gap-2">
-          {(['monitor','sensors','defects'] as Tab[]).map(t=>(
-            <button key={t} onClick={()=>setActiveTab(t)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${activeTab===t?'bg-black text-white':'text-black/40 hover:text-black hover:bg-gray-100'}`}>
-              {t==='monitor'?'Monitor':t==='sensors'?'All Sensors':'Defect Detection'}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {(['monitor','sensors','defects'] as Tab[]).map(t=>(
+              <button key={t} onClick={()=>setActiveTab(t)}
+                className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${activeTab===t?'bg-black text-white':'text-black/40 hover:text-black hover:bg-gray-100'}`}>
+                {t==='monitor'?'Monitor':t==='sensors'?'Sensors':'Defects'}
+              </button>
+            ))}
+            <div className="w-px h-4 bg-gray-200"/>
+            <button onClick={()=>updateControl('paused',!controls.paused)}
+              className="px-2.5 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
+              {controls.paused?'Resume':'Pause'}
             </button>
-          ))}
-          <div className="h-4 w-px bg-gray-200"/>
-          <button onClick={()=>updateControl('paused',!controls.paused)}
-            className="px-3 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
-            {controls.paused?'Resume':'Pause'}
-          </button>
-          <button onClick={()=>setShowConfirm(true)}
-            className="px-3 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
-            End Print
-          </button>
+            <button onClick={()=>setShowConfirm(true)}
+              className="px-2.5 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
+              End Print
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="max-w-[1600px] mx-auto px-6 pt-6">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 pt-6">
         <AnimatePresence mode="wait">
 
+          {/* ── Monitor tab ── */}
           {activeTab==='monitor' && (
             <motion.div key="monitor" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-              className="grid grid-cols-[1fr_320px] gap-6">
-              <div className="space-y-4">
-                {/* Camera size controls */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-black/40 font-semibold uppercase tracking-widest">Camera Size</span>
-                  {(['sm','md','lg','full'] as const).map(s=>(
-                    <button key={s} onClick={()=>setCameraSize(s)}
-                      className={`px-2.5 py-1 text-[10px] font-semibold rounded-lg transition-all ${cameraSize===s?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
-                      {s==='sm'?'Small':s==='md'?'Medium':s==='lg'?'Large':'Full'}
-                    </button>
-                  ))}
-                </div>
+              className="grid grid-cols-1 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_320px] gap-6">
 
+              {/* Left — cameras + log */}
+              <div className="space-y-4">
                 <div className={`grid gap-4 ${
-                  cameraSize==='full' ? 'grid-cols-1' :
-                  cameraSize==='lg'   ? 'grid-cols-1' :
-                  cameras.length===1  ? 'grid-cols-1' :
-                  cameras.length<=2   ? 'grid-cols-2' :
-                  cameras.length<=4   ? 'grid-cols-2' : 'grid-cols-3'
+                  cameras.length === 0 ? 'grid-cols-1' :
+                  cameras.length === 1 ? 'grid-cols-1' :
+                  cameras.length <= 2  ? 'grid-cols-1 sm:grid-cols-2' :
+                  cameras.length <= 4  ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
                 }`}>
                   {cameras.map(cam=>(
-                    <div key={cam.id} className={`relative group ${
-                      cameraSize==='sm'   ? 'max-w-xs' :
-                      cameraSize==='full' ? 'w-full'   : ''
-                    }`}>
+                    <div key={cam.id} className="relative group">
                       <CameraView camera={cam} onAngleChange={updateAngle} onRename={renameCamera} onRemove={removeCamera}/>
                       <button onClick={()=>removeCamera(cam.id)}
                         className="absolute top-10 right-2 w-5 h-5 bg-black/70 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-red-600 z-20">
@@ -751,16 +607,18 @@ export default function LiveMonitoring() {
                       </button>
                     </div>
                   ))}
-                  {cameraSize !== 'full' && (
-                    <button onClick={addCamera}
-                      className="aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition-all group min-h-[180px]">
-                      <div className="w-8 h-8 rounded-full border-2 border-gray-200 group-hover:border-black flex items-center justify-center transition-all">
-                        <span className="text-gray-300 group-hover:text-black text-lg">+</span>
-                      </div>
-                      <span className="text-xs text-black/30 group-hover:text-black transition-all">Add Camera</span>
-                    </button>
-                  )}
+
+                  {/* Add camera button */}
+                  <button onClick={addCamera}
+                    className="aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition-all group min-h-[160px]">
+                    <div className="w-10 h-10 rounded-full border-2 border-gray-200 group-hover:border-black flex items-center justify-center transition-all">
+                      <span className="text-gray-300 group-hover:text-black text-xl">+</span>
+                    </div>
+                    <span className="text-xs text-black/30 group-hover:text-black transition-all">Add Camera</span>
+                  </button>
                 </div>
+
+                {/* System log */}
                 <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">System Log</h3>
                   <div className="space-y-1 max-h-28 overflow-y-auto">
@@ -768,15 +626,17 @@ export default function LiveMonitoring() {
                     {alertLog.map((a,i)=>(
                       <div key={i} className={`flex gap-2 px-2 py-1 rounded-lg text-[11px] ${a.level==='error'?'bg-red-50 text-red-700':a.level==='warn'?'bg-amber-50 text-amber-700':'bg-gray-50 text-black/50'}`}>
                         <span className="font-mono opacity-50 flex-shrink-0">{a.time}</span>
-                        <span>{a.msg}</span>
+                        <span className="truncate">{a.msg}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
 
+              {/* Right — controls + sensors */}
               <div className="space-y-4">
                 <PrinterPositionGrid paused={controls.paused}/>
+
                 <div className="bg-black rounded-2xl p-5 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-4">Printer Control</h3>
                   <div className="space-y-5">
@@ -852,6 +712,7 @@ export default function LiveMonitoring() {
             </motion.div>
           )}
 
+          {/* ── Sensors tab ── */}
           {activeTab==='sensors' && (
             <motion.div key="sensors" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-6">
               {[
@@ -861,7 +722,7 @@ export default function LiveMonitoring() {
               ].map(group=>(
                 <div key={group.title}>
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">{group.title}</h3>
-                  <div className="grid grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                     {group.items.map((s,i)=>(
                       <div key={i} className="bg-black rounded-2xl p-4">
                         <div className="flex justify-between mb-2">
@@ -869,15 +730,15 @@ export default function LiveMonitoring() {
                           <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${s.status==='ok'?'bg-emerald-400':s.status==='warn'?'bg-amber-400':'bg-red-400'}`}/>
                         </div>
                         <div className="flex items-baseline gap-1 mb-2">
-                          <span className="text-2xl font-bold text-white">{s.value}</span>
+                          <span className="text-xl sm:text-2xl font-bold text-white">{s.value}</span>
                           <span className="text-xs text-white/40">{s.unit}</span>
                         </div>
-                        <Sparkline data={s.history} color={s.status==='ok'?'#4ade80':s.status==='warn'?'#fbbf24':'#f87171'} width={100}/>
+                        <Sparkline data={s.history} color={s.status==='ok'?'#4ade80':s.status==='warn'?'#fbbf24':'#f87171'} width={80}/>
                       </div>
                     ))}
-                    <button className="bg-white border-2 border-dashed border-gray-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-black transition-all group">
+                    <button className="bg-white border-2 border-dashed border-gray-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-black transition-all group min-h-[100px]">
                       <span className="text-2xl text-gray-200 group-hover:text-black transition-all">+</span>
-                      <span className="text-[10px] text-black/25 group-hover:text-black transition-all">Connect Sensor</span>
+                      <span className="text-[10px] text-black/25 group-hover:text-black transition-all text-center">Connect Sensor</span>
                     </button>
                   </div>
                 </div>
@@ -885,6 +746,7 @@ export default function LiveMonitoring() {
             </motion.div>
           )}
 
+          {/* ── Defects tab ── */}
           {activeTab==='defects' && (
             <motion.div key="defects" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
               <DefectDetectionPanel onAlert={addAlert}/>
@@ -894,12 +756,13 @@ export default function LiveMonitoring() {
         </AnimatePresence>
       </div>
 
+      {/* ── End print confirm ── */}
       <AnimatePresence>
         {showConfirm && (
           <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
+            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <motion.div initial={{scale:0.95}} animate={{scale:1}} exit={{scale:0.95}}
-              className="bg-white rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl">
+              className="bg-white rounded-2xl p-6 sm:p-8 max-w-sm w-full shadow-2xl">
               <h3 className="text-base font-bold text-black mb-2">End print session?</h3>
               <p className="text-sm text-black/40 mb-6">This will generate your report and mark the project as complete.</p>
               <div className="flex gap-3">
@@ -907,7 +770,7 @@ export default function LiveMonitoring() {
                   className="flex-1 py-2.5 text-sm font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
                 <button onClick={endPrint}
                   className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/80">
-                  End & Generate Report
+                  End & Report
                 </button>
               </div>
             </motion.div>
