@@ -349,11 +349,11 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     const h  = beadH;
 
     // Profile offsets (across, up) — 6 points making rounded bead shape.
-    // Crown capped at +0.5h so total height span = h = beadH, symmetric around
-    // the layer centre. Previously h*1.0 made beads 2.25× layerHeight tall,
-    // causing uneven interlayer stacking that looked like inconsistent bead heights.
-    const px = [-hw, -hw,      -hw * 0.55, hw * 0.55,  hw,      hw  ];
-    const py = [-h * 0.5, h * 0.15, h * 0.5, h * 0.5, h * 0.15, -h * 0.5];
+    // Crown at h*0.8 puts the top ~1.2× layerHeight above the layer centre,
+    // giving ~0.9 layerHeight of overlap with the next layer — enough to fill
+    // inter-layer gaps. px crown at ±0.7hw reduces taper so no shelf edge appears.
+    const px = [-hw, -hw,      -hw * 0.7, hw * 0.7,  hw,      hw  ];
+    const py = [-h * 0.5, h * 0.2, h * 0.8, h * 0.8, h * 0.2, -h * 0.5];
 
     for (let i = 0; i < total; i++) {
       const s  = allSegs[i];
