@@ -291,9 +291,11 @@ def _slice_layer(
     # This is the step that makes beads look solid and fills wall regions
     try:
         bead_union = unary_union([
-            s.buffer(nozzle_width / 2, cap_style=2, join_style=2, resolution=2)
+            s.buffer(nozzle_width / 2, cap_style=2, join_style=2, resolution=1)
             for s in shapely_segs
         ])
+        # Simplify merged geometry to reduce vertex count — speeds up walking
+        bead_union = bead_union.simplify(nozzle_width * 0.05, preserve_topology=False)
     except Exception:
         return _nn_chain([(
             (float(s.coords[0][0]), float(s.coords[0][1])),

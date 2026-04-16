@@ -301,7 +301,7 @@ export default function PrePrintOptimizer() {
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
 
       const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+      const timeoutId  = setTimeout(() => controller.abort(), 20 * 60 * 1000);
       const res = await fetch(`${API}/optimize`, { method:'POST', body:form, signal: controller.signal });
       clearTimeout(timeoutId);
       if (!res.ok) { const e = await res.json().catch(()=>({detail:'Unknown'})); throw new Error(e.detail); }
