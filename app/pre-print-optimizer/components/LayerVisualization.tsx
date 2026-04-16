@@ -238,7 +238,6 @@ function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pat
   const allSegs = useMemo(() => {
     const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
     toolpath.forEach((layer, li) => {
-      // Layer bottom sits at li * layerHeight
       const y = li * layerHeight + layerHeight * 0.5;
       layer.forEach(seg => {
         if (seg.gap) return;
@@ -248,12 +247,20 @@ function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pat
     return out;
   }, [toolpath, layerHeight]);
 
-  if (allSegs.length === 0) return null;
+  // Cap for viewer performance — sample evenly to stay under 30k segments
+  const MAX_RENDER_SEGS = 30000;
+  const renderSegs = useMemo(() => {
+    if (allSegs.length <= MAX_RENDER_SEGS) return allSegs;
+    const step = Math.ceil(allSegs.length / MAX_RENDER_SEGS);
+    return allSegs.filter((_, i) => i % step === 0);
+  }, [allSegs]);
 
-  const rawIdx  = progress * allSegs.length;
-  const segIdx  = Math.min(Math.floor(rawIdx), allSegs.length - 1);
+  if (renderSegs.length === 0) return null;
+
+  const rawIdx  = progress * renderSegs.length;
+  const segIdx  = Math.min(Math.floor(rawIdx), renderSegs.length - 1);
   const segFrac = rawIdx - segIdx;
-  const cur     = allSegs[segIdx];
+  const cur     = renderSegs[segIdx];
 
   const nozzle: [number,number,number] = [
     cur.s[0] + (cur.e[0]-cur.s[0])*segFrac,
@@ -261,14 +268,11 @@ function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pat
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Bead dimensions driven by nozzle diameter and layer height
-  // beadW = nozzle diameter (the bead is as wide as the nozzle)
-  // beadH = layer height + 10% overlap to close gaps between layers
   const beadW = nozzleDiameter;
-  const beadH = layerHeight * 1.15; // slightly taller than layer spacing to close gaps
+  const beadH = layerHeight * 1.15;
 
   const fullGeo = useMemo(() => {
-    const total = allSegs.length;
+    const total = renderSegs.length;
     if (total === 0) return null;
 
     const positions = new Float32Array(total * 8 * 3);
@@ -276,7 +280,7 @@ function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pat
     const indices   = new Uint32Array(total * 36);
 
     for (let i = 0; i < total; i++) {
-      const s   = allSegs[i];
+      const s   = renderSegs[i];
       const dx  = s.e[0] - s.s[0];
       const dz  = s.e[2] - s.s[2];
       const len = Math.sqrt(dx*dx + dz*dz);
@@ -285,10 +289,9 @@ function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pat
       const nx  = -dz / len;
       const nz  =  dx / len;
       const hw  = beadW * 0.5;
-      // Centre bead on layer Y — extend equally up and down
       const y0  = s.s[1] - beadH * 0.5;
       const y1  = s.s[1] + beadH * 0.5;
-      const ins = hw * 0.12; // slight inset on top for rounded look
+      const ins = hw * 0.12;
 
       const vb = i * 8;
       const verts: [number,number,number][] = [
@@ -327,7 +330,7 @@ function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pat
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
     geo.computeVertexNormals();
     return geo;
-  }, [allSegs, beadW, beadH]);
+  }, [renderSegs, beadW, beadH]);
 
   useEffect(() => {
     if (!fullGeo) return;
@@ -336,7 +339,7 @@ function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pat
     } else {
       fullGeo.setDrawRange(0, Math.max(segIdx, 0) * 36);
     }
-  }, [fullGeo, progress, segIdx, allSegs.length]);
+  }, [fullGeo, progress, segIdx, renderSegs.length]);
 
   return (
     <group>
@@ -348,7 +351,6 @@ function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pat
           />
         </mesh>
       )}
-      {/* Nozzle head */}
       <group position={nozzle}>
         <mesh rotation={[-Math.PI/2,0,0]}>
           <ringGeometry args={[beadW*0.6, beadW*1.2, 24]}/>
