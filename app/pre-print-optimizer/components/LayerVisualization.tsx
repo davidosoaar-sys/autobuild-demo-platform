@@ -306,7 +306,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
   // Bead cross-section: flat base, rounded dome crown — real extruded concrete profile
   // beadW = full nozzle width, beadH = layer height with slight overlap
   const beadW = (nozzleDiameter ?? layerHeight * 1.67) * 0.88;
-  const beadH = layerHeight * 1.15;
+  const beadH = layerHeight * 1.6;
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
@@ -341,8 +341,9 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
     const h  = beadH;
 
     // Profile offsets (across, up) — 6 points making rounded bead shape
-    const px = [-hw, -hw,      -hw * 0.55, hw * 0.55,  hw,      hw     ];
-    const py = [0,    h * 0.42,  h,          h,          h * 0.42, 0     ];
+    // Base starts below layer center, crown extends above — fills gaps in both directions
+    const px = [-hw, -hw,      -hw * 0.55, hw * 0.55,  hw,      hw    ];
+    const py = [-h * 0.35, h * 0.2, h * 0.65, h * 0.65, h * 0.2, -h * 0.35];
 
     for (let i = 0; i < total; i++) {
       const s  = allSegs[i];
@@ -399,7 +400,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
     if (progress <= 0 || progress >= 1) {
       fullGeo.setDrawRange(0, Infinity);
     } else {
-      fullGeo.setDrawRange(0, Math.max(segIdx, 0) * idxPerSeg);
+      fullGeo.setDrawRange(0, Math.max(segIdx + 1, 1) * idxPerSeg);
     }
   }, [fullGeo, progress, segIdx, allSegs.length]);
 
