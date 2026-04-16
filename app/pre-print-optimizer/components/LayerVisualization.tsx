@@ -489,107 +489,87 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
   );
 }
 
-// ── Modern playback bar ───────────────────────────────────────────────────────
+// ── Playback bar ──────────────────────────────────────────────────────────────
 
 function PlaybackBar({
-  progress, isPlaying, totalSegs, animProgress,
+  progress, isPlaying,
   onReset, onToggle, onEnd, onScrub,
   mode, onModeChange, pathColor, onPathColorChange,
   showModel, onShowModel, showToolpath, onShowToolpath,
 }: {
-  progress: number; isPlaying: boolean; totalSegs: number; animProgress: number;
+  progress: number; isPlaying: boolean;
   onReset: ()=>void; onToggle: ()=>void; onEnd: ()=>void; onScrub:(v:number)=>void;
   mode: ViewMode; onModeChange:(m:ViewMode)=>void;
   pathColor: string; onPathColorChange:(c:string)=>void;
   showModel: boolean; onShowModel:(v:boolean)=>void;
   showToolpath: boolean; onShowToolpath:(v:boolean)=>void;
 }) {
-  const doneSegs = Math.round(animProgress * totalSegs);
-
   return (
-    <div className="rounded-2xl overflow-hidden border border-white/8"
-      style={{background:'rgba(4,4,8,0.8)',backdropFilter:'blur(24px)'}}>
-      <div className="h-0.5 bg-white/5">
-        <div className="h-full transition-all duration-75" style={{width:`${progress}%`, background: pathColor}}/>
+    <div className="rounded-xl overflow-hidden" style={{background:'rgba(6,6,10,0.85)',backdropFilter:'blur(20px)',border:'1px solid rgba(255,255,255,0.07)'}}>
+      {/* Progress track */}
+      <div className="h-px bg-white/8">
+        <div className="h-full transition-all duration-75" style={{width:`${progress}%`,background:pathColor}}/>
       </div>
-      <div className="px-4 py-3">
-        <div className="flex items-center gap-3 mb-3">
-          <input type="range" min={0} max={100} value={progress}
-            onChange={e=>{onScrub(Number(e.target.value)/100);}}
-            className="flex-1 appearance-none h-1 rounded-full bg-white/10 cursor-pointer"
-          />
-          <span className="text-[11px] font-mono text-white/40 w-10 text-right tabular-nums">{progress}%</span>
-          <span className="text-[10px] text-white/20 font-mono hidden sm:block">{doneSegs}/{totalSegs}</span>
+
+      <div className="flex items-center gap-2 px-3 py-2">
+        {/* Scrubber + % */}
+        <input type="range" min={0} max={100} value={progress}
+          onChange={e=>onScrub(Number(e.target.value)/100)}
+          className="w-24 appearance-none h-0.5 rounded-full bg-white/10 cursor-pointer flex-shrink-0"
+        />
+        <span className="text-[10px] font-mono text-white/35 w-7 tabular-nums">{progress}%</span>
+
+        <div className="w-px h-3 bg-white/10 mx-0.5"/>
+
+        {/* Transport */}
+        <button onClick={onReset} className="w-6 h-6 flex items-center justify-center text-white/30 hover:text-white transition-colors text-sm">⟲</button>
+        <button onClick={onToggle}
+          className={`flex items-center gap-1 px-3 h-6 rounded-lg text-[11px] font-semibold transition-all ${isPlaying?'bg-white/10 text-white':'bg-white text-black'}`}>
+          {isPlaying ? (
+            <><svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>Pause</>
+          ) : progress >= 1 ? (
+            <><svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>Replay</>
+          ) : (
+            <><svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Play</>
+          )}
+        </button>
+        <button onClick={onEnd} className="w-6 h-6 flex items-center justify-center text-white/30 hover:text-white transition-colors">
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+
+        <div className="w-px h-3 bg-white/10 mx-0.5"/>
+
+        {/* View mode */}
+        <div className="flex items-center gap-px">
+          {([{id:'environment' as ViewMode,l:'Env'},{id:'void-dark' as ViewMode,l:'Dark'},{id:'void-light' as ViewMode,l:'Light'}]).map(o=>(
+            <button key={o.id} onClick={()=>onModeChange(o.id)}
+              className={`px-2 py-1 text-[9px] font-medium rounded-md transition-all ${mode===o.id?'text-white bg-white/12':'text-white/25 hover:text-white/60'}`}>
+              {o.l}
+            </button>
+          ))}
         </div>
 
-        <div className="flex items-center gap-2 mb-3">
-          <button onClick={onReset} title="Reset"
-            className="w-8 h-8 rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all flex items-center justify-center text-sm">
-            ⟲
-          </button>
-          <button onClick={onToggle}
-            className={`flex-1 h-8 rounded-xl font-semibold text-[12px] transition-all flex items-center justify-center gap-2 ${
-              isPlaying
-                ? 'bg-white/10 text-white border border-white/15 hover:bg-white/15'
-                : 'bg-white text-black hover:bg-white/90'
-            }`}>
-            {isPlaying ? (
-              <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>Pause</>
-            ) : progress >= 1 ? (
-              <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>Replay</>
-            ) : (
-              <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Play print</>
-            )}
-          </button>
-          <button onClick={onEnd} title="Jump to end"
-            className="w-8 h-8 rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all flex items-center justify-center">
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-          </button>
-        </div>
+        <div className="w-px h-3 bg-white/10 mx-0.5"/>
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-white/8 bg-white/4">
-            {([
-              {id:'environment' as ViewMode, label:'Env'},
-              {id:'void-dark'   as ViewMode, label:'Dark'},
-              {id:'void-light'  as ViewMode, label:'Light'},
-            ]).map(opt=>(
-              <button key={opt.id} onClick={()=>onModeChange(opt.id)}
-                className={`px-2.5 py-1 text-[10px] font-medium rounded-md transition-all ${
-                  mode===opt.id?'bg-white/15 text-white':'text-white/30 hover:text-white/60'
-                }`}>
-                {opt.label}
-              </button>
-            ))}
-          </div>
+        {/* Layer toggles */}
+        <button onClick={()=>onShowModel(!showModel)}
+          className={`px-2 py-1 text-[9px] font-medium rounded-md transition-all ${showModel?'text-white bg-white/12':'text-white/25'}`}>
+          Model
+        </button>
+        <button onClick={()=>onShowToolpath(!showToolpath)}
+          className={`px-2 py-1 text-[9px] font-medium rounded-md transition-all ${showToolpath?'text-white bg-white/12':'text-white/25'}`}>
+          Path
+        </button>
 
-          <div className="flex items-center gap-1">
-            <button onClick={()=>onShowModel(!showModel)}
-              className={`px-2 py-1 text-[10px] rounded-md border transition-all ${
-                showModel ? 'bg-white/15 text-white border-white/20' : 'text-white/25 border-white/8'
-              }`}>Model</button>
-            <button onClick={()=>onShowToolpath(!showToolpath)}
-              className={`px-2 py-1 text-[10px] rounded-md border transition-all ${
-                showToolpath ? 'bg-white/15 text-white border-white/20' : 'text-white/25 border-white/8'
-              }`}>Path</button>
-          </div>
+        <div className="w-px h-3 bg-white/10 mx-0.5"/>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-white/25">Path colour</span>
-            <label className="relative cursor-pointer group">
-              <div className="w-5 h-5 rounded-full border-2 border-white/25 group-hover:border-white/50 transition-colors"
-                style={{background: pathColor}}/>
-              <input type="color" value={pathColor}
-                onChange={e => onPathColorChange(e.target.value)}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"/>
-            </label>
-          </div>
-
-          <div className="flex items-center gap-3 text-[10px] text-white/20">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-white inline-block"/>Nozzle</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-px inline-block rounded" style={{background:pathColor}}/>Path</span>
-          </div>
-        </div>
+        {/* Color picker */}
+        <label className="relative cursor-pointer flex items-center gap-1.5 group">
+          <span className="text-[9px] text-white/25 group-hover:text-white/50 transition-colors">Colour</span>
+          <div className="w-4 h-4 rounded-full border border-white/20 group-hover:border-white/40 transition-colors" style={{background:pathColor}}/>
+          <input type="color" value={pathColor} onChange={e=>onPathColorChange(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"/>
+        </label>
       </div>
     </div>
   );
@@ -609,7 +589,7 @@ export default function LayerVisualization({
   const [internalScale,   setInternalScale]   = useState(1.0);
   const [enableTransform, setEnableTransform] = useState(false);
   const [transformMode,   setTransformMode]   = useState<TransformMode>('translate');
-  const [pathColor,       setPathColor]       = useState('#22c55e');
+  const [pathColor,       setPathColor]       = useState('#b8a898');
   const [showModel,       setShowModel]       = useState(true);
   const [showToolpath,    setShowToolpath]    = useState(true);
   const orbitRef = useRef<any>(null);
@@ -838,7 +818,6 @@ export default function LayerVisualization({
         <div className="absolute bottom-3 left-4 z-10" style={{right: panelW+16}}>
           <PlaybackBar
             progress={progress} isPlaying={isPlaying}
-            totalSegs={totalSegs} animProgress={animProgress}
             onReset={()=>{setAnimProgress(0);setIsPlaying(false);}}
             onToggle={()=>setIsPlaying(p=>!p)}
             onEnd={()=>{setIsPlaying(false);setAnimProgress(1);}}
