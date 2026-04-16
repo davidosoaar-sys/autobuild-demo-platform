@@ -1,7 +1,7 @@
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 python-multipart==0.0.9
-numpy>=2.0.0
+numpy==2.0.2
 gymnasium==0.29.1
 stable-baselines3==2.3.2
 trimesh==4.4.9
