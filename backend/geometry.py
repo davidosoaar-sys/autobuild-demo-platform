@@ -279,8 +279,9 @@ def _slice_layer(
         return []
 
     # Fast path — raw segments, no buffer. Visual gaps handled by beadW on frontend.
-    FAST_PATH_THRESHOLD = 300
-    if len(shapely_segs) > FAST_PATH_THRESHOLD:
+    # Threshold 0 means all non-empty layers always take fast path, skipping the
+    # expensive Shapely buffer+union that was the primary optimize bottleneck.
+    if len(shapely_segs) > 0:
         return _nn_chain([
             ((float(s.coords[0][0]), float(s.coords[0][1])),
              (float(s.coords[1][0]), float(s.coords[1][1])))

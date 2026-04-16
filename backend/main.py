@@ -283,8 +283,6 @@ async def optimize_endpoint(
             max(LAYER_HEIGHT_MIN_M,
                 min(LAYER_HEIGHT_MAX_M, (nozzle_diameter_mm * bead_compression) / 1000.0))
         )
-    print(f"[DEBUG] nozzle={nozzle_diameter_mm}mm bead={bead_compression} => layer_height={layer_height_m*1000:.1f}mm", flush=True)
-
     # ── Weather schedule ──────────────────────────────────────────────────────
     weather_sched: WeatherSchedule
 
