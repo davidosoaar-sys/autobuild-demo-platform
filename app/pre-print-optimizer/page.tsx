@@ -366,6 +366,7 @@ export default function PrePrintOptimizer() {
           <LayerVisualization
             file={file} toolpath={result.toolpath}
             numLayers={result.geometry.num_layers} layerHeight={result.geometry.layer_height}
+            nozzleDiameter={(result.printer?.nozzle_mm ?? 25) / 1000}
             site={resolvedSite} fullscreen
             externalMode={viewMode} onModeChange={setViewMode}
             modelScale={modelScale} sitePlan={sitePlanData}

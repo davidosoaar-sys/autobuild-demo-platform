@@ -14,18 +14,19 @@ type TransformMode = 'translate' | 'rotate' | 'scale';
 export interface SiteDimensions { width: number; length: number; slope: number; }
 
 interface LayerVisualizationProps {
-  file:             File | null;
-  toolpath:         Layer[];
-  numLayers:        number;
-  layerHeight:      number;
-  site?:            SiteDimensions;
-  fullscreen?:      boolean;
-  externalMode?:    ViewMode;
-  onModeChange?:    (m: ViewMode) => void;
-  modelScale?:      number;
-  sitePlan?:        import('./SitePlanReader').SitePlanData | null;
-  pathColor?:       string;
-  modelDimensions?: { x: number; y: number; z: number }; // metres
+  file:              File | null;
+  toolpath:          Layer[];
+  numLayers:         number;
+  layerHeight:       number;
+  nozzleDiameter?:   number; // metres — e.g. 0.025 for 25mm
+  site?:             SiteDimensions;
+  fullscreen?:       boolean;
+  externalMode?:     ViewMode;
+  onModeChange?:     (m: ViewMode) => void;
+  modelScale?:       number;
+  sitePlan?:         import('./SitePlanReader').SitePlanData | null;
+  pathColor?:        string;
+  modelDimensions?:  { x: number; y: number; z: number };
 }
 
 // ── Sky ───────────────────────────────────────────────────────────────────────
@@ -52,7 +53,6 @@ function SiteGround({ site, mode, sitePlan }: {
   const isVoid = mode !== 'environment';
   const isDark = mode === 'void-dark';
 
-  // Road geometry based on parsed side
   const roadW = sitePlan?.road.width_m ?? 6;
   const roadGeometry = (() => {
     if (!sitePlan?.road.present) return null;
@@ -64,7 +64,6 @@ function SiteGround({ site, mode, sitePlan }: {
     return null;
   })();
 
-  // House footprint position on plot
   const house = sitePlan?.house;
   const hx = house ? (house.offset_x - 0.5) * w : 0;
   const hz = house ? (house.offset_z - 0.5) * l : 0;
@@ -73,64 +72,44 @@ function SiteGround({ site, mode, sitePlan }: {
 
   return (
     <group rotation={[slopeRad, 0, 0]}>
-      {/* Main site plot */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[w, l]} />
-        <meshStandardMaterial
-          color={isVoid ? (isDark ? '#141414' : '#e8e8e8') : '#4a7a3a'}
-          roughness={0.9}
-        />
+        <meshStandardMaterial color={isVoid ? (isDark ? '#141414' : '#e8e8e8') : '#4a7a3a'} roughness={0.9}/>
       </mesh>
 
-      {/* Site boundary */}
       {([
         [[-w/2,0.015,-l/2],[w/2,0.015,-l/2]],
         [[w/2,0.015,-l/2],[w/2,0.015,l/2]],
         [[w/2,0.015,l/2],[-w/2,0.015,l/2]],
         [[-w/2,0.015,l/2],[-w/2,0.015,-l/2]],
       ] as [number,number,number][][]).map((pts,i)=>(
-        <Line key={i} points={pts}
-          color={isDark ? '#22c55e' : isVoid ? '#555' : '#5a9a4a'}
-          lineWidth={1.5}
-        />
+        <Line key={i} points={pts} color={isDark ? '#22c55e' : isVoid ? '#555' : '#5a9a4a'} lineWidth={1.5}/>
       ))}
 
-      {/* Wider surrounding terrain */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
         <planeGeometry args={[w * 8, l * 8]} />
-        <meshStandardMaterial
-          color={isVoid ? (isDark ? '#080808' : '#d8d8d8') : '#3d6b2e'}
-          roughness={0.95}
-        />
+        <meshStandardMaterial color={isVoid ? (isDark ? '#080808' : '#d8d8d8') : '#3d6b2e'} roughness={0.95}/>
       </mesh>
 
-      {/* Road strip */}
       {roadGeometry && (
         <group position={[roadGeometry.x, 0.008, roadGeometry.z]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
             <planeGeometry args={[roadGeometry.rw, roadGeometry.rl]} />
             <meshStandardMaterial color="#555555" roughness={0.85}/>
           </mesh>
-          {/* Road centre line */}
           <Line
-            points={[
-              [-roadGeometry.rw/2, 0.005, 0],
-              [ roadGeometry.rw/2, 0.005, 0],
-            ] as [number,number,number][]}
+            points={[[-roadGeometry.rw/2, 0.005, 0],[ roadGeometry.rw/2, 0.005, 0]] as [number,number,number][]}
             color="#f5e642" lineWidth={1.5} dashed dashSize={0.8} gapSize={0.5}
           />
         </group>
       )}
 
-      {/* House footprint overlay */}
       {house && hw > 0 && hl > 0 && (
         <group position={[hx, 0.012, hz]}>
-          {/* Filled footprint */}
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
             <planeGeometry args={[hw, hl]} />
             <meshStandardMaterial color="#3b82f6" transparent opacity={0.18} roughness={0.9}/>
           </mesh>
-          {/* Footprint outline */}
           {([
             [[-hw/2,0.005,-hl/2],[hw/2,0.005,-hl/2]],
             [[hw/2,0.005,-hl/2],[hw/2,0.005,hl/2]],
@@ -141,17 +120,9 @@ function SiteGround({ site, mode, sitePlan }: {
           ))}
         </group>
       )}
-
-      {site.slope > 1 && (
-        <Line
-          points={[[0,0.05,-l*0.35],[0,0.05,l*0.35]] as [number,number,number][]}
-          color="#f59e0b" lineWidth={2}
-        />
-      )}
     </group>
   );
 }
-
 
 // ── Void grid ─────────────────────────────────────────────────────────────────
 
@@ -166,7 +137,7 @@ function VoidGrid({ dark }: { dark: boolean }) {
   );
 }
 
-// ── Model mesh with grounding ─────────────────────────────────────────────────
+// ── Model mesh ────────────────────────────────────────────────────────────────
 
 interface ModelMeshInnerProps {
   geo?:   THREE.BufferGeometry;
@@ -183,17 +154,11 @@ function ModelMeshInner({ geo, obj, opacity, scale, enableTransform, transformMo
   const meshRef = useRef<THREE.Mesh>(null);
   const grpRef  = useRef<THREE.Group>(null);
 
-  // Ground the mesh: lift so bottom is at Y=0 accounting for current scale
   useEffect(() => {
     if (!wrapRef.current) return;
-    // Reset position first
     wrapRef.current.position.y = 0;
-    // Compute world bounding box AFTER scale is applied
     const box = new THREE.Box3().setFromObject(wrapRef.current);
-    // Only adjust if model is below ground
-    if (box.min.y < 0) {
-      wrapRef.current.position.y = -box.min.y;
-    }
+    if (box.min.y < 0) wrapRef.current.position.y = -box.min.y;
   }, [geo, obj, scale]);
 
   const clonedObj = useMemo(() => {
@@ -220,17 +185,11 @@ function ModelMeshInner({ geo, obj, opacity, scale, enableTransform, transformMo
             <meshStandardMaterial color="#ddd8d0" roughness={0.82} metalness={0.04} transparent opacity={opacity} />
           </mesh>
         )}
-        {clonedObj && (
-          <group ref={grpRef}>
-            <primitive object={clonedObj} />
-          </group>
-        )}
+        {clonedObj && <group ref={grpRef}><primitive object={clonedObj} /></group>}
       </group>
-
       {enableTransform && wrapRef.current && (
         <TransformControls
-          object={wrapRef.current}
-          mode={transformMode}
+          object={wrapRef.current} mode={transformMode}
           onMouseDown={() => { if (orbitRef.current) orbitRef.current.enabled = false; }}
           onMouseUp={()   => { if (orbitRef.current) orbitRef.current.enabled = true;  }}
         />
@@ -260,46 +219,30 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
   }, [fileUrl, fileExt]);
 
   if (!geo && !obj) return null;
-  return (
-    <ModelMeshInner
-      geo={geo ?? undefined} obj={obj ?? undefined}
-      opacity={opacity} scale={scale}
-      enableTransform={enableTransform} transformMode={transformMode}
-      orbitRef={orbitRef}
-    />
-  );
+  return <ModelMeshInner geo={geo ?? undefined} obj={obj ?? undefined} opacity={opacity} scale={scale} enableTransform={enableTransform} transformMode={transformMode} orbitRef={orbitRef}/>;
 }
 
-// ── Error boundary for 3D viewer ──────────────────────────────────────────────
-class ThreeErrorBoundary extends React.Component<
-  {children: React.ReactNode; fallback?: React.ReactNode},
-  {hasError: boolean}
-> {
+// ── Error boundary ────────────────────────────────────────────────────────────
+
+class ThreeErrorBoundary extends React.Component<{children: React.ReactNode; fallback?: React.ReactNode},{hasError: boolean}> {
   constructor(props: any) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError() { return { hasError: true }; }
-  render() {
-    if (this.state.hasError) return this.props.fallback ?? null;
-    return this.props.children;
-  }
+  render() { return this.state.hasError ? (this.props.fallback ?? null) : this.props.children; }
 }
 
-// ── Printer nozzle animation ──────────────────────────────────────────────────
+// ── Printer animation ─────────────────────────────────────────────────────────
 
-function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55e' }: {
-  toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string;
+function PrinterAnimation({ toolpath, layerHeight, nozzleDiameter, progress, pathColor = '#22c55e' }: {
+  toolpath: Layer[]; layerHeight: number; nozzleDiameter: number; progress: number; pathColor?: string;
 }) {
   const allSegs = useMemo(() => {
     const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
     toolpath.forEach((layer, li) => {
-      const y = (li + 0.5) * layerHeight;
+      // Layer bottom sits at li * layerHeight
+      const y = li * layerHeight + layerHeight * 0.5;
       layer.forEach(seg => {
-        // Skip gap markers (window/door openings — no bead drawn across these)
         if (seg.gap) return;
-        out.push({
-          s: [seg.x0, y, -seg.y0],
-          e: [seg.x1, y, -seg.y1],
-          layer: li,
-        });
+        out.push({ s: [seg.x0, y, -seg.y0], e: [seg.x1, y, -seg.y1], layer: li });
       });
     });
     return out;
@@ -318,15 +261,14 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Bead dimensions in metres (matching slicer output)
-  const lhMM   = layerHeight; // already in metres
-  const beadW  = lhMM * 1.4;
-  const beadH  = lhMM * 1.1;
+  // Bead dimensions driven by nozzle diameter and layer height
+  // beadW = nozzle diameter (the bead is as wide as the nozzle)
+  // beadH = layer height + 10% overlap to close gaps between layers
+  const beadW = nozzleDiameter;
+  const beadH = layerHeight * 1.15; // slightly taller than layer spacing to close gaps
 
-  // Pre-allocate geometry for ALL segments once — use drawRange for animation
-  // This prevents memory allocation crashes during playback
   const fullGeo = useMemo(() => {
-    const total     = allSegs.length;
+    const total = allSegs.length;
     if (total === 0) return null;
 
     const positions = new Float32Array(total * 8 * 3);
@@ -343,11 +285,12 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
       const nx  = -dz / len;
       const nz  =  dx / len;
       const hw  = beadW * 0.5;
-      const y0  = s.s[1] - beadH * 0.05;
-      const y1  = s.s[1] + beadH * 0.95;
-      const ins = hw * 0.18;
+      // Centre bead on layer Y — extend equally up and down
+      const y0  = s.s[1] - beadH * 0.5;
+      const y1  = s.s[1] + beadH * 0.5;
+      const ins = hw * 0.12; // slight inset on top for rounded look
 
-      const vb    = i * 8;
+      const vb = i * 8;
       const verts: [number,number,number][] = [
         [s.s[0]-nx*hw,       y0, s.s[2]-nz*hw],
         [s.s[0]+nx*hw,       y0, s.s[2]+nz*hw],
@@ -386,12 +329,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
     return geo;
   }, [allSegs, beadW, beadH]);
 
-  // Update draw range via effect — don't mutate during render
   useEffect(() => {
     if (!fullGeo) return;
-    const totalTriangles = allSegs.length * 36;
     if (progress <= 0 || progress >= 1) {
-      fullGeo.setDrawRange(0, Infinity); // show all
+      fullGeo.setDrawRange(0, Infinity);
     } else {
       fullGeo.setDrawRange(0, Math.max(segIdx, 0) * 36);
     }
@@ -403,13 +344,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
         <mesh geometry={fullGeo}>
           <meshStandardMaterial
             color={new THREE.Color(pathColor).lerp(new THREE.Color('#9a9a96'), 0.45)}
-            roughness={0.97}
-            metalness={0.0}
-            side={THREE.DoubleSide}
+            roughness={0.97} metalness={0.0} side={THREE.DoubleSide}
           />
         </mesh>
       )}
-
       {/* Nozzle head */}
       <group position={nozzle}>
         <mesh rotation={[-Math.PI/2,0,0]}>
@@ -437,9 +375,9 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
   useEffect(() => {
     if (!snap) return;
     const t: Record<string,[number,number,number]> = {
-      top:         [0,d*2.2,0.001], front:[0,d*0.4,d*1.3],
-      right:       [d*1.3,d*0.4,0], left:[-d*1.3,d*0.4,0],
-      back:        [0,d*0.4,-d*1.3], perspective:[d*0.9,d*0.6,d*0.9],
+      top:[0,d*2.2,0.001], front:[0,d*0.4,d*1.3],
+      right:[d*1.3,d*0.4,0], left:[-d*1.3,d*0.4,0],
+      back:[0,d*0.4,-d*1.3], perspective:[d*0.9,d*0.6,d*0.9],
     };
     if (t[snap]) { camera.position.set(...t[snap]); camera.lookAt(0,0,0); }
   }, [snap, d, camera]);
@@ -448,17 +386,13 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
 
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
-function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, site, modelScale,
-  snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor,
-  showModel = true, showToolpath = true }: {
+function Scene({ fileUrl, fileExt, toolpath, layerHeight, nozzleDiameter, animProgress, mode, site, modelScale,
+  snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor, showModel=true, showToolpath=true }: {
   fileUrl: string|null; fileExt: string; toolpath: Layer[];
-  layerHeight: number; animProgress: number; mode: ViewMode;
+  layerHeight: number; nozzleDiameter: number; animProgress: number; mode: ViewMode;
   site: SiteDimensions; modelScale: number; snap: string|null;
   enableTransform: boolean; transformMode: TransformMode; orbitRef: React.RefObject<any>;
-  sitePlan?: import('./SitePlanReader').SitePlanData | null;
-  pathColor?: string;
-  showModel?: boolean;
-  showToolpath?: boolean;
+  sitePlan?: SitePlanData | null; pathColor?: string; showModel?: boolean; showToolpath?: boolean;
 }) {
   const isVoid = mode !== 'environment';
   const isDark = mode === 'void-dark';
@@ -469,39 +403,21 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
       <directionalLight position={[15,25,15]} intensity={isVoid?1.0:2.0} castShadow
         shadow-mapSize-width={2048} shadow-mapSize-height={2048}
         shadow-camera-far={200} shadow-camera-left={-60} shadow-camera-right={60}
-        shadow-camera-top={60} shadow-camera-bottom={-60}
-      />
+        shadow-camera-top={60} shadow-camera-bottom={-60}/>
       <directionalLight position={[-10,15,-10]} intensity={0.5} color="#b8d4ff"/>
-
-      {mode === 'environment' && (
-        <>
-          <SkySphere/>
-          <fog attach="fog" args={['#c8e8f8',80,400]}/>
-        </>
-      )}
+      {mode === 'environment' && (<><SkySphere/><fog attach="fog" args={['#c8e8f8',80,400]}/></>)}
       {isVoid && <VoidGrid dark={isDark}/>}
-
       <SiteGround site={site} mode={mode} sitePlan={sitePlan}/>
-
       {fileUrl && showModel && (
-        <ModelLoader
-          fileUrl={fileUrl} fileExt={fileExt}
+        <ModelLoader fileUrl={fileUrl} fileExt={fileExt}
           opacity={toolpath.length > 0 && animProgress < 1 ? 0.3 : 1.0}
-          scale={modelScale}
-          enableTransform={enableTransform} transformMode={transformMode}
-          orbitRef={orbitRef}
-        />
+          scale={modelScale} enableTransform={enableTransform} transformMode={transformMode} orbitRef={orbitRef}/>
       )}
-
       {toolpath.length > 0 && showToolpath && (
-        <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} progress={animProgress} pathColor={pathColor}/>
+        <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} nozzleDiameter={nozzleDiameter} progress={animProgress} pathColor={pathColor}/>
       )}
-
       <CameraController snap={snap} site={site}/>
-      <OrbitControls ref={orbitRef} enablePan enableZoom enableRotate
-        maxPolarAngle={Math.PI/1.85} minDistance={1} maxDistance={300}/>
-
-      {/* Blender gizmo — bottom left of canvas */}
+      <OrbitControls ref={orbitRef} enablePan enableZoom enableRotate maxPolarAngle={Math.PI/1.85} minDistance={1} maxDistance={300}/>
       <GizmoHelper alignment="bottom-left" margin={[72, 72]}>
         <GizmoViewport axisColors={['#ef4444','#22c55e','#3b82f6']} labelColor="white" hideNegativeAxes={false}/>
       </GizmoHelper>
@@ -509,7 +425,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
   );
 }
 
-// ── Modern playback bar ───────────────────────────────────────────────────────
+// ── Playback bar ──────────────────────────────────────────────────────────────
 
 function PlaybackBar({
   progress, isPlaying, totalSegs, animProgress,
@@ -525,127 +441,61 @@ function PlaybackBar({
   showToolpath: boolean; onShowToolpath:(v:boolean)=>void;
 }) {
   const doneSegs = Math.round(animProgress * totalSegs);
-
   return (
-    <div className="rounded-2xl overflow-hidden border border-white/8"
-      style={{background:'rgba(4,4,8,0.8)',backdropFilter:'blur(24px)'}}>
-
-      {/* Thin progress strip at very top */}
+    <div className="rounded-2xl overflow-hidden border border-white/8" style={{background:'rgba(4,4,8,0.8)',backdropFilter:'blur(24px)'}}>
       <div className="h-0.5 bg-white/5">
         <div className="h-full transition-all duration-75" style={{width:`${progress}%`, background: pathColor}}/>
       </div>
-
       <div className="px-4 py-3">
-        {/* Row 1: scrub slider + % */}
         <div className="flex items-center gap-3 mb-3">
           <input type="range" min={0} max={100} value={progress}
             onChange={e=>{onScrub(Number(e.target.value)/100);}}
-            className="flex-1 appearance-none h-1 rounded-full bg-white/10 cursor-pointer"
-            style={{'--tw-accent-color':'#4ade80'} as any}
-          />
+            className="flex-1 appearance-none h-1 rounded-full bg-white/10 cursor-pointer"/>
           <span className="text-[11px] font-mono text-white/40 w-10 text-right tabular-nums">{progress}%</span>
           <span className="text-[10px] text-white/20 font-mono hidden sm:block">{doneSegs}/{totalSegs}</span>
         </div>
-
-        {/* Row 2: controls */}
         <div className="flex items-center gap-2 mb-3">
-          {/* Reset */}
-          <button onClick={onReset}
-            title="Reset"
-            className="w-8 h-8 rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all flex items-center justify-center text-sm">
-            ⟲
-          </button>
-
-          {/* Play/Pause — main CTA */}
+          <button onClick={onReset} title="Reset"
+            className="w-8 h-8 rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all flex items-center justify-center text-sm">⟲</button>
           <button onClick={onToggle}
             className={`flex-1 h-8 rounded-xl font-semibold text-[12px] transition-all flex items-center justify-center gap-2 ${
-              isPlaying
-                ? 'bg-white/10 text-white border border-white/15 hover:bg-white/15'
-                : progress >= 1
-                ? 'bg-white text-black hover:bg-white/90'
-                : 'bg-white text-black hover:bg-white/90'
+              isPlaying ? 'bg-white/10 text-white border border-white/15 hover:bg-white/15' : 'bg-white text-black hover:bg-white/90'
             }`}>
             {isPlaying ? (
-              <>
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                  <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
-                </svg>
-                Pause
-              </>
+              <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>Pause</>
             ) : progress >= 1 ? (
-              <>
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                Replay
-              </>
+              <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>Replay</>
             ) : (
-              <>
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z"/>
-                </svg>
-                Play print
-              </>
+              <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Play print</>
             )}
           </button>
-
-          {/* End */}
-          <button onClick={onEnd}
-            title="Jump to end"
+          <button onClick={onEnd} title="Jump to end"
             className="w-8 h-8 rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all flex items-center justify-center">
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-            </svg>
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
           </button>
         </div>
-
-        {/* Row 3: mode toggle + color picker + legend */}
         <div className="flex items-center justify-between">
-          {/* View mode toggle */}
           <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-white/8 bg-white/4">
-            {([
-              {id:'environment' as ViewMode, label:'Env'},
-              {id:'void-dark'   as ViewMode, label:'Dark'},
-              {id:'void-light'  as ViewMode, label:'Light'},
-            ]).map(opt=>(
+            {([{id:'environment' as ViewMode,label:'Env'},{id:'void-dark' as ViewMode,label:'Dark'},{id:'void-light' as ViewMode,label:'Light'}]).map(opt=>(
               <button key={opt.id} onClick={()=>onModeChange(opt.id)}
-                className={`px-2.5 py-1 text-[10px] font-medium rounded-md transition-all ${
-                  mode===opt.id?'bg-white/15 text-white':'text-white/30 hover:text-white/60'
-                }`}>
+                className={`px-2.5 py-1 text-[10px] font-medium rounded-md transition-all ${mode===opt.id?'bg-white/15 text-white':'text-white/30 hover:text-white/60'}`}>
                 {opt.label}
               </button>
             ))}
           </div>
-
-          {/* Visibility toggles */}
           <div className="flex items-center gap-1">
             <button onClick={()=>onShowModel(!showModel)}
-              className={`px-2 py-1 text-[10px] rounded-md border transition-all ${
-                showModel ? 'bg-white/15 text-white border-white/20' : 'text-white/25 border-white/8'
-              }`}>
-              Model
-            </button>
+              className={`px-2 py-1 text-[10px] rounded-md border transition-all ${showModel?'bg-white/15 text-white border-white/20':'text-white/25 border-white/8'}`}>Model</button>
             <button onClick={()=>onShowToolpath(!showToolpath)}
-              className={`px-2 py-1 text-[10px] rounded-md border transition-all ${
-                showToolpath ? 'bg-white/15 text-white border-white/20' : 'text-white/25 border-white/8'
-              }`}>
-              Path
-            </button>
+              className={`px-2 py-1 text-[10px] rounded-md border transition-all ${showToolpath?'bg-white/15 text-white border-white/20':'text-white/25 border-white/8'}`}>Path</button>
           </div>
-
-          {/* Path color picker */}
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-white/25">Path colour</span>
             <label className="relative cursor-pointer group">
-              <div className="w-5 h-5 rounded-full border-2 border-white/25 group-hover:border-white/50 transition-colors"
-                style={{background: pathColor}}/>
-              <input type="color" value={pathColor}
-                onChange={e => onPathColorChange(e.target.value)}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"/>
+              <div className="w-5 h-5 rounded-full border-2 border-white/25 group-hover:border-white/50 transition-colors" style={{background: pathColor}}/>
+              <input type="color" value={pathColor} onChange={e => onPathColorChange(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"/>
             </label>
           </div>
-
-          {/* Legend */}
           <div className="flex items-center gap-3 text-[10px] text-white/20">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-white inline-block"/>Nozzle</span>
             <span className="flex items-center gap-1"><span className="w-3 h-px inline-block rounded" style={{background:pathColor}}/>Path</span>
@@ -659,7 +509,7 @@ function PlaybackBar({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function LayerVisualization({
-  file, toolpath, numLayers, layerHeight, site, fullscreen,
+  file, toolpath, numLayers, layerHeight, nozzleDiameter, site, fullscreen,
   externalMode, onModeChange, modelScale: extScale, sitePlan, modelDimensions,
 }: LayerVisualizationProps) {
   const [internalMode,    setInternalMode]    = useState<ViewMode>('environment');
@@ -681,23 +531,21 @@ export default function LayerVisualization({
   const setMode    = (m: ViewMode) => { setInternalMode(m); onModeChange?.(m); };
   const modelScale = extScale ?? internalScale;
   const fileExt    = file?.name.split('.').pop()?.toLowerCase() ?? 'stl';
-  const resolvedSite = site ?? { width:12, length:10, slope:0 };
-  const totalSegs    = useMemo(()=>toolpath.reduce((a,l)=>a+l.length,0),[toolpath]);
-  const animDuration = useMemo(()=>Math.min(Math.max(totalSegs*0.05,5),120),[totalSegs]);
+  const resolvedSite   = site ?? { width:12, length:10, slope:0 };
+  const resolvedNozzle = nozzleDiameter ?? 0.025; // default 25mm
+  const totalSegs      = useMemo(()=>toolpath.reduce((a,l)=>a+l.length,0),[toolpath]);
+  const animDuration   = useMemo(()=>Math.min(Math.max(totalSegs*0.05,5),120),[totalSegs]);
 
-  // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z — pass through to browser (works natively for transform)
   useEffect(()=>{
     if (!fullscreen) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setEnableTransform(false);
-      // T = toggle transform, M/R/S = mode shortcuts
       if (!e.ctrlKey && !e.metaKey) {
         if (e.key==='t'||e.key==='T') setEnableTransform(v=>!v);
         if (e.key==='g'||e.key==='G') setTransformMode('translate');
         if (e.key==='r'||e.key==='R') setTransformMode('rotate');
         if (e.key==='s'||e.key==='S') setTransformMode('scale');
       }
-      // Space = play/pause
       if (e.key===' ' && toolpath.length>0) { e.preventDefault(); setIsPlaying(p=>!p); }
     };
     window.addEventListener('keydown', handler);
@@ -741,14 +589,10 @@ export default function LayerVisualization({
   },[isPlaying,animDuration]);
 
   const progress = Math.round(animProgress*100);
-  const bgMap: Record<ViewMode,string> = {
-    'environment': '#7ec8e3',
-    'void-dark':   '#060606',
-    'void-light':  '#d8d8d8',
-  };
+  const bgMap: Record<ViewMode,string> = { 'environment':'#7ec8e3', 'void-dark':'#060606', 'void-light':'#d8d8d8' };
   const bg = bgMap[mode];
 
-  // ── Compact (setup tab) ───────────────────────────────────────────────────
+  // ── Compact ───────────────────────────────────────────────────────────────
 
   if (!fullscreen) {
     return (
@@ -758,25 +602,18 @@ export default function LayerVisualization({
             <h3 className="text-sm font-semibold text-black">3D Preview</h3>
             <p className="text-[11px] text-black/40 mt-0.5">
               {file ? file.name : 'Upload a model'} · {resolvedSite.width}m × {resolvedSite.length}m
-              {resolvedSite.slope > 0 ? ` · ${resolvedSite.slope}°` : ''}
             </p>
           </div>
           <div className="flex items-center gap-1 bg-gray-50 border border-gray-100 rounded-xl p-1">
-            {([
-              {id:'environment' as ViewMode, l:'Env'},
-              {id:'void-dark'   as ViewMode, l:'Dark'},
-              {id:'void-light'  as ViewMode, l:'Light'},
-            ]).map(m=>(
+            {([{id:'environment' as ViewMode,l:'Env'},{id:'void-dark' as ViewMode,l:'Dark'},{id:'void-light' as ViewMode,l:'Light'}]).map(m=>(
               <button key={m.id} onClick={()=>setMode(m.id)}
-                className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  mode===m.id?'bg-black text-white':'text-black/40 hover:text-black'
-                }`}>{m.l}</button>
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${mode===m.id?'bg-black text-white':'text-black/40 hover:text-black'}`}>{m.l}</button>
             ))}
           </div>
         </div>
         <div className="relative" style={{height:340,background:bg}}>
           <Canvas shadows gl={{antialias:true}}>
-            <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={[]} layerHeight={0.04}
+            <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={[]} layerHeight={0.02} nozzleDiameter={0.025}
               animProgress={0} mode={mode} site={resolvedSite} modelScale={modelScale}
               snap={null} enableTransform={false} transformMode="translate" orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}/>
           </Canvas>
@@ -788,81 +625,50 @@ export default function LayerVisualization({
     );
   }
 
-  // ── Full-screen results ───────────────────────────────────────────────────
+  // ── Fullscreen ────────────────────────────────────────────────────────────
 
   const panelW = 318;
 
   return (
     <div className="absolute inset-0">
-      <Canvas shadows
-        gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:1.1}}
-        style={{background:bg}}>
-        <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={toolpath} layerHeight={layerHeight||0.04}
-          animProgress={animProgress} mode={mode} site={resolvedSite} modelScale={modelScale}
-          snap={snap} enableTransform={enableTransform} transformMode={transformMode}
-          orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}
-          showModel={showModel} showToolpath={showToolpath}/>
+      <Canvas shadows gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:1.1}} style={{background:bg}}>
+        <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={toolpath} layerHeight={layerHeight||0.02}
+          nozzleDiameter={resolvedNozzle} animProgress={animProgress} mode={mode} site={resolvedSite}
+          modelScale={modelScale} snap={snap} enableTransform={enableTransform} transformMode={transformMode}
+          orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor} showModel={showModel} showToolpath={showToolpath}/>
       </Canvas>
 
-      {/* ── Top-left: mode toggle + site info (clean, small) ── */}
+      {/* Top-left controls */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-1.5">
-        {/* Env / Dark / Light toggle */}
-        <div className="flex items-center gap-0.5 p-0.5 rounded-xl border border-white/10"
-          style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)'}}>
-          {([
-            {id:'environment' as ViewMode,label:'Environment'},
-            {id:'void-dark'   as ViewMode,label:'Void Dark'},
-            {id:'void-light'  as ViewMode,label:'Void Light'},
-          ]).map(opt=>(
+        <div className="flex items-center gap-0.5 p-0.5 rounded-xl border border-white/10" style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)'}}>
+          {([{id:'environment' as ViewMode,label:'Environment'},{id:'void-dark' as ViewMode,label:'Void Dark'},{id:'void-light' as ViewMode,label:'Void Light'}]).map(opt=>(
             <button key={opt.id} onClick={()=>setMode(opt.id)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                mode===opt.id?'bg-white text-black shadow-sm':'text-white/50 hover:text-white'
-              }`}>{opt.label}</button>
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${mode===opt.id?'bg-white text-black shadow-sm':'text-white/50 hover:text-white'}`}>{opt.label}</button>
           ))}
         </div>
 
-        {/* Site info + model dimensions */}
-        <div className="px-3 py-1.5 rounded-xl border border-white/8 space-y-0.5"
-          style={{background:'rgba(0,0,0,0.4)',backdropFilter:'blur(10px)'}}>
-          <span className="text-white/40 text-[10px] font-mono block">
-            {resolvedSite.width}m × {resolvedSite.length}m
-            {resolvedSite.slope>0?` · ${resolvedSite.slope}°`:''}
-          </span>
+        <div className="px-3 py-1.5 rounded-xl border border-white/8 space-y-0.5" style={{background:'rgba(0,0,0,0.4)',backdropFilter:'blur(10px)'}}>
+          <span className="text-white/40 text-[10px] font-mono block">{resolvedSite.width}m × {resolvedSite.length}m</span>
           {modelDimensions && (
             <span className="text-white/60 text-[10px] font-mono block">
-              L {(modelDimensions.x*1000).toFixed(0)}mm ·{' '}
-              W {(modelDimensions.y*1000).toFixed(0)}mm ·{' '}
-              H {(modelDimensions.z*1000).toFixed(0)}mm
+              L {(modelDimensions.x*1000).toFixed(0)}mm · W {(modelDimensions.y*1000).toFixed(0)}mm · H {(modelDimensions.z*1000).toFixed(0)}mm
             </span>
           )}
         </div>
 
-        {/* Model / Toolpath visibility toggles */}
-        <div className="flex items-center gap-1 p-0.5 rounded-xl border border-white/8"
-          style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)'}}>
+        <div className="flex items-center gap-1 p-0.5 rounded-xl border border-white/8" style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)'}}>
           <button onClick={()=>setShowModel(v=>!v)}
-            className={`px-2.5 py-1 text-[10px] font-medium rounded-lg transition-all ${
-              showModel?'bg-white/15 text-white':'text-white/30 hover:text-white/60'
-            }`}>
-            Model
-          </button>
+            className={`px-2.5 py-1 text-[10px] font-medium rounded-lg transition-all ${showModel?'bg-white/15 text-white':'text-white/30 hover:text-white/60'}`}>Model</button>
           <button onClick={()=>setShowToolpath(v=>!v)}
-            className={`px-2.5 py-1 text-[10px] font-medium rounded-lg transition-all ${
-              showToolpath?'bg-white/15 text-white':'text-white/30 hover:text-white/60'
-            }`}>
-            Toolpath
-          </button>
+            className={`px-2.5 py-1 text-[10px] font-medium rounded-lg transition-all ${showToolpath?'bg-white/15 text-white':'text-white/30 hover:text-white/60'}`}>Toolpath</button>
         </div>
       </div>
 
-      {/* ── Top-left below: Transform controls (compact) ── */}
+      {/* Transform controls */}
       <div className="absolute top-24 left-4 z-10">
-        <div className="rounded-xl border border-white/8 overflow-hidden"
-          style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)',minWidth:120}}>
+        <div className="rounded-xl border border-white/8 overflow-hidden" style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)',minWidth:120}}>
           <button onClick={()=>setEnableTransform(v=>!v)}
-            className={`w-full px-3 py-2 text-[11px] font-medium transition-all flex items-center gap-2 ${
-              enableTransform?'text-white bg-white/10':'text-white/40 hover:text-white'
-            }`}>
+            className={`w-full px-3 py-2 text-[11px] font-medium transition-all flex items-center gap-2 ${enableTransform?'text-white bg-white/10':'text-white/40 hover:text-white'}`}>
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
             </svg>
@@ -870,19 +676,11 @@ export default function LayerVisualization({
           </button>
           <AnimatePresence>
             {enableTransform && (
-              <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
-                className="border-t border-white/8">
-                {([
-                  {m:'translate' as TransformMode, label:'Move', key:'G'},
-                  {m:'rotate'    as TransformMode, label:'Rotate', key:'R'},
-                  {m:'scale'     as TransformMode, label:'Scale', key:'S'},
-                ]).map(opt=>(
+              <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}} className="border-t border-white/8">
+                {([{m:'translate' as TransformMode,label:'Move',key:'G'},{m:'rotate' as TransformMode,label:'Rotate',key:'R'},{m:'scale' as TransformMode,label:'Scale',key:'S'}]).map(opt=>(
                   <button key={opt.m} onClick={()=>setTransformMode(opt.m)}
-                    className={`w-full px-3 py-1.5 text-[10px] flex items-center justify-between transition-colors ${
-                      transformMode===opt.m?'text-white bg-white/8':'text-white/30 hover:text-white/60'
-                    }`}>
-                    <span>{opt.label}</span>
-                    <span className="text-[9px] font-mono text-white/20">[{opt.key}]</span>
+                    className={`w-full px-3 py-1.5 text-[10px] flex items-center justify-between transition-colors ${transformMode===opt.m?'text-white bg-white/8':'text-white/30 hover:text-white/60'}`}>
+                    <span>{opt.label}</span><span className="text-[9px] font-mono text-white/20">[{opt.key}]</span>
                   </button>
                 ))}
                 <div className="px-3 py-1.5 border-t border-white/6">
@@ -894,22 +692,20 @@ export default function LayerVisualization({
         </div>
       </div>
 
-      {/* ── Progress counter top of panel ── */}
+      {/* Progress counter */}
       {toolpath.length > 0 && (
         <div className="absolute top-4 z-10" style={{right: panelW+16}}>
-          <div className="px-3 py-1.5 rounded-xl border border-white/10"
-            style={{background:'rgba(0,0,0,0.55)',backdropFilter:'blur(12px)'}}>
+          <div className="px-3 py-1.5 rounded-xl border border-white/10" style={{background:'rgba(0,0,0,0.55)',backdropFilter:'blur(12px)'}}>
             <p className="text-white text-xs font-mono">{progress}%</p>
           </div>
         </div>
       )}
 
-      {/* ── Bottom playback bar ── */}
+      {/* Playback bar */}
       {toolpath.length > 0 && (
         <div className="absolute bottom-3 left-4 z-10" style={{right: panelW+16}}>
           <PlaybackBar
-            progress={progress} isPlaying={isPlaying}
-            totalSegs={totalSegs} animProgress={animProgress}
+            progress={progress} isPlaying={isPlaying} totalSegs={totalSegs} animProgress={animProgress}
             onReset={()=>{setAnimProgress(0);setIsPlaying(false);}}
             onToggle={()=>setIsPlaying(p=>!p)}
             onEnd={()=>{setIsPlaying(false);setAnimProgress(1);}}
@@ -922,10 +718,8 @@ export default function LayerVisualization({
         </div>
       )}
 
-      {/* No toolpath hint */}
       {!toolpath.length && (
-        <div className="absolute bottom-4 right-4 z-10 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg"
-          style={{right:panelW+16}}>
+        <div className="absolute bottom-4 z-10 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg" style={{right:panelW+16}}>
           <span className="text-white/25 text-[10px]">Drag · scroll · right-click pan</span>
         </div>
       )}
