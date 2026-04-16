@@ -311,30 +311,26 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Bead cross-section: flat base, rounded dome crown — real extruded concrete profile
-  // beadW = full nozzle width, beadH = layer height with slight overlap
+  // beadW = nozzle contact width; beadH = 110% of layer height.
+  // 10% extra height guarantees adjacent layers always overlap — zero gaps regardless of
+  // profile shape. Both values are constant across all segments (only extrusion length varies).
   const beadW = (nozzleDiameter ?? layerHeight * 1.67) * 0.88;
-  const beadH = layerHeight * 1.5;
+  const beadH = layerHeight * 1.1;
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
     if (total === 0) return null;
 
-    // Cross-section profile: 6 points
-    // 0: bottom-left, 1: bottom-right (flat base)
-    // 2: shoulder-left, 3: shoulder-right (where dome starts)
-    // 4: crown-left, 5: crown-right (top of dome, inset)
-    // Crown = half-ellipse arc: 5 profile verts per end = 10 verts per seg
-    // Triangles: base quad + 2 side quads + dome quad = 4 quads = 8 tris = 24 indices per seg
-    // We use 5 profile verts per end × 2 ends = 10 verts per seg
-    // Profile (local coords, y up, x across):
-    //   v0 = (-hw,   0      )  bottom-left
-    //   v1 = (-hw,   h*0.5  )  mid-left
-    //   v2 = (-hw*0.7, h    )  crown-left
-    //   v3 = ( hw*0.7, h    )  crown-right
-    //   v4 = ( hw,   h*0.5  )  mid-right
-    //   v5 = ( hw,   0      )  bottom-right
-    // 6 verts × 2 ends = 12 verts, 5 quads × 2 tris = 10 tris = 30 indices
+    // Cross-section profile: 6 points — symmetric rounded rectangle.
+    //   p0 (-hw, -h/2)  base left
+    //   p1 (-hw,  h/4)  shoulder left  (vertical wall stops here)
+    //   p2 (-hw*0.85, h/2)  dome left  (slight inward taper for crown)
+    //   p3 ( hw*0.85, h/2)  dome right
+    //   p4 ( hw,  h/4)  shoulder right
+    //   p5 ( hw, -h/2)  base right
+    // Symmetric: span = h = beadH.  With beadH = layerHeight*1.1 the top sits
+    // exactly 0.55*layerHeight above centre — guaranteed to overlap the adjacent
+    // layer's base by 0.1*layerHeight no matter what the wall geometry looks like.
 
     const PROFILE = 6;
     const vertsPerSeg  = PROFILE * 2;
@@ -348,12 +344,8 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     const hw = beadW * 0.5;
     const h  = beadH;
 
-    // Profile offsets (across, up) — 6 points making rounded bead shape.
-    // Crown at h*0.8 puts the top ~1.2× layerHeight above the layer centre,
-    // giving ~0.9 layerHeight of overlap with the next layer — enough to fill
-    // inter-layer gaps. px crown at ±0.7hw reduces taper so no shelf edge appears.
-    const px = [-hw, -hw,      -hw * 0.7, hw * 0.7,  hw,      hw  ];
-    const py = [-h * 0.5, h * 0.2, h * 0.8, h * 0.8, h * 0.2, -h * 0.5];
+    const px = [-hw, -hw,      -hw * 0.85, hw * 0.85,  hw,      hw ];
+    const py = [-h * 0.5, h * 0.25, h * 0.5, h * 0.5, h * 0.25, -h * 0.5];
 
     for (let i = 0; i < total; i++) {
       const s  = allSegs[i];
