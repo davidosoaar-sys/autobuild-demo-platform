@@ -321,7 +321,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55
   // Bead dimensions in metres (matching slicer output)
   const lhMM   = layerHeight; // already in metres
   const beadW  = lhMM * 1.4;
-  const beadH  = lhMM;
+  const beadH  = lhMM * 1.1;
 
   // Pre-allocate geometry for ALL segments once — use drawRange for animation
   // This prevents memory allocation crashes during playback
