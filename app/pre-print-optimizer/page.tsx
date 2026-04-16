@@ -15,7 +15,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 type Phase        = 'idle' | 'optimizing' | 'done' | 'error';
 type ActiveTab    = 'setup' | 'results';
 type SidebarPanel = 'results' | 'changes' | 'layers' | 'scan';
-type ViewMode     = 'environment' | 'void-dark' | 'void-light';
+type ViewMode     = 'environment' | 'dark' | 'light';
 
 interface CementInfo   { display_name: string; open_time_min: number; risk_score: number; }
 interface PrinterInfo  { name: string; nozzle_mm: number; layer_height_mm: number; effective_speed: number; mix_compatible: boolean; }
