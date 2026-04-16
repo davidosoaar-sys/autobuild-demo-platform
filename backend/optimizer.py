@@ -134,7 +134,7 @@ def optimize(
     num_layers        = len(layers_to_process)
 
     # Run RL on every Nth layer — fast NN for the rest
-    RL_SAMPLE_RATE = max(1, num_layers // 10)
+    RL_SAMPLE_RATE = max(1, num_layers // 20)
 
     toolpath:     List[Layer]       = []
     layer_params: List[LayerParams] = []
@@ -198,7 +198,7 @@ def optimize(
             naive_l      = 0.0
         else:
             # Use all segments — accuracy over speed
-            segs    = layer_segs[:800]  # cap per layer for speed
+            segs    = layer_segs
             naive_l = _naive_travel_mm(segs)
 
             use_rl = (layer_idx % RL_SAMPLE_RATE == 0) and model is not None
