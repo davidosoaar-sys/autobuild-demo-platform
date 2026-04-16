@@ -209,19 +209,28 @@ function CitySearch({ onSelect, startHour }: {
           {/* Hourly forecast timeline */}
           {forecast.length > 0 && (
             <div className="mt-3 pt-3 border-t border-white/10">
-              <p className="text-[9px] text-white/30 uppercase tracking-widest mb-2">Forecast from {hourToLabel(startHour)}</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[9px] text-white/30 uppercase tracking-widest">Forecast from {hourToLabel(startHour)}</p>
+                <p className="text-[9px] text-white/20 font-mono">{new Date().toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' })}</p>
+              </div>
               <div className="flex gap-1.5 overflow-x-auto pb-1">
-                {forecast.map((f, i) => (
-                  <div key={i} className={`flex-shrink-0 rounded-lg px-2 py-1.5 text-center min-w-[52px] ${
-                    f.risk > 50 ? 'bg-red-500/20' : f.risk > 20 ? 'bg-amber-400/15' : 'bg-white/5'
-                  }`}>
-                    <p className="text-[8px] text-white/30 mb-0.5">{hourToLabel(f.hour)}</p>
-                    <p className="text-[11px] font-bold text-white">{f.temperature}°</p>
-                    <p className={`text-[8px] font-semibold ${riskColor(f.risk)}`}>
-                      {f.risk > 50 ? '⚠ High' : f.risk > 20 ? 'Med' : 'OK'}
-                    </p>
-                  </div>
-                ))}
+                {forecast.map((f, i) => {
+                  const isNextDay = f.hour < startHour && i > 0;
+                  return (
+                    <div key={i} className={`flex-shrink-0 rounded-lg px-2 py-1.5 text-center min-w-[52px] ${
+                      f.risk > 50 ? 'bg-red-500/20' : f.risk > 20 ? 'bg-amber-400/15' : 'bg-white/5'
+                    }`}>
+                      {isNextDay && i > 0 && forecast[i-1].hour >= startHour && (
+                        <p className="text-[7px] text-white/20 mb-0.5">+1d</p>
+                      )}
+                      <p className="text-[8px] text-white/30 mb-0.5">{hourToLabel(f.hour)}</p>
+                      <p className="text-[11px] font-bold text-white">{f.temperature}°</p>
+                      <p className={`text-[8px] font-semibold ${riskColor(f.risk)}`}>
+                        {f.risk > 50 ? '⚠ High' : f.risk > 20 ? 'Med' : 'OK'}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
               <p className="text-[9px] text-white/15 mt-1.5">RL adapts speed per hour</p>
             </div>
