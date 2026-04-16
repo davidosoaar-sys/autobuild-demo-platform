@@ -271,7 +271,7 @@ class ThreeErrorBoundary extends React.Component<
 
 // ── Printer nozzle animation ──────────────────────────────────────────────────
 
-function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a898', nozzleDiameter = 0.025 }: {
+function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb0', nozzleDiameter = 0.025 }: {
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
   const allSegs = useMemo(() => {
@@ -312,7 +312,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
   // Bead cross-section: flat base, rounded dome crown — real extruded concrete profile
   // beadW = full nozzle width, beadH = layer height with slight overlap
   const beadW = (nozzleDiameter ?? layerHeight * 1.67) * 0.88;
-  const beadH = layerHeight * 1.6;
+  const beadH = layerHeight * 1.5;
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
@@ -624,7 +624,7 @@ export default function LayerVisualization({
   const [internalScale,   setInternalScale]   = useState(1.0);
   const [enableTransform, setEnableTransform] = useState(false);
   const [transformMode,   setTransformMode]   = useState<TransformMode>('translate');
-  const [pathColor,       setPathColor]       = useState('#b8a898');
+  const [pathColor,       setPathColor]       = useState('#c8bfb0');
   const [showModel,       setShowModel]       = useState(true);
   const [showToolpath,    setShowToolpath]    = useState(true);
   const orbitRef = useRef<any>(null);
