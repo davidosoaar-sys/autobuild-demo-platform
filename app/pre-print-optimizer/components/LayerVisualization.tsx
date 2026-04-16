@@ -271,8 +271,8 @@ class ThreeErrorBoundary extends React.Component<
 
 // ── Printer nozzle animation ──────────────────────────────────────────────────
 
-function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#22c55e' }: {
-  toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string;
+function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a898', nozzleDiameter = 0.025 }: {
+  toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
   const allSegs = useMemo(() => {
     const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
@@ -430,7 +430,7 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
 function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, site, modelScale,
-  snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor,
+  snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor, nozzleDiameter = 0.025,
   showModel = true, showToolpath = true }: {
   fileUrl: string|null; fileExt: string; toolpath: Layer[];
   layerHeight: number; animProgress: number; mode: ViewMode;
@@ -438,6 +438,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
   enableTransform: boolean; transformMode: TransformMode; orbitRef: React.RefObject<any>;
   sitePlan?: import('./SitePlanReader').SitePlanData | null;
   pathColor?: string;
+  nozzleDiameter?: number;
   showModel?: boolean;
   showToolpath?: boolean;
 }) {
@@ -475,7 +476,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
       )}
 
       {toolpath.length > 0 && showToolpath && (
-        <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} progress={animProgress} pathColor={pathColor}/>
+        <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} progress={animProgress} pathColor={pathColor} nozzleDiameter={nozzleDiameter}/>
       )}
 
       <CameraController snap={snap} site={site}/>
@@ -717,6 +718,7 @@ export default function LayerVisualization({
           animProgress={animProgress} mode={mode} site={resolvedSite} modelScale={modelScale}
           snap={snap} enableTransform={enableTransform} transformMode={transformMode}
           orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}
+          nozzleDiameter={nozzleDiameter ?? 0.025}
           showModel={showModel} showToolpath={showToolpath}/>
       </Canvas>
 
