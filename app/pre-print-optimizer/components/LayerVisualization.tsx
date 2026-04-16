@@ -410,7 +410,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, nozzleDiameter, animPr
       <SiteGround site={site} mode={mode} sitePlan={sitePlan}/>
       {fileUrl && showModel && (
         <ModelLoader fileUrl={fileUrl} fileExt={fileExt}
-          opacity={toolpath.length > 0 && animProgress < 1 ? 0.3 : 1.0}
+          opacity={toolpath.length > 0 && animProgress < 1 ? 0.08 : 0.85}
           scale={modelScale} enableTransform={enableTransform} transformMode={transformMode} orbitRef={orbitRef}/>
       )}
       {toolpath.length > 0 && showToolpath && (
