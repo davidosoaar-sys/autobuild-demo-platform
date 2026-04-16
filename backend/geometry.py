@@ -278,24 +278,20 @@ def _slice_layer(
     if not shapely_segs:
         return []
 
-    # Fast path — only triggered when segment count genuinely exceeds threshold
-    # Threshold is now nozzle-aware so this never fires for normal wall layers
-    if len(shapely_segs) > fast_path_threshold:
-        return [
+    # Fast path — raw segments, no buffer. Visual gaps handled by beadW on frontend.
+    FAST_PATH_THRESHOLD = 300
+    if len(shapely_segs) > FAST_PATH_THRESHOLD:
+        return _nn_chain([
             ((float(s.coords[0][0]), float(s.coords[0][1])),
              (float(s.coords[1][0]), float(s.coords[1][1])))
             for s in shapely_segs
-        ]
+        ])
 
-    # Buffer each segment by nozzle_width/2 → bead footprint
-    # This is the step that makes beads look solid and fills wall regions
     try:
         bead_union = unary_union([
             s.buffer(nozzle_width / 2, cap_style=2, join_style=2, resolution=1)
             for s in shapely_segs
         ])
-        # Simplify merged geometry to reduce vertex count — speeds up walking
-        bead_union = bead_union.simplify(nozzle_width * 0.05, preserve_topology=False)
     except Exception:
         return _nn_chain([(
             (float(s.coords[0][0]), float(s.coords[0][1])),
