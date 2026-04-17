@@ -396,14 +396,14 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
       import('three/examples/jsm/loaders/STLLoader.js').then(({ STLLoader }) => {
         new STLLoader().load(fileUrl, g => {
           g.computeVertexNormals();
-          // Don't use g.center() — it fights with grounding logic
-          // Instead translate so geometry sits exactly on Y=0
+          // STL files are Z-up, Three.js is Y-up — rotate geometry before grounding
+          g.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+          // Center X/Z, lift bottom to Y=0
           g.computeBoundingBox();
           const box = g.boundingBox!;
           const cx = (box.min.x + box.max.x) / 2;
-          const cy = box.min.y; // bottom of model
           const cz = (box.min.z + box.max.z) / 2;
-          g.translate(-cx, -cy, -cz); // center X/Z, lift bottom to Y=0
+          g.translate(-cx, -box.min.y, -cz);
           setGeo(g);
         });
       });
