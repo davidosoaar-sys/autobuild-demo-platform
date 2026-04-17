@@ -28,6 +28,7 @@ interface LayerVisualizationProps {
   sitePlan?:        import('./SitePlanReader').SitePlanData | null;
   pathColor?:       string;
   modelDimensions?: { x: number; y: number; z: number };
+  onBack?:          () => void;
 }
 
 // ── Time-of-day configs ───────────────────────────────────────────────────────
@@ -427,184 +428,133 @@ class ThreeErrorBoundary extends React.Component<
 }
 
 // ── Printer animation ─────────────────────────────────────────────────────────
-// Uses InstancedMesh + BoxGeometry: one solid box per bead, zero open ends,
-// zero gaps between layers. count controls animation instead of drawRange.
-
-// Build a unit oval prism geometry centred at origin, pointing along +Z (−0.5 to +0.5).
-// Cross-section is a unit circle in XY (radius 0.5). When scaled per-instance to
-// (beadW, beadH, len), the circle becomes an ellipse — the correct 3DCP bead shape:
-// oval cross-section that is wider than tall, giving natural ridges between stacked layers.
-function makeBeadGeo(): THREE.BufferGeometry {
-  const segs  = 14; // radial segments — enough curvature, low poly
-  const verts: number[] = [];
-  const norms: number[] = [];
-  const tris:  number[] = [];
-
-  // Side faces — one quad per radial segment, spanning z = -0.5 to +0.5
-  for (let i = 0; i < segs; i++) {
-    const a0 = (i       / segs) * Math.PI * 2;
-    const a1 = ((i + 1) / segs) * Math.PI * 2;
-    const x0 = Math.cos(a0) * 0.5, y0 = Math.sin(a0) * 0.5;
-    const x1 = Math.cos(a1) * 0.5, y1 = Math.sin(a1) * 0.5;
-    const base = verts.length / 3;
-    // 4 verts: start-front, start-back, end-front, end-back
-    verts.push(x0, y0, -0.5,  x0, y0, 0.5,  x1, y1, -0.5,  x1, y1, 0.5);
-    // Outward radial normal (averaged across the two edge directions)
-    const mx = x0 + x1, my = y0 + y1;
-    const ml = Math.sqrt(mx * mx + my * my);
-    const nx = mx / ml, ny = my / ml;
-    for (let k = 0; k < 4; k++) norms.push(nx, ny, 0);
-    tris.push(base, base + 2, base + 1,  base + 1, base + 2, base + 3);
-  }
-
-  // Front cap (z = -0.5, normal points −Z)
-  const f0 = verts.length / 3;
-  verts.push(0, 0, -0.5); norms.push(0, 0, -1);
-  for (let i = 0; i < segs; i++) {
-    const a = (i / segs) * Math.PI * 2;
-    verts.push(Math.cos(a) * 0.5, Math.sin(a) * 0.5, -0.5);
-    norms.push(0, 0, -1);
-  }
-  for (let i = 0; i < segs; i++) {
-    tris.push(f0, f0 + 1 + (i + 1) % segs, f0 + 1 + i);
-  }
-
-  // Back cap (z = +0.5, normal points +Z)
-  const b0 = verts.length / 3;
-  verts.push(0, 0, 0.5); norms.push(0, 0, 1);
-  for (let i = 0; i < segs; i++) {
-    const a = (i / segs) * Math.PI * 2;
-    verts.push(Math.cos(a) * 0.5, Math.sin(a) * 0.5, 0.5);
-    norms.push(0, 0, 1);
-  }
-  for (let i = 0; i < segs; i++) {
-    tris.push(b0, b0 + 1 + i, b0 + 1 + (i + 1) % segs);
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
-  geo.setAttribute('normal',   new THREE.BufferAttribute(new Float32Array(norms), 3));
-  geo.setIndex(tris);
-  geo.computeVertexNormals(); // smooth shading on curved side
-  return geo;
-}
 
 function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb0', nozzleDiameter = 0.025 }: {
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
-  const meshRef   = useRef<THREE.InstancedMesh>(null);
-  const jointsRef = useRef<THREE.InstancedMesh>(null);
-
-  // Shared oval prism geometry — created once, reused by all instances
-  const beadGeo = useMemo(() => makeBeadGeo(), []);
-
   const allSegs = useMemo(() => {
-    const out: { s: [number,number,number]; e: [number,number,number] }[] = [];
-    const minLen  = nozzleDiameter * 0.5;
-    const minLen2 = minLen * minLen;
+    const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
     toolpath.forEach((layer, li) => {
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
-        const dx = seg.x1 - seg.x0, dy = seg.y1 - seg.y0;
-        if (dx * dx + dy * dy < minLen2) return;
-        out.push({ s: [seg.x0, y, -seg.y0], e: [seg.x1, y, -seg.y1] });
+        const dx = seg.x1 - seg.x0;
+        const dy = seg.y1 - seg.y0;
+        const minLen = nozzleDiameter * 0.4;
+        if (dx * dx + dy * dy < minLen * minLen) return;
+        out.push({
+          s: [seg.x0, y, -seg.y0],
+          e: [seg.x1, y, -seg.y1],
+          layer: li,
+        });
       });
     });
     return out;
   }, [toolpath, layerHeight, nozzleDiameter]);
 
-  // beadW: slightly wider than nozzle (concrete spreads a little on deposit)
-  // beadH: 1.05× layer height — just enough overlap to prevent gaps;
-  //        the ellipse curvature creates the visible ridges, not the overlap amount
-  const beadW      = nozzleDiameter * 0.95;
-  const beadH      = layerHeight * 1.05;
-  const jointCount = allSegs.length * 2; // start AND end of every segment
-
-  // Set oval prism instance transforms
-  useEffect(() => {
-    const mesh = meshRef.current;
-    if (!mesh || allSegs.length === 0) return;
-    const dummy = new THREE.Object3D();
-    allSegs.forEach((seg, i) => {
-      const dx  = seg.e[0] - seg.s[0];
-      const dz  = seg.e[2] - seg.s[2];
-      const len = Math.sqrt(dx * dx + dz * dz);
-      if (len < 1e-9) return;
-      dummy.position.set((seg.s[0] + seg.e[0]) / 2, seg.s[1], (seg.s[2] + seg.e[2]) / 2);
-      dummy.rotation.set(0, Math.atan2(dx, dz), 0);
-      dummy.scale.set(beadW, beadH, len);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-  }, [allSegs, beadW, beadH]);
-
-  // Junction fill cubes — one beadW×beadH×beadW cube at BOTH endpoints of every segment.
-  // These cover the open ellipse ends of the oval prism, plugging the corner gaps where
-  // adjacent beads meet at an angle. Two cubes per segment covers chain starts, chain ends,
-  // and every in-chain junction simultaneously.
-  useEffect(() => {
-    const jmesh = jointsRef.current;
-    if (!jmesh || allSegs.length === 0) return;
-    const dummy = new THREE.Object3D();
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.set(beadW, beadH, beadW);
-    allSegs.forEach((seg, i) => {
-      dummy.position.set(seg.s[0], seg.s[1], seg.s[2]);
-      dummy.updateMatrix();
-      jmesh.setMatrixAt(i * 2, dummy.matrix);
-
-      dummy.position.set(seg.e[0], seg.e[1], seg.e[2]);
-      dummy.updateMatrix();
-      jmesh.setMatrixAt(i * 2 + 1, dummy.matrix);
-    });
-    jmesh.instanceMatrix.needsUpdate = true;
-  }, [allSegs, beadW, beadH]);
-
-  // Drive animation — segments and joint cubes in lockstep
-  useEffect(() => {
-    const n        = allSegs.length;
-    const segCount = progress >= 1 ? n : Math.min(Math.floor(progress * n) + 1, n);
-    const jntCount = Math.min(segCount * 2, jointCount);
-    if (meshRef.current)   meshRef.current.count   = segCount;
-    if (jointsRef.current) jointsRef.current.count = jntCount;
-  }, [progress, allSegs.length, jointCount]);
-
-  const rawIdx = progress * allSegs.length;
-  const segIdx = Math.min(Math.floor(rawIdx), allSegs.length - 1);
-  const cur    = allSegs[segIdx];
-  const frac   = rawIdx - segIdx;
-
   if (allSegs.length === 0) return null;
 
-  const nozzlePos: [number,number,number] = cur ? [
-    cur.s[0] + (cur.e[0] - cur.s[0]) * frac,
-    cur.s[1] + layerHeight * 0.5,
-    cur.s[2] + (cur.e[2] - cur.s[2]) * frac,
-  ] : [0, 0, 0];
+  const rawIdx  = progress * allSegs.length;
+  const segIdx  = Math.min(Math.floor(rawIdx), allSegs.length - 1);
+  const segFrac = rawIdx - segIdx;
+  const cur     = allSegs[segIdx];
 
-  const segKey = allSegs.length;
+  const nozzle: [number,number,number] = [
+    cur.s[0] + (cur.e[0]-cur.s[0])*segFrac,
+    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + layerHeight * 0.5,
+    cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
+  ];
+
+  const beadW = (nozzleDiameter ?? layerHeight * 1.67) * 0.88;
+  const beadH = layerHeight * 1.5;
+
+  const fullGeo = useMemo(() => {
+    const total = allSegs.length;
+    if (total === 0) return null;
+
+    const PROFILE = 6;
+    const vertsPerSeg = PROFILE * 2;
+    const trisPerSeg  = (PROFILE - 1) * 2;
+    const idxPerSeg   = trisPerSeg * 3;
+
+    const positions = new Float32Array(total * vertsPerSeg * 3);
+    const indices   = new Uint32Array(total * idxPerSeg);
+
+    const hw = beadW * 0.5;
+    const h  = beadH;
+
+    const px = [-hw, -hw, -hw * 0.95, hw * 0.95, hw, hw];
+    const py = [-h * 0.5, h * 0.35, h * 0.5, h * 0.5, h * 0.35, -h * 0.5];
+
+    for (let i = 0; i < total; i++) {
+      const s  = allSegs[i];
+      const dx = s.e[0] - s.s[0];
+      const dz = s.e[2] - s.s[2];
+      const len = Math.sqrt(dx*dx + dz*dz);
+      if (len < 1e-9) continue;
+
+      const nx = -dz / len;
+      const nz =  dx / len;
+      const vb = i * vertsPerSeg;
+      const y0 = s.s[1];
+
+      for (let p = 0; p < PROFILE; p++) {
+        const across = px[p], up = py[p];
+        positions[(vb + p) * 3 + 0] = s.s[0] + nx * across;
+        positions[(vb + p) * 3 + 1] = y0 + up;
+        positions[(vb + p) * 3 + 2] = s.s[2] + nz * across;
+        positions[(vb + PROFILE + p) * 3 + 0] = s.e[0] + nx * across;
+        positions[(vb + PROFILE + p) * 3 + 1] = y0 + up;
+        positions[(vb + PROFILE + p) * 3 + 2] = s.e[2] + nz * across;
+      }
+
+      const ib = i * idxPerSeg;
+      let ti = 0;
+      for (let p = 0; p < PROFILE - 1; p++) {
+        const a = vb+p, b = vb+p+1, c = vb+PROFILE+p+1, d = vb+PROFILE+p;
+        indices[ib+ti++]=a; indices[ib+ti++]=b; indices[ib+ti++]=c;
+        indices[ib+ti++]=a; indices[ib+ti++]=c; indices[ib+ti++]=d;
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(new THREE.BufferAttribute(indices, 1));
+    geo.computeVertexNormals();
+    return geo;
+  }, [allSegs, beadW, beadH]);
+
+  useEffect(() => {
+    if (!fullGeo) return;
+    const idxPerSeg = (6 - 1) * 2 * 3;
+    if (progress >= 1) {
+      fullGeo.setDrawRange(0, Infinity);
+    } else {
+      fullGeo.setDrawRange(0, (segIdx + 1) * idxPerSeg);
+    }
+  }, [fullGeo, progress, segIdx, allSegs.length]);
 
   return (
     <group>
-      {/* Oval prism bead segments — elliptical cross-section gives 3DCP ridge texture */}
-      <instancedMesh key={segKey} ref={meshRef} args={[beadGeo, undefined, Math.max(allSegs.length, 1)]}>
-        <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} />
-      </instancedMesh>
-
-      {/* Junction cubes — cover open ellipse ends at every segment endpoint */}
-      <instancedMesh key={segKey + 1} ref={jointsRef} args={[undefined, undefined, Math.max(jointCount, 1)]}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} />
-      </instancedMesh>
-
-      {cur && (
-        <mesh position={nozzlePos}>
-          <sphereGeometry args={[beadW * 0.5, 12, 12]} />
-          <meshBasicMaterial color="#ffffff" />
+      {fullGeo && (
+        <mesh geometry={fullGeo}>
+          <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} side={THREE.DoubleSide}/>
         </mesh>
       )}
+      <group position={nozzle}>
+        <mesh rotation={[-Math.PI/2,0,0]}>
+          <ringGeometry args={[beadW*0.6, beadW*1.2, 24]}/>
+          <meshBasicMaterial color={pathColor} transparent opacity={0.4}/>
+        </mesh>
+        <mesh>
+          <sphereGeometry args={[beadW*0.5, 16, 16]}/>
+          <meshBasicMaterial color="#ffffff"/>
+        </mesh>
+        <mesh position={[0, -beadH*0.5, 0]}>
+          <sphereGeometry args={[beadW*0.3, 10, 10]}/>
+          <meshBasicMaterial color={pathColor} transparent opacity={0.9}/>
+        </mesh>
+      </group>
     </group>
   );
 }
@@ -793,7 +743,7 @@ function PlaybackBar({
 
 export default function LayerVisualization({
   file, toolpath, numLayers, layerHeight, nozzleDiameter, site, fullscreen,
-  externalMode, onModeChange, modelScale: extScale, sitePlan, modelDimensions,
+  externalMode, onModeChange, modelScale: extScale, sitePlan, modelDimensions, onBack,
 }: LayerVisualizationProps) {
   const [internalMode,    setInternalMode]    = useState<ViewMode>('environment');
   const [tod,             setTod]             = useState<TimeOfDay>('noon');
@@ -937,88 +887,93 @@ export default function LayerVisualization({
           showModel={showModel} showToolpath={showToolpath}/>
       </Canvas>
 
-      {/* Top-left controls */}
-      <div className="absolute top-4 left-4 z-10 flex flex-col gap-1.5">
-        <div className="flex items-center gap-0.5 p-0.5 rounded-xl border border-white/10"
-          style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)'}}>
-          {([
-            {id:'environment' as ViewMode, label:'Environment'},
-            {id:'dark'        as ViewMode, label:'Dark'},
-            {id:'light'       as ViewMode, label:'Light'},
-          ]).map(opt=>(
-            <button key={opt.id} onClick={()=>setMode(opt.id)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                mode===opt.id?'bg-white text-black shadow-sm':'text-white/50 hover:text-white'
-              }`}>{opt.label}</button>
-          ))}
-        </div>
-
-        <div className="px-3 py-1.5 rounded-xl border border-white/8 space-y-0.5"
-          style={{background:'rgba(0,0,0,0.4)',backdropFilter:'blur(10px)'}}>
-          <span className="text-white/40 text-[10px] font-mono block">
-            {resolvedSite.width}m × {resolvedSite.length}m
-            {resolvedSite.slope>0?` · ${resolvedSite.slope}°`:''}
-          </span>
-          {modelDimensions && (
-            <span className="text-white/60 text-[10px] font-mono block">
-              L {(modelDimensions.x*1000).toFixed(0)}mm ·{' '}
-              W {(modelDimensions.y*1000).toFixed(0)}mm ·{' '}
-              H {(modelDimensions.z*1000).toFixed(0)}mm
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1 p-0.5 rounded-xl border border-white/8"
-          style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)'}}>
-          <button onClick={()=>setShowModel(v=>!v)}
-            className={`px-2.5 py-1 text-[10px] font-medium rounded-lg transition-all ${
-              showModel?'bg-white/15 text-white':'text-white/30 hover:text-white/60'
-            }`}>Model</button>
-          <button onClick={()=>setShowToolpath(v=>!v)}
-            className={`px-2.5 py-1 text-[10px] font-medium rounded-lg transition-all ${
-              showToolpath?'bg-white/15 text-white':'text-white/30 hover:text-white/60'
-            }`}>Toolpath</button>
-        </div>
-      </div>
-
-      {/* Transform controls */}
-      <div className="absolute top-24 left-4 z-10">
-        <div className="rounded-xl border border-white/8 overflow-hidden"
-          style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)',minWidth:120}}>
-          <button onClick={()=>setEnableTransform(v=>!v)}
-            className={`w-full px-3 py-2 text-[11px] font-medium transition-all flex items-center gap-2 ${
-              enableTransform?'text-white bg-white/10':'text-white/40 hover:text-white'
-            }`}>
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
-            </svg>
-            {enableTransform ? 'Transform On' : 'Transform'}
+      {/* Top-left controls — single compact row */}
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
+        {/* Back to setup */}
+        {onBack && (
+          <>
+            <button onClick={onBack}
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg text-white/40 hover:text-white transition-all"
+              style={{background:'rgba(0,0,0,0.28)',backdropFilter:'blur(10px)'}}>
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
+              </svg>
+              Setup
+            </button>
+            <div className="w-px h-4 bg-white/15"/>
+          </>
+        )}
+        {/* View mode */}
+        {([
+          {id:'environment' as ViewMode, label:'Env'},
+          {id:'dark'        as ViewMode, label:'Dark'},
+          {id:'light'       as ViewMode, label:'Light'},
+        ]).map(opt=>(
+          <button key={opt.id} onClick={()=>setMode(opt.id)}
+            className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
+              mode===opt.id
+                ? 'bg-white/20 text-white'
+                : 'text-white/35 hover:text-white/70'
+            }`}
+            style={{background: mode===opt.id ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.28)', backdropFilter:'blur(10px)'}}>
+            {opt.label}
           </button>
-          <AnimatePresence>
-            {enableTransform && (
-              <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
-                className="border-t border-white/8">
-                {([
-                  {m:'translate' as TransformMode, label:'Move', key:'G'},
-                  {m:'rotate'    as TransformMode, label:'Rotate', key:'R'},
-                  {m:'scale'     as TransformMode, label:'Scale', key:'S'},
-                ]).map(opt=>(
-                  <button key={opt.m} onClick={()=>setTransformMode(opt.m)}
-                    className={`w-full px-3 py-1.5 text-[10px] flex items-center justify-between transition-colors ${
-                      transformMode===opt.m?'text-white bg-white/8':'text-white/30 hover:text-white/60'
-                    }`}>
-                    <span>{opt.label}</span>
-                    <span className="text-[9px] font-mono text-white/20">[{opt.key}]</span>
-                  </button>
-                ))}
-                <div className="px-3 py-1.5 border-t border-white/6">
-                  <p className="text-[9px] text-white/15 font-mono">Esc to exit · T toggle</p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        ))}
+
+        <div className="w-px h-4 bg-white/15 mx-0.5"/>
+
+        {/* Model / Toolpath */}
+        <button onClick={()=>setShowModel(v=>!v)}
+          className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${showModel?'text-white':'text-white/30'}`}
+          style={{background:'rgba(0,0,0,0.28)',backdropFilter:'blur(10px)'}}>
+          Model
+        </button>
+        <button onClick={()=>setShowToolpath(v=>!v)}
+          className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${showToolpath?'text-white':'text-white/30'}`}
+          style={{background:'rgba(0,0,0,0.28)',backdropFilter:'blur(10px)'}}>
+          Path
+        </button>
+
+        <div className="w-px h-4 bg-white/15 mx-0.5"/>
+
+        {/* Transform */}
+        <button onClick={()=>setEnableTransform(v=>!v)}
+          className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${enableTransform?'text-white':'text-white/35 hover:text-white/70'}`}
+          style={{background: enableTransform ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.28)', backdropFilter:'blur(10px)'}}>
+          Transform
+        </button>
+
+        {/* Site info */}
+        <div className="hidden sm:block ml-1"
+          style={{background:'rgba(0,0,0,0.28)',backdropFilter:'blur(10px)',borderRadius:8,padding:'3px 8px'}}>
+          <span className="text-white/30 text-[10px] font-mono">
+            {resolvedSite.width}m × {resolvedSite.length}m
+            {modelDimensions ? ` · H ${(modelDimensions.z*1000).toFixed(0)}mm` : ''}
+          </span>
         </div>
       </div>
+
+      {/* Transform sub-options — only when enabled */}
+      <AnimatePresence>
+        {enableTransform && (
+          <motion.div initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-4}}
+            className="absolute top-12 left-3 z-10 flex items-center gap-1">
+            {([
+              {m:'translate' as TransformMode, label:'Move'},
+              {m:'rotate'    as TransformMode, label:'Rotate'},
+              {m:'scale'     as TransformMode, label:'Scale'},
+            ]).map(opt=>(
+              <button key={opt.m} onClick={()=>setTransformMode(opt.m)}
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
+                  transformMode===opt.m?'text-white':'text-white/35 hover:text-white/70'
+                }`}
+                style={{background: transformMode===opt.m ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.28)', backdropFilter:'blur(10px)'}}>
+                {opt.label}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Playback bar */}
       {toolpath.length > 0 && (

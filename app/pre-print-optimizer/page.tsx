@@ -372,31 +372,17 @@ export default function PrePrintOptimizer() {
             site={resolvedSite} fullscreen
             externalMode={viewMode} onModeChange={setViewMode}
             modelScale={modelScale} sitePlan={sitePlanData}
+            onBack={()=>setActiveTab('setup')}
             modelDimensions={result.geometry.bounds_x && result.geometry.bounds_z ? {
               x: result.geometry.bounds_x[1] - result.geometry.bounds_x[0],
               y: result.geometry.bounds_y[1] - result.geometry.bounds_y[0],
               z: result.geometry.total_height_m,
             } : undefined}
           />
-
-          {/* Header */}
-          <div className="absolute top-0 left-0 right-0 z-30 flex items-center px-4 py-2 gap-3"
-            style={{background:'linear-gradient(to bottom,rgba(0,0,0,0.6) 0%,transparent 100%)'}}>
-            <button onClick={()=>setActiveTab('setup')}
-              className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white transition-colors">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
-              </svg>
-              Setup
-            </button>
-            <div className="flex-1"/>
-            <span className="text-[10px] text-white/20 font-mono truncate max-w-[180px] hidden sm:block">{file?.name}</span>
-          </div>
-
           {/* Sidebar toggle */}
           <button onClick={()=>setShowSidebar(v=>!v)}
-            className="absolute top-14 right-3 z-30 w-7 h-7 rounded-xl border border-white/15 flex items-center justify-center transition-all hover:bg-white/10"
-            style={{background:'rgba(6,6,10,0.78)',backdropFilter:'blur(12px)'}}>
+            className="absolute top-3 right-3 z-30 w-7 h-7 rounded-xl flex items-center justify-center transition-all hover:bg-white/10"
+            style={{background:'rgba(0,0,0,0.28)',backdropFilter:'blur(10px)'}}>
             <svg className="w-3.5 h-3.5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               {showSidebar
                 ? <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
