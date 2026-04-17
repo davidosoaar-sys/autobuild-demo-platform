@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; }
 type Layer         = Segment[];
 type ViewMode      = 'environment' | 'dark' | 'light';
-type TimeOfDay     = 'morning' | 'noon' | 'sunset' | 'night';
+type TimeOfDay     = 'morning' | 'noon' | 'sunset';
 type TransformMode = 'translate' | 'rotate' | 'scale';
 
 export interface SiteDimensions { width: number; length: number; slope: number; }
@@ -30,60 +30,63 @@ interface LayerVisualizationProps {
   modelDimensions?: { x: number; y: number; z: number };
 }
 
-// ── Time-of-day sky configs ───────────────────────────────────────────────────
+// ── Time-of-day configs ───────────────────────────────────────────────────────
 
 const TOD_CONFIG: Record<TimeOfDay, {
-  skyTop: string; skyHorizon: string; fog: string; fogNear: number; fogFar: number;
+  skyTop: string; skyMid: string; skyHorizon: string;
+  fog: string; fogNear: number; fogFar: number;
   ambientIntensity: number; ambientColor: string;
   sunColor: string; sunIntensity: number; sunPosition: [number,number,number];
-  sunSphereColor: string; sunSphereEmissive: string; sunVisible: boolean;
+  sunSphereColor: string; sunHaloColor: string;
   groundColor: string; groundFar: string;
 }> = {
   morning: {
-    skyTop:'#4a90d9', skyHorizon:'#f5c97a', fog:'#f0d4a0', fogNear:60, fogFar:300,
-    ambientIntensity:0.5, ambientColor:'#fff4e0',
-    sunColor:'#ffcc66', sunIntensity:1.4, sunPosition:[20,8,30],
-    sunSphereColor:'#ffdd88', sunSphereEmissive:'#ff9900', sunVisible:true,
+    skyTop:'#2e6fa8', skyMid:'#e8a44a', skyHorizon:'#f5d08a',
+    fog:'#f0d4a0', fogNear:70, fogFar:320,
+    ambientIntensity:0.55, ambientColor:'#ffe8c0',
+    sunColor:'#ffcc55', sunIntensity:1.6, sunPosition:[18,7,28],
+    sunSphereColor:'#ffe066', sunHaloColor:'#ffcc4488',
     groundColor:'#4a7a3a', groundFar:'#3d6b2e',
   },
   noon: {
-    skyTop:'#1a6fbb', skyHorizon:'#87ceeb', fog:'#c8e8f8', fogNear:80, fogFar:400,
-    ambientIntensity:0.7, ambientColor:'#ffffff',
-    sunColor:'#fff5e0', sunIntensity:2.2, sunPosition:[10,50,10],
-    sunSphereColor:'#fffde0', sunSphereEmissive:'#ffff88', sunVisible:true,
+    skyTop:'#1565b8', skyMid:'#3a8fd4', skyHorizon:'#87ceeb',
+    fog:'#c8e8f8', fogNear:90, fogFar:420,
+    ambientIntensity:0.75, ambientColor:'#ffffff',
+    sunColor:'#fff8f0', sunIntensity:2.4, sunPosition:[8,55,12],
+    sunSphereColor:'#fffde8', sunHaloColor:'#ffff9944',
     groundColor:'#4a7a3a', groundFar:'#3d6b2e',
   },
   sunset: {
-    skyTop:'#1a2a5e', skyHorizon:'#e8622a', fog:'#c45a20', fogNear:40, fogFar:200,
-    ambientIntensity:0.35, ambientColor:'#ffaa55',
-    sunColor:'#ff6622', sunIntensity:1.0, sunPosition:[40,3,20],
-    sunSphereColor:'#ff8844', sunSphereEmissive:'#ff4400', sunVisible:true,
+    skyTop:'#1a2466', skyMid:'#c44a20', skyHorizon:'#f07830',
+    fog:'#b04818', fogNear:35, fogFar:180,
+    ambientIntensity:0.38, ambientColor:'#ffaa55',
+    sunColor:'#ff7722', sunIntensity:1.1, sunPosition:[45,4,18],
+    sunSphereColor:'#ff9944', sunHaloColor:'#ff550066',
     groundColor:'#3a5c28', groundFar:'#2e4820',
-  },
-  night: {
-    skyTop:'#050810', skyHorizon:'#0a0f20', fog:'#05080e', fogNear:20, fogFar:120,
-    ambientIntensity:0.08, ambientColor:'#aaccff',
-    sunColor:'#334466', sunIntensity:0.1, sunPosition:[10,50,10],
-    sunSphereColor:'#ddeeff', sunSphereEmissive:'#aaccff', sunVisible:false,
-    groundColor:'#1e3014', groundFar:'#111a0a',
   },
 };
 
-// ── Sky sphere with gradient-like top/horizon ─────────────────────────────────
+// ── Sky sphere with 3-stop gradient ──────────────────────────────────────────
 
 function SkySphere({ tod }: { tod: TimeOfDay }) {
   const cfg = TOD_CONFIG[tod];
-  const topColor      = new THREE.Color(cfg.skyTop);
-  const horizonColor  = new THREE.Color(cfg.skyHorizon);
 
   const geo = useMemo(() => {
-    const g = new THREE.SphereGeometry(480, 32, 16);
+    const g = new THREE.SphereGeometry(480, 32, 24);
+    const pos    = g.attributes.position;
     const colors: number[] = [];
-    const pos = g.attributes.position;
+    const topC  = new THREE.Color(cfg.skyTop);
+    const midC  = new THREE.Color(cfg.skyMid);
+    const horC  = new THREE.Color(cfg.skyHorizon);
     for (let i = 0; i < pos.count; i++) {
-      const y = pos.getY(i);
-      const t = Math.max(0, Math.min(1, (y + 480) / 480));
-      const c = horizonColor.clone().lerp(topColor, t * t);
+      const y   = pos.getY(i);
+      const t   = (y + 480) / 480; // 0 = bottom, 1 = top
+      let c: THREE.Color;
+      if (t > 0.35) {
+        c = midC.clone().lerp(topC, (t - 0.35) / 0.65);
+      } else {
+        c = horC.clone().lerp(midC, t / 0.35);
+      }
       colors.push(c.r, c.g, c.b);
     }
     g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
@@ -92,62 +95,55 @@ function SkySphere({ tod }: { tod: TimeOfDay }) {
 
   return (
     <mesh>
-      <primitive object={geo} attach="geometry"/>
-      <meshBasicMaterial vertexColors side={THREE.BackSide}/>
+      <primitive object={geo} attach="geometry" />
+      <meshBasicMaterial vertexColors side={THREE.BackSide} />
     </mesh>
   );
 }
 
-// ── Sun ───────────────────────────────────────────────────────────────────────
+// ── Sun with halo ─────────────────────────────────────────────────────────────
 
 function Sun({ tod }: { tod: TimeOfDay }) {
   const cfg = TOD_CONFIG[tod];
-  if (!cfg.sunVisible) return null;
   const [px, py, pz] = cfg.sunPosition;
-  const dist = 200;
+  const dist = 210;
   const len  = Math.sqrt(px*px + py*py + pz*pz);
-  const sx = (px/len)*dist, sy = (py/len)*dist, sz = (pz/len)*dist;
+  const sx   = (px/len)*dist, sy = (py/len)*dist, sz = (pz/len)*dist;
+  const radius = tod === 'sunset' ? 11 : tod === 'morning' ? 9 : 7;
+
   return (
-    <mesh position={[sx, sy, sz]}>
-      <sphereGeometry args={[tod==='morning'||tod==='sunset'?12:8, 16, 16]}/>
-      <meshBasicMaterial color={cfg.sunSphereColor}/>
-    </mesh>
+    <group position={[sx, sy, sz]}>
+      {/* Halo glow — large soft sphere */}
+      <mesh>
+        <sphereGeometry args={[radius * 2.8, 16, 16]} />
+        <meshBasicMaterial color={cfg.sunHaloColor} transparent opacity={0.18} depthWrite={false}/>
+      </mesh>
+      {/* Inner glow */}
+      <mesh>
+        <sphereGeometry args={[radius * 1.5, 16, 16]} />
+        <meshBasicMaterial color={cfg.sunHaloColor} transparent opacity={0.35} depthWrite={false}/>
+      </mesh>
+      {/* Sun disc */}
+      <mesh>
+        <sphereGeometry args={[radius, 24, 16]} />
+        <meshBasicMaterial color={cfg.sunSphereColor}/>
+      </mesh>
+    </group>
   );
 }
 
-// ── Stars (night only) ────────────────────────────────────────────────────────
+// ── Realistic clouds ──────────────────────────────────────────────────────────
 
-function Stars() {
-  const geo = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    const pts: number[] = [];
-    for (let i = 0; i < 800; i++) {
-      const theta = Math.random() * Math.PI * 2;
-      const phi   = Math.acos(Math.random());
-      const r     = 400;
-      pts.push(r*Math.sin(phi)*Math.cos(theta), r*Math.cos(phi), r*Math.sin(phi)*Math.sin(theta));
-    }
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
-    return g;
-  }, []);
+function CloudPuff({ position, puffs }: {
+  position: [number,number,number];
+  puffs: { x:number; y:number; z:number; r:number }[];
+}) {
   return (
-    <points geometry={geo}>
-      <pointsMaterial color="#ffffff" size={1.2} sizeAttenuation={false}/>
-    </points>
-  );
-}
-
-// ── Clouds ────────────────────────────────────────────────────────────────────
-
-function CloudPuff({ x, y, z, scale }: { x:number; y:number; z:number; scale:number }) {
-  return (
-    <group position={[x, y, z]} scale={[scale, scale*0.55, scale]}>
-      {([
-        [0,0,0,1],[1.2,0.1,0.2,0.85],[-1.1,0.05,-0.1,0.8],[0.4,0.3,0.1,0.75],[-0.3,0.25,-0.2,0.7],
-      ] as [number,number,number,number][]).map(([cx,cy,cz,cs],i)=>(
-        <mesh key={i} position={[cx,cy,cz]}>
-          <sphereGeometry args={[cs, 8, 6]}/>
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.82}/>
+    <group position={position}>
+      {puffs.map((p, i) => (
+        <mesh key={i} position={[p.x, p.y, p.z]}>
+          <sphereGeometry args={[p.r, 10, 8]} />
+          <meshStandardMaterial color="#f5f5f5" roughness={1} metalness={0} />
         </mesh>
       ))}
     </group>
@@ -155,21 +151,55 @@ function CloudPuff({ x, y, z, scale }: { x:number; y:number; z:number; scale:num
 }
 
 function Clouds({ tod }: { tod: TimeOfDay }) {
-  if (tod === 'night') return null;
-  const opacity = tod === 'sunset' ? 0.65 : 0.82;
-  const cloudColor = tod === 'sunset' ? '#ffbb88' : '#ffffff';
+  const cloudColor = tod === 'sunset' ? '#f8c8a0' : tod === 'morning' ? '#fdeac8' : '#f8f8f8';
+
   const clouds = useMemo(() => [
-    {x:-60,y:28,z:-80,s:5.5},{x:40,y:32,z:-90,s:7},{x:90,y:26,z:-60,s:4.5},
-    {x:-110,y:30,z:-40,s:6},{x:70,y:24,z:50,s:5},{x:-40,y:35,z:-120,s:8},
+    // Each cloud: position + array of puff spheres
+    { pos: [-55, 38, -95] as [number,number,number], puffs: [
+      {x:0,y:0,z:0,r:8},{x:9,y:2,z:1,r:6.5},{x:-8,y:1,z:-1,r:6},{x:4,y:5,z:0,r:5.5},
+      {x:-3,y:4,z:2,r:4.5},{x:14,y:1,z:2,r:5},{x:-13,y:0,z:1,r:5},{x:0,y:-2,z:0,r:7},
+    ]},
+    { pos: [55, 42, -105] as [number,number,number], puffs: [
+      {x:0,y:0,z:0,r:10},{x:11,y:3,z:0,r:8},{x:-10,y:2,z:0,r:7.5},{x:5,y:6,z:1,r:6},
+      {x:-4,y:5,z:-1,r:5},{x:18,y:1,z:1,r:6},{x:-16,y:0,z:1,r:5.5},{x:0,y:-3,z:0,r:9},
+    ]},
+    { pos: [110, 34, -75] as [number,number,number], puffs: [
+      {x:0,y:0,z:0,r:7},{x:8,y:2,z:0,r:5.5},{x:-7,y:1,z:0,r:5},{x:3,y:4,z:0,r:4},
+      {x:13,y:0,z:1,r:4.5},{x:-11,y:0,z:-1,r:4.5},{x:0,y:-1.5,z:0,r:6},
+    ]},
+    { pos: [-115, 40, -55] as [number,number,number], puffs: [
+      {x:0,y:0,z:0,r:9},{x:10,y:3,z:0,r:7},{x:-9,y:2,z:0,r:6.5},{x:4,y:5.5,z:1,r:5.5},
+      {x:-3,y:4,z:-1,r:5},{x:16,y:0,z:1,r:5.5},{x:-14,y:0,z:1,r:5},{x:0,y:-2.5,z:0,r:8},
+    ]},
+    { pos: [20, 36, -125] as [number,number,number], puffs: [
+      {x:0,y:0,z:0,r:6},{x:7,y:1.5,z:0,r:5},{x:-6,y:1,z:0,r:4.5},{x:2,y:3.5,z:0,r:4},
+      {x:11,y:0,z:0,r:4},{x:-9,y:0,z:0,r:4},{x:0,y:-1.5,z:0,r:5.5},
+    ]},
+    { pos: [-30, 44, -85] as [number,number,number], puffs: [
+      {x:0,y:0,z:0,r:8.5},{x:10,y:2.5,z:0,r:7},{x:-9,y:1.5,z:0,r:6.5},{x:4,y:5,z:1,r:5},
+      {x:-3,y:4.5,z:-1,r:4.5},{x:16,y:0.5,z:1,r:5.5},{x:-14,y:0,z:1,r:5},{x:0,y:-2,z:0,r:7.5},
+    ]},
   ], []);
+
+  const opacity = tod === 'sunset' ? 0.88 : 0.95;
+
   return (
     <>
-      {clouds.map((c,i)=><CloudPuff key={i} x={c.x} y={c.y} z={c.z} scale={c.s}/>)}
+      {clouds.map((c, i) => (
+        <group key={i}>
+          {c.puffs.map((p, j) => (
+            <mesh key={j} position={[c.pos[0]+p.x, c.pos[1]+p.y, c.pos[2]+p.z]}>
+              <sphereGeometry args={[p.r, 10, 8]} />
+              <meshStandardMaterial color={cloudColor} roughness={1} metalness={0} transparent opacity={opacity}/>
+            </mesh>
+          ))}
+        </group>
+      ))}
     </>
   );
 }
 
-// ── Ground with site plan overlays ───────────────────────────────────────────
+// ── Ground ────────────────────────────────────────────────────────────────────
 
 import type { SitePlanData } from './SitePlanReader';
 
@@ -183,19 +213,9 @@ function SiteGround({ site, mode, sitePlan, tod }: {
   const isDark = mode === 'dark';
   const cfg    = TOD_CONFIG[tod];
 
-  // Road: use sitePlan if available, else default to south side in environment mode
-  const roadW = sitePlan?.road.width_m ?? 7;
-  const roadSide = sitePlan?.road.side ?? 'south';
-  const showRoad = isEnv || sitePlan?.road.present;
-
-  const roadGeometry = (() => {
-    if (!showRoad) return null;
-    if (roadSide === 'north') return { x:0, z:-(l/2+roadW/2), rw:w+roadW*2, rl:roadW };
-    if (roadSide === 'south') return { x:0, z:(l/2+roadW/2),  rw:w+roadW*2, rl:roadW };
-    if (roadSide === 'east')  return { x:(w/2+roadW/2), z:0,  rw:roadW, rl:l+roadW*2 };
-    if (roadSide === 'west')  return { x:-(w/2+roadW/2), z:0, rw:roadW, rl:l+roadW*2 };
-    return null;
-  })();
+  const groundColor  = isEnv ? cfg.groundColor  : (isDark ? '#141414' : '#e8e8e8');
+  const groundFar    = isEnv ? cfg.groundFar     : (isDark ? '#080808' : '#d8d8d8');
+  const borderColor  = isDark ? '#22c55e'        : isEnv ? '#5a9a4a' : '#555';
 
   const house = sitePlan?.house;
   const hx = house ? (house.offset_x - 0.5) * w : 0;
@@ -203,19 +223,13 @@ function SiteGround({ site, mode, sitePlan, tod }: {
   const hw  = house?.width  ?? 0;
   const hl  = house?.length ?? 0;
 
-  const groundColor = isEnv ? cfg.groundColor : (isDark ? '#141414' : '#e8e8e8');
-  const groundFar   = isEnv ? cfg.groundFar   : (isDark ? '#080808' : '#d8d8d8');
-  const borderColor = isDark ? '#22c55e' : isEnv ? '#5a9a4a' : '#555';
-
   return (
     <group rotation={[slopeRad, 0, 0]}>
-      {/* Site plot */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[w, l]} />
         <meshStandardMaterial color={groundColor} roughness={0.9}/>
       </mesh>
 
-      {/* Site boundary lines */}
       {([
         [[-w/2,0.015,-l/2],[w/2,0.015,-l/2]],
         [[w/2,0.015,-l/2],[w/2,0.015,l/2]],
@@ -225,37 +239,11 @@ function SiteGround({ site, mode, sitePlan, tod }: {
         <Line key={i} points={pts} color={borderColor} lineWidth={1.5}/>
       ))}
 
-      {/* Far ground */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
         <planeGeometry args={[w * 10, l * 10]} />
         <meshStandardMaterial color={groundFar} roughness={0.95}/>
       </mesh>
 
-      {/* Road */}
-      {roadGeometry && (
-        <group position={[roadGeometry.x, 0.008, roadGeometry.z]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[roadGeometry.rw, roadGeometry.rl]} />
-            <meshStandardMaterial color={tod==='night'?'#1a1a1a':'#4a4a4a'} roughness={0.9}/>
-          </mesh>
-          {/* Road kerb lines */}
-          <Line
-            points={[[-roadGeometry.rw/2+0.3,0.005,0],[roadGeometry.rw/2-0.3,0.005,0]] as [number,number,number][]}
-            color="#f5e642" lineWidth={1.5} dashed dashSize={1.2} gapSize={0.8}
-          />
-        </group>
-      )}
-
-      {/* Footpath alongside road (environment only) */}
-      {isEnv && roadGeometry && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]}
-          position={[roadGeometry.x, 0.006, roadGeometry.z + (roadSide==='south'?roadW/2+0.75:-(roadW/2+0.75))]}>
-          <planeGeometry args={[roadGeometry.rw, 1.5]}/>
-          <meshStandardMaterial color="#8a8070" roughness={0.95}/>
-        </mesh>
-      )}
-
-      {/* House footprint overlay */}
       {house && hw > 0 && hl > 0 && (
         <group position={[hx, 0.012, hz]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
@@ -393,7 +381,7 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
   );
 }
 
-// ── Error boundary for 3D viewer ──────────────────────────────────────────────
+// ── Error boundary ────────────────────────────────────────────────────────────
 class ThreeErrorBoundary extends React.Component<
   {children: React.ReactNode; fallback?: React.ReactNode},
   {hasError: boolean}
@@ -406,9 +394,9 @@ class ThreeErrorBoundary extends React.Component<
   }
 }
 
-// ── Printer nozzle animation ──────────────────────────────────────────────────
+// ── Printer animation ─────────────────────────────────────────────────────────
 
-function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a898', nozzleDiameter = 0.025 }: {
+function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb0', nozzleDiameter = 0.025 }: {
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
   const allSegs = useMemo(() => {
@@ -417,6 +405,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
+        const dx = seg.x1 - seg.x0;
+        const dy = seg.y1 - seg.y0;
+        const minLen = nozzleDiameter * 0.4;
+        if (dx * dx + dy * dy < minLen * minLen) return;
         out.push({
           s: [seg.x0, y, -seg.y0],
           e: [seg.x1, y, -seg.y1],
@@ -425,7 +417,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
       });
     });
     return out;
-  }, [toolpath, layerHeight]);
+  }, [toolpath, layerHeight, nozzleDiameter]);
 
   if (allSegs.length === 0) return null;
 
@@ -440,87 +432,55 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Bead cross-section: flat base, rounded dome crown — real extruded concrete profile
-  // beadW = full nozzle width, beadH = layer height with slight overlap
   const beadW = (nozzleDiameter ?? layerHeight * 1.67) * 0.88;
-  const beadH = layerHeight * 1.6;
+  const beadH = layerHeight * 1.5;
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
     if (total === 0) return null;
 
-    // Cross-section profile: 6 points
-    // 0: bottom-left, 1: bottom-right (flat base)
-    // 2: shoulder-left, 3: shoulder-right (where dome starts)
-    // 4: crown-left, 5: crown-right (top of dome, inset)
-    // Crown = half-ellipse arc: 5 profile verts per end = 10 verts per seg
-    // Triangles: base quad + 2 side quads + dome quad = 4 quads = 8 tris = 24 indices per seg
-    // We use 5 profile verts per end × 2 ends = 10 verts per seg
-    // Profile (local coords, y up, x across):
-    //   v0 = (-hw,   0      )  bottom-left
-    //   v1 = (-hw,   h*0.5  )  mid-left
-    //   v2 = (-hw*0.7, h    )  crown-left
-    //   v3 = ( hw*0.7, h    )  crown-right
-    //   v4 = ( hw,   h*0.5  )  mid-right
-    //   v5 = ( hw,   0      )  bottom-right
-    // 6 verts × 2 ends = 12 verts, 5 quads × 2 tris = 10 tris = 30 indices
-
     const PROFILE = 6;
-    const vertsPerSeg  = PROFILE * 2;
-    const trisPerSeg   = (PROFILE - 1) * 2; // 5 quads × 2 tris each
-    const idxPerSeg    = trisPerSeg * 3;
+    const vertsPerSeg = PROFILE * 2;
+    const trisPerSeg  = (PROFILE - 1) * 2;
+    const idxPerSeg   = trisPerSeg * 3;
 
     const positions = new Float32Array(total * vertsPerSeg * 3);
-    const normals   = new Float32Array(total * vertsPerSeg * 3);
     const indices   = new Uint32Array(total * idxPerSeg);
 
     const hw = beadW * 0.5;
     const h  = beadH;
 
-    // Profile offsets (across, up) — 6 points making rounded bead shape
-    // Base starts below layer center, crown extends above — fills gaps in both directions
-    const px = [-hw, -hw,      -hw * 0.55, hw * 0.55,  hw,      hw    ];
-    const py = [-h * 0.35, h * 0.2, h * 0.65, h * 0.65, h * 0.2, -h * 0.35];
+    const px = [-hw, -hw, -hw * 0.95, hw * 0.95, hw, hw];
+    const py = [-h * 0.5, h * 0.35, h * 0.5, h * 0.5, h * 0.35, -h * 0.5];
 
     for (let i = 0; i < total; i++) {
       const s  = allSegs[i];
       const dx = s.e[0] - s.s[0];
       const dz = s.e[2] - s.s[2];
       const len = Math.sqrt(dx*dx + dz*dz);
-      if (len < 0.0005) continue;
+      if (len < 1e-9) continue;
 
-      const nx = -dz / len;  // normal across bead width
+      const nx = -dz / len;
       const nz =  dx / len;
-
       const vb = i * vertsPerSeg;
-      const y0 = s.s[1]; // layer center Y
+      const y0 = s.s[1];
 
-      // Start end (vi=0..5) and finish end (vi=6..11)
       for (let p = 0; p < PROFILE; p++) {
-        const across = px[p];
-        const up     = py[p];
-
-        // start end
+        const across = px[p], up = py[p];
         positions[(vb + p) * 3 + 0] = s.s[0] + nx * across;
         positions[(vb + p) * 3 + 1] = y0 + up;
         positions[(vb + p) * 3 + 2] = s.s[2] + nz * across;
-
-        // finish end
         positions[(vb + PROFILE + p) * 3 + 0] = s.e[0] + nx * across;
         positions[(vb + PROFILE + p) * 3 + 1] = y0 + up;
         positions[(vb + PROFILE + p) * 3 + 2] = s.e[2] + nz * across;
       }
 
-      // Build quads along the extrusion (connecting start ring to end ring)
       const ib = i * idxPerSeg;
       let ti = 0;
       for (let p = 0; p < PROFILE - 1; p++) {
-        const a = vb + p;
-        const b = vb + p + 1;
-        const c = vb + PROFILE + p + 1;
-        const d = vb + PROFILE + p;
-        indices[ib + ti++] = a; indices[ib + ti++] = b; indices[ib + ti++] = c;
-        indices[ib + ti++] = a; indices[ib + ti++] = c; indices[ib + ti++] = d;
+        const a = vb+p, b = vb+p+1, c = vb+PROFILE+p+1, d = vb+PROFILE+p;
+        indices[ib+ti++]=a; indices[ib+ti++]=b; indices[ib+ti++]=c;
+        indices[ib+ti++]=a; indices[ib+ti++]=c; indices[ib+ti++]=d;
       }
     }
 
@@ -533,11 +493,11 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
 
   useEffect(() => {
     if (!fullGeo) return;
-    const idxPerSeg = (6 - 1) * 2 * 3; // 30
-    if (progress <= 0 || progress >= 1) {
+    const idxPerSeg = (6 - 1) * 2 * 3;
+    if (progress >= 1) {
       fullGeo.setDrawRange(0, Infinity);
     } else {
-      fullGeo.setDrawRange(0, Math.max(segIdx + 1, 1) * idxPerSeg);
+      fullGeo.setDrawRange(0, (segIdx + 1) * idxPerSeg);
     }
   }, [fullGeo, progress, segIdx, allSegs.length]);
 
@@ -545,16 +505,9 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#b8a89
     <group>
       {fullGeo && (
         <mesh geometry={fullGeo}>
-          <meshStandardMaterial
-            color={pathColor}
-            roughness={0.92}
-            metalness={0.0}
-            side={THREE.DoubleSide}
-          />
+          <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} side={THREE.DoubleSide}/>
         </mesh>
       )}
-
-      {/* Nozzle head */}
       <group position={nozzle}>
         <mesh rotation={[-Math.PI/2,0,0]}>
           <ringGeometry args={[beadW*0.6, beadW*1.2, 24]}/>
@@ -581,9 +534,9 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
   useEffect(() => {
     if (!snap) return;
     const t: Record<string,[number,number,number]> = {
-      top:         [0,d*2.2,0.001], front:[0,d*0.4,d*1.3],
-      right:       [d*1.3,d*0.4,0], left:[-d*1.3,d*0.4,0],
-      back:        [0,d*0.4,-d*1.3], perspective:[d*0.9,d*0.6,d*0.9],
+      top:[0,d*2.2,0.001], front:[0,d*0.4,d*1.3],
+      right:[d*1.3,d*0.4,0], left:[-d*1.3,d*0.4,0],
+      back:[0,d*0.4,-d*1.3], perspective:[d*0.9,d*0.6,d*0.9],
     };
     if (t[snap]) { camera.position.set(...t[snap]); camera.lookAt(0,0,0); }
   }, [snap, d, camera]);
@@ -612,23 +565,22 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
       {isEnv ? (
         <>
           <ambientLight intensity={cfg.ambientIntensity} color={cfg.ambientColor}/>
-          <directionalLight position={cfg.sunPosition} intensity={cfg.sunIntensity}
-            color={cfg.sunColor} castShadow
+          <directionalLight position={cfg.sunPosition} intensity={cfg.sunIntensity} color={cfg.sunColor} castShadow
             shadow-mapSize-width={2048} shadow-mapSize-height={2048}
             shadow-camera-far={200} shadow-camera-left={-60} shadow-camera-right={60}
             shadow-camera-top={60} shadow-camera-bottom={-60}/>
-          {/* Fill light opposite sun */}
-          <directionalLight position={[-cfg.sunPosition[0]*0.5, 5, -cfg.sunPosition[2]*0.5]} intensity={cfg.sunIntensity*0.15} color={cfg.ambientColor}/>
+          <directionalLight
+            position={[-cfg.sunPosition[0]*0.4, 4, -cfg.sunPosition[2]*0.4]}
+            intensity={cfg.sunIntensity * 0.12} color={cfg.ambientColor}/>
           <SkySphere tod={tod}/>
           <Sun tod={tod}/>
           <Clouds tod={tod}/>
-          {tod === 'night' && <Stars/>}
           <fog attach="fog" args={[cfg.fog, cfg.fogNear, cfg.fogFar]}/>
         </>
       ) : (
         <>
-          <ambientLight intensity={isDark?0.4:0.8}/>
-          <directionalLight position={[15,25,15]} intensity={isDark?1.0:1.8} castShadow
+          <ambientLight intensity={isDark ? 0.4 : 0.8}/>
+          <directionalLight position={[15,25,15]} intensity={isDark ? 1.0 : 1.8} castShadow
             shadow-mapSize-width={2048} shadow-mapSize-height={2048}
             shadow-camera-far={200} shadow-camera-left={-60} shadow-camera-right={60}
             shadow-camera-top={60} shadow-camera-bottom={-60}/>
@@ -654,7 +606,6 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
       <CameraController snap={snap} site={site}/>
       <OrbitControls ref={orbitRef} enablePan enableZoom enableRotate
         maxPolarAngle={Math.PI/1.85} minDistance={1} maxDistance={300}/>
-
       <GizmoHelper alignment="bottom-left" margin={[72, 72]}>
         <GizmoViewport axisColors={['#ef4444','#22c55e','#3b82f6']} labelColor="white" hideNegativeAxes={false}/>
       </GizmoHelper>
@@ -665,11 +616,9 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
 // ── Playback bar ──────────────────────────────────────────────────────────────
 
 function PlaybackBar({
-  progress, isPlaying,
-  onReset, onToggle, onEnd, onScrub,
+  progress, isPlaying, onReset, onToggle, onEnd, onScrub,
   mode, onModeChange, tod, onTodChange,
-  pathColor, onPathColorChange,
-  showModel, onShowModel, showToolpath, onShowToolpath,
+  pathColor, onPathColorChange, showModel, onShowModel, showToolpath, onShowToolpath,
 }: {
   progress: number; isPlaying: boolean;
   onReset: ()=>void; onToggle: ()=>void; onEnd: ()=>void; onScrub:(v:number)=>void;
@@ -684,17 +633,12 @@ function PlaybackBar({
       <div className="h-px bg-white/8">
         <div className="h-full transition-all duration-75" style={{width:`${progress}%`,background:pathColor}}/>
       </div>
-
       <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
-        {/* Scrubber */}
         <input type="range" min={0} max={100} value={progress}
           onChange={e=>onScrub(Number(e.target.value)/100)}
           className="w-24 appearance-none h-0.5 rounded-full bg-white/10 cursor-pointer flex-shrink-0"/>
         <span className="text-[10px] font-mono text-white/35 w-7 tabular-nums">{progress}%</span>
-
         <div className="w-px h-3 bg-white/10 mx-0.5"/>
-
-        {/* Transport */}
         <button onClick={onReset} className="w-6 h-6 flex items-center justify-center text-white/30 hover:text-white transition-colors text-sm">⟲</button>
         <button onClick={onToggle}
           className={`flex items-center gap-1 px-3 h-6 rounded-lg text-[11px] font-semibold transition-all ${isPlaying?'bg-white/10 text-white':'bg-white text-black'}`}>
@@ -709,20 +653,21 @@ function PlaybackBar({
         <button onClick={onEnd} className="w-6 h-6 flex items-center justify-center text-white/30 hover:text-white transition-colors">
           <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
         </button>
-
         <div className="w-px h-3 bg-white/10 mx-0.5"/>
-
         {/* View mode */}
         <div className="flex items-center gap-px">
-          {([{id:'environment' as ViewMode,l:'Env'},{id:'dark' as ViewMode,l:'Dark'},{id:'light' as ViewMode,l:'Light'}]).map(o=>(
+          {([
+            {id:'environment' as ViewMode, l:'Env'},
+            {id:'dark'        as ViewMode, l:'Dark'},
+            {id:'light'       as ViewMode, l:'Light'},
+          ]).map(o=>(
             <button key={o.id} onClick={()=>onModeChange(o.id)}
               className={`px-2 py-1 text-[9px] font-medium rounded-md transition-all ${mode===o.id?'text-white bg-white/12':'text-white/25 hover:text-white/60'}`}>
               {o.l}
             </button>
           ))}
         </div>
-
-        {/* Time of day — only visible in environment mode */}
+        {/* Time of day — only in environment mode */}
         {mode === 'environment' && (
           <>
             <div className="w-px h-3 bg-white/10 mx-0.5"/>
@@ -731,20 +676,16 @@ function PlaybackBar({
                 {id:'morning' as TimeOfDay, l:'🌅', title:'Morning'},
                 {id:'noon'    as TimeOfDay, l:'☀️', title:'Noon'},
                 {id:'sunset'  as TimeOfDay, l:'🌇', title:'Sunset'},
-                {id:'night'   as TimeOfDay, l:'🌙', title:'Night'},
               ]).map(o=>(
                 <button key={o.id} onClick={()=>onTodChange(o.id)} title={o.title}
-                  className={`px-1.5 py-1 text-[11px] rounded-md transition-all ${tod===o.id?'bg-white/15 scale-110':'text-white/40 hover:text-white/70'}`}>
+                  className={`px-1.5 py-1 text-[11px] rounded-md transition-all ${tod===o.id?'bg-white/15':'text-white/40 hover:text-white/70'}`}>
                   {o.l}
                 </button>
               ))}
             </div>
           </>
         )}
-
         <div className="w-px h-3 bg-white/10 mx-0.5"/>
-
-        {/* Layer toggles */}
         <button onClick={()=>onShowModel(!showModel)}
           className={`px-2 py-1 text-[9px] font-medium rounded-md transition-all ${showModel?'text-white bg-white/12':'text-white/25'}`}>
           Model
@@ -753,13 +694,10 @@ function PlaybackBar({
           className={`px-2 py-1 text-[9px] font-medium rounded-md transition-all ${showToolpath?'text-white bg-white/12':'text-white/25'}`}>
           Path
         </button>
-
         <div className="w-px h-3 bg-white/10 mx-0.5"/>
-
-        {/* Color picker */}
         <label className="relative cursor-pointer flex items-center gap-1.5 group">
           <span className="text-[9px] text-white/25 group-hover:text-white/50 transition-colors">Colour</span>
-          <div className="w-4 h-4 rounded-full border border-white/20" style={{background:pathColor}}/>
+          <div className="w-4 h-4 rounded-full border border-white/20 group-hover:border-white/40 transition-colors" style={{background:pathColor}}/>
           <input type="color" value={pathColor} onChange={e=>onPathColorChange(e.target.value)}
             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"/>
         </label>
@@ -783,7 +721,7 @@ export default function LayerVisualization({
   const [internalScale,   setInternalScale]   = useState(1.0);
   const [enableTransform, setEnableTransform] = useState(false);
   const [transformMode,   setTransformMode]   = useState<TransformMode>('translate');
-  const [pathColor,       setPathColor]       = useState('#b8a898');
+  const [pathColor,       setPathColor]       = useState('#c8bfb0');
   const [showModel,       setShowModel]       = useState(true);
   const [showToolpath,    setShowToolpath]    = useState(true);
   const orbitRef = useRef<any>(null);
@@ -888,8 +826,8 @@ export default function LayerVisualization({
           <Canvas shadows gl={{antialias:true}}>
             <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={[]} layerHeight={0.04}
               animProgress={0} mode={mode} site={resolvedSite} modelScale={modelScale}
-              snap={null} enableTransform={false} transformMode="translate" orbitRef={orbitRef}
-              sitePlan={sitePlan} pathColor={pathColor} tod={tod}/>
+              snap={null} enableTransform={false} transformMode="translate"
+              orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor} tod={tod}/>
           </Canvas>
           <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg">
             <span className="text-white/40 text-[10px]">Drag · scroll</span>
@@ -921,9 +859,9 @@ export default function LayerVisualization({
         <div className="flex items-center gap-0.5 p-0.5 rounded-xl border border-white/10"
           style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(12px)'}}>
           {([
-            {id:'environment' as ViewMode,label:'Environment'},
-            {id:'dark'        as ViewMode,label:'Dark'},
-            {id:'light'       as ViewMode,label:'Light'},
+            {id:'environment' as ViewMode, label:'Environment'},
+            {id:'dark'        as ViewMode, label:'Dark'},
+            {id:'light'       as ViewMode, label:'Light'},
           ]).map(opt=>(
             <button key={opt.id} onClick={()=>setMode(opt.id)}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
@@ -998,8 +936,6 @@ export default function LayerVisualization({
           </AnimatePresence>
         </div>
       </div>
-
-      
 
       {/* Playback bar */}
       {toolpath.length > 0 && (
