@@ -26,86 +26,74 @@ interface ParameterInputsProps {
 }
 
 interface CityResult { name: string; country: string; state: string; display: string; }
-
-interface LiveWeather {
-  temperature: number; humidity: number; wind_speed: number;
-  description: string; pot_life_min: number; risk_score: number;
-}
-
-interface ForecastHour {
-  hour: number; temperature: number; humidity: number;
-  wind_speed: number; description: string; risk: number;
-}
-
-// ── Material catalogue ────────────────────────────────────────────────────────
+interface LiveWeather { temperature: number; humidity: number; wind_speed: number; description: string; pot_life_min: number; risk_score: number; }
+interface ForecastHour { hour: number; temperature: number; humidity: number; wind_speed: number; description: string; risk: number; }
 
 export const MATERIALS = [
-  {
-    id:'sika-733-3d', name:'Sikacrete®-733 3D', region:'UK / CA / DE',
-    colour:'Grey powder', waterRatio:'13–14%', strength28d:'35 MPa',
-    potLife20c:60, potLife30c:40, potLife10c:80,
-    layerMin:6, layerMax:40, grainSize:3, spreadFlow:130, density:2.2,
-    co2:'Reduced (recycled SCM)',
-  },
-  {
-    id:'sika-733w-3d-us', name:'Sikacrete®-733 W 3D', region:'USA',
-    colour:'White powder', waterRatio:'15–17%', strength28d:'50 MPa',
-    potLife20c:60, potLife30c:40, potLife10c:80,
-    layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, density:2.1,
-    co2:'Reduced (recycled waste)',
-  },
-  {
-    id:'sika-733w-3d-gcc', name:'Sikacrete®-733 W 3D (GCC)', region:'Gulf / UAE / KSA',
-    colour:'White powder', waterRatio:'15–17%', strength28d:'35 MPa',
-    potLife20c:60, potLife30c:40, potLife10c:80,
-    layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, density:2.1,
-    co2:'Reduced (recycled waste)',
-  },
-  {
-    id:'custom', name:'Custom Mortar', region:'—',
-    colour:'—', waterRatio:'—', strength28d:'—',
-    potLife20c:60, potLife30c:40, potLife10c:80,
-    layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, density:2.1,
-    co2:'—',
-  },
+  { id:'sika-733-3d', name:'Sikacrete®-733 3D', region:'UK / CA / DE', colour:'Grey powder', waterRatio:'13–14%', strength28d:'35 MPa', potLife20c:60, potLife30c:40, potLife10c:80, layerMin:6, layerMax:40, grainSize:3, spreadFlow:130, co2:'Reduced (recycled SCM)' },
+  { id:'sika-733w-3d-us', name:'Sikacrete®-733 W 3D', region:'USA', colour:'White powder', waterRatio:'15–17%', strength28d:'50 MPa', potLife20c:60, potLife30c:40, potLife10c:80, layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, co2:'Reduced (recycled waste)' },
+  { id:'sika-733w-3d-gcc', name:'Sikacrete®-733 W 3D (GCC)', region:'Gulf / UAE / KSA', colour:'White powder', waterRatio:'15–17%', strength28d:'35 MPa', potLife20c:60, potLife30c:40, potLife10c:80, layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, co2:'Reduced (recycled waste)' },
+  { id:'custom', name:'Custom Mortar', region:'—', colour:'—', waterRatio:'—', strength28d:'—', potLife20c:60, potLife30c:40, potLife10c:80, layerMin:6, layerMax:20, grainSize:3, spreadFlow:130, co2:'—' },
 ];
 
-function hourToLabel(h: number): string {
-  const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
+function hourToLabel(h: number) {
+  const hh = Math.floor(h), mm = Math.round((h-hh)*60);
   const ampm = hh >= 12 ? 'PM' : 'AM';
-  const disp = hh > 12 ? hh - 12 : hh === 0 ? 12 : hh;
-  return `${disp}:${String(mm).padStart(2, '0')} ${ampm}`;
+  const disp = hh > 12 ? hh-12 : hh === 0 ? 12 : hh;
+  return `${disp}:${String(mm).padStart(2,'0')} ${ampm}`;
 }
 
 function newBlock(startH: number): WeatherBlock {
-  return { id: Math.random().toString(36).slice(2), start_hour:startH, end_hour:startH+2, temperature:26, humidity:60, wind_speed:8, ground_slope:0, notes:'' };
+  return { id:Math.random().toString(36).slice(2), start_hour:startH, end_hour:startH+2, temperature:26, humidity:60, wind_speed:8, ground_slope:0, notes:'' };
 }
 
-function potLifeColor(min: number) { return min >= 60 ? 'text-emerald-600' : min >= 45 ? 'text-amber-500' : 'text-red-500'; }
-function riskColor(r: number)      { return r < 20 ? 'text-emerald-400' : r < 50 ? 'text-amber-400' : 'text-red-400'; }
+function riskColor(r: number) { return r < 20 ? 'text-emerald-500' : r < 50 ? 'text-amber-500' : 'text-red-500'; }
 
-// ── City search ───────────────────────────────────────────────────────────────
+const inputCls = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/20 bg-white';
+const labelCls = 'text-[10px] font-semibold text-black/40 uppercase tracking-widest';
 
-function CitySearch({ onSelect, startHour }: {
-  onSelect: (city: string, weather: LiveWeather) => void;
-  startHour: number;
+function SliderRow({ label, value, unit, min, max, step, onChange }: {
+  label: string; value: number; unit: string; min: number; max: number; step: number; onChange: (v: number) => void;
 }) {
-  const [query,    setQuery]    = useState('');
-  const [results,  setResults]  = useState<CityResult[]>([]);
-  const [loading,  setLoading]  = useState(false);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-sm font-medium text-black">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <input type="number" value={value} min={min} max={max} step={step}
+            onChange={e => onChange(Number(e.target.value))}
+            className="w-14 px-2 py-1 text-xs font-mono text-right border border-gray-200 rounded-lg focus:outline-none focus:border-black text-black"/>
+          <span className="text-xs text-black/35 w-8">{unit}</span>
+        </div>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        className="w-full h-0.5 rounded-full appearance-none cursor-pointer accent-black bg-gray-200"/>
+      <div className="flex justify-between mt-1.5">
+        <span className="text-[10px] text-black/25">{min}{unit}</span>
+        <span className="text-[10px] text-black/25">{max}{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+function CitySearch({ onSelect, startHour }: { onSelect: (city: string, weather: LiveWeather) => void; startHour: number; }) {
+  const [query, setQuery]       = useState('');
+  const [results, setResults]   = useState<CityResult[]>([]);
+  const [loading, setLoading]   = useState(false);
   const [fetching, setFetching] = useState(false);
-  const [open,     setOpen]     = useState(false);
+  const [open, setOpen]         = useState(false);
   const [selected, setSelected] = useState('');
-  const [weather,  setWeather]  = useState<LiveWeather | null>(null);
+  const [weather, setWeather]   = useState<LiveWeather | null>(null);
   const [forecast, setForecast] = useState<ForecastHour[]>([]);
-  const [error,    setError]    = useState('');
+  const [error, setError]       = useState('');
   const debounce = useRef<NodeJS.Timeout | null>(null);
 
   const searchCities = useCallback(async (q: string) => {
     if (q.length < 2) { setResults([]); setOpen(false); return; }
     setLoading(true);
     try {
-      const res  = await fetch(`${API}/weather/search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`${API}/weather/search?q=${encodeURIComponent(q)}`);
       const data = await res.json();
       setResults(Array.isArray(data) ? data : []); setOpen(true);
     } catch { setResults([]); }
@@ -124,32 +112,27 @@ function CitySearch({ onSelect, startHour }: {
     const cityStr = city.name + ',' + city.country;
     try {
       const res = await fetch(`${API}/weather/current?city=${encodeURIComponent(cityStr)}`);
-      if (!res.ok) throw new Error('City not found');
+      if (!res.ok) throw new Error('not found');
       const data: LiveWeather = await res.json();
       setWeather(data); onSelect(cityStr, data);
-
-      // Try hourly forecast
       try {
         const fRes = await fetch(`${API}/weather/forecast?city=${encodeURIComponent(cityStr)}&start_hour=${startHour}&hours=8`);
         if (fRes.ok) { const fd = await fRes.json(); if (Array.isArray(fd)) setForecast(fd); }
       } catch { /* optional */ }
     } catch {
-      setError('Could not fetch weather — using manual input'); setWeather(null);
+      setError('Could not fetch weather — using manual sliders'); setWeather(null);
     } finally { setFetching(false); }
   };
 
   return (
-    <div className="mb-4">
-      <label className="text-xs font-medium text-black mb-1.5 block">
-        Site City <span className="text-black/30 font-normal">— live weather + forecast</span>
-      </label>
+    <div>
       <div className="relative">
         <input type="text" value={query} placeholder="Search any city worldwide…"
           onChange={e => handleInput(e.target.value)}
           onFocus={() => results.length > 0 && setOpen(true)}
-          className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black placeholder:text-black/20 pr-8"/>
+          className={inputCls + ' pr-8'}/>
         {loading && (
-          <svg className="absolute right-3 top-3 animate-spin w-4 h-4 text-black/30" viewBox="0 0 24 24" fill="none">
+          <svg className="absolute right-3 top-3 animate-spin w-4 h-4 text-black/20" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
           </svg>
@@ -160,14 +143,15 @@ function CitySearch({ onSelect, startHour }: {
               <button key={i} onClick={() => handleSelect(r)}
                 className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
                 <span className="font-medium text-black">{r.name}</span>
-                <span className="text-black/40 ml-1.5 text-xs">{r.state}{r.state?', ':''}{r.country}</span>
+                <span className="text-black/35 ml-1.5 text-xs">{r.state}{r.state?', ':''}{r.country}</span>
               </button>
             ))}
           </div>
         )}
       </div>
+
       {fetching && (
-        <div className="mt-2 flex items-center gap-2 text-xs text-black/40">
+        <div className="mt-2 flex items-center gap-2 text-xs text-black/35">
           <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
@@ -176,63 +160,47 @@ function CitySearch({ onSelect, startHour }: {
         </div>
       )}
       {error && <p className="mt-1.5 text-[11px] text-amber-600">{error}</p>}
+
       {weather && !fetching && (
-        <div className="mt-3 bg-black rounded-xl p-4">
+        <div className="mt-3 bg-black rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest">Live · {selected}</p>
-            <span className="text-[10px] text-emerald-400 font-medium">● Live</span>
+            <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest">{selected}</p>
+            <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block"/>Live
+            </span>
           </div>
           <div className="grid grid-cols-3 gap-2 mb-3">
             {[
               { label:'Temp',     value:`${weather.temperature}°C` },
               { label:'Humidity', value:`${weather.humidity}%` },
               { label:'Wind',     value:`${weather.wind_speed.toFixed(1)} km/h` },
-            ].map((s, i) => (
-              <div key={i} className="bg-white/5 rounded-lg px-2.5 py-2">
-                <p className="text-[9px] text-white/30 uppercase tracking-wider mb-0.5">{s.label}</p>
-                <p className="text-sm font-bold text-white">{s.value}</p>
+            ].map((s,i) => (
+              <div key={i} className="bg-white/6 rounded-xl px-2.5 py-2">
+                <p className="text-[9px] text-white/30 mb-0.5">{s.label}</p>
+                <p className="text-sm font-semibold text-white">{s.value}</p>
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <p className="text-[9px] text-white/30 uppercase tracking-wider mb-0.5">Pot Life</p>
-              <p className={`text-sm font-bold ${potLifeColor(weather.pot_life_min)} brightness-150`}>{weather.pot_life_min} min</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[9px] text-white/30 uppercase tracking-wider mb-0.5">Env Risk</p>
-              <p className="text-sm font-bold text-white">{weather.risk_score}/100</p>
-            </div>
+          <div className="flex items-center justify-between py-2 border-t border-white/8">
+            <div><p className="text-[9px] text-white/30 mb-0.5">Pot Life</p><p className="text-sm font-semibold text-white">{weather.pot_life_min} min</p></div>
+            <div className="text-right"><p className="text-[9px] text-white/30 mb-0.5">Env Risk</p><p className={`text-sm font-semibold ${riskColor(weather.risk_score)}`}>{weather.risk_score}/100</p></div>
+            <div className="text-right"><p className="text-[9px] text-white/30 mb-0.5">Conditions</p><p className="text-[11px] text-white/50 capitalize">{weather.description}</p></div>
           </div>
-          <p className="text-[10px] text-white/25 capitalize">{weather.description}</p>
-
-          {/* Hourly forecast timeline */}
           {forecast.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/10">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[9px] text-white/30 uppercase tracking-widest">Forecast from {hourToLabel(startHour)}</p>
-                <p className="text-[9px] text-white/20 font-mono">{new Date().toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' })}</p>
+            <div className="mt-3 pt-3 border-t border-white/8">
+              <p className="text-[9px] text-white/25 uppercase tracking-widest mb-2">Hourly forecast from {hourToLabel(startHour)}</p>
+              <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {forecast.map((f,i) => (
+                  <div key={i} className={`flex-shrink-0 rounded-xl px-2.5 py-2 text-center min-w-[52px] border ${
+                    f.risk>50?'bg-red-500/15 border-red-500/20':f.risk>20?'bg-amber-400/10 border-amber-400/15':'bg-white/5 border-white/5'
+                  }`}>
+                    <p className="text-[8px] text-white/30 mb-0.5">{hourToLabel(f.hour)}</p>
+                    <p className="text-[12px] font-semibold text-white">{f.temperature}°</p>
+                    <p className={`text-[8px] font-medium mt-0.5 ${riskColor(f.risk)}`}>{f.risk>50?'High':f.risk>20?'Med':'OK'}</p>
+                  </div>
+                ))}
               </div>
-              <div className="flex gap-1.5 overflow-x-auto pb-1">
-                {forecast.map((f, i) => {
-                  const isNextDay = f.hour < startHour && i > 0;
-                  return (
-                    <div key={i} className={`flex-shrink-0 rounded-lg px-2 py-1.5 text-center min-w-[52px] ${
-                      f.risk > 50 ? 'bg-red-500/20' : f.risk > 20 ? 'bg-amber-400/15' : 'bg-white/5'
-                    }`}>
-                      {isNextDay && i > 0 && forecast[i-1].hour >= startHour && (
-                        <p className="text-[7px] text-white/20 mb-0.5">+1d</p>
-                      )}
-                      <p className="text-[8px] text-white/30 mb-0.5">{hourToLabel(f.hour)}</p>
-                      <p className="text-[11px] font-bold text-white">{f.temperature}°</p>
-                      <p className={`text-[8px] font-semibold ${riskColor(f.risk)}`}>
-                        {f.risk > 50 ? '⚠ High' : f.risk > 20 ? 'Med' : 'OK'}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="text-[9px] text-white/15 mt-1.5">RL adapts speed per hour</p>
+              <p className="text-[9px] text-white/15 mt-2">RL adapts speed per hour block</p>
             </div>
           )}
         </div>
@@ -241,8 +209,6 @@ function CitySearch({ onSelect, startHour }: {
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
-
 export default function ParameterInputs({
   parameters, onChange, onWeatherChange, onCementChange, onCityChange, onStartHourChange,
 }: ParameterInputsProps) {
@@ -250,15 +216,13 @@ export default function ParameterInputs({
   const [startHour,  setStartHour]  = useState(8.0);
   const [blocks,     setBlocks]     = useState<WeatherBlock[]>([newBlock(8)]);
   const [materialId, setMaterialId] = useState('sika-733w-3d-us');
-  const [customMix,  setCustomMix]  = useState<Record<string, string>>({});
+  const [customMix,  setCustomMix]  = useState<Record<string,string>>({});
 
-  const selectedMaterial = MATERIALS.find(m => m.id === materialId) ?? MATERIALS[0];
-
-  const updateParam = (key: keyof Parameters, value: any) =>
-    onChange({ ...parameters, [key]: value });
+  const selected = MATERIALS.find(m => m.id === materialId) ?? MATERIALS[0];
+  const updateParam = (key: keyof Parameters, value: any) => onChange({ ...parameters, [key]: value });
 
   const updateBlock = (id: string, key: keyof WeatherBlock, value: any) => {
-    const updated = blocks.map(b => b.id === id ? { ...b, [key]: value } : b);
+    const updated = blocks.map(b => b.id===id ? {...b,[key]:value} : b);
     setBlocks(updated); onWeatherChange?.(updated, startHour);
   };
 
@@ -269,7 +233,7 @@ export default function ParameterInputs({
   };
 
   const removeBlock = (id: string) => {
-    const updated = blocks.filter(b => b.id !== id);
+    const updated = blocks.filter(b => b.id!==id);
     setBlocks(updated); onWeatherChange?.(updated, startHour);
   };
 
@@ -279,224 +243,187 @@ export default function ParameterInputs({
 
   const handleCityWeather = (city: string, weather: LiveWeather) => {
     onCityChange?.(city);
-    onChange({ ...parameters, temperature: Math.round(weather.temperature), humidity: Math.round(weather.humidity), windSpeed: Math.round(weather.wind_speed) });
+    onChange({ ...parameters, temperature:Math.round(weather.temperature), humidity:Math.round(weather.humidity), windSpeed:Math.round(weather.wind_speed) });
   };
-
-  const handleMaterialChange = (id: string) => { setMaterialId(id); onCementChange?.(id); };
-
-  // No slope field
-  const ENV_FIELDS = [
-    { key:'temperature' as keyof Parameters, label:'Temperature', unit:'°C',   min:5,  max:45, step:0.5 },
-    { key:'humidity'    as keyof Parameters, label:'Humidity',    unit:'%',    min:30, max:100, step:1 },
-    { key:'windSpeed'   as keyof Parameters, label:'Wind Speed',  unit:'km/h', min:0,  max:60, step:0.5 },
-  ];
 
   return (
     <div className="space-y-4">
 
       {/* Environmental Conditions */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest">Environmental Conditions</h2>
-          <div className="flex items-center gap-1 bg-gray-50 border border-gray-100 rounded-xl p-1">
-            <button onClick={() => setUseBlocks(false)}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-colors ${!useBlocks?'bg-black text-white':'text-black/40 hover:text-black'}`}>
-              Single
-            </button>
-            <button onClick={() => setUseBlocks(true)}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-colors ${useBlocks?'bg-black text-white':'text-black/40 hover:text-black'}`}>
-              Time blocks
-            </button>
-          </div>
-        </div>
-
-        {/* Print start time — always visible */}
-        <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
-          <svg className="w-4 h-4 text-black/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          <div className="flex-1">
-            <p className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-1">Print Start Time</p>
-            <div className="flex items-center gap-2">
-              <input type="time"
-                value={`${String(Math.floor(startHour)).padStart(2,'0')}:${String(Math.round((startHour%1)*60)).padStart(2,'0')}`}
-                onChange={e => {
-                  const [hh,mm] = e.target.value.split(':').map(Number);
-                  handleStartHour(hh + mm/60);
-                }}
-                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg outline-none focus:border-black transition-colors text-black bg-white"/>
-              <span className="text-xs text-black/40">{hourToLabel(startHour)}</span>
-            </div>
-          </div>
-          <p className="text-[10px] text-black/25 text-right leading-relaxed hidden sm:block">
-            RL adapts speed<br/>to hourly forecast
-          </p>
-        </div>
-
-        <CitySearch onSelect={handleCityWeather} startHour={startHour}/>
-
-        {!useBlocks && (
-          <div className="space-y-5">
-            {ENV_FIELDS.map(f => (
-              <div key={f.key}>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-black">{f.label}</label>
-                  <div className="flex items-center gap-1.5">
-                    <input type="number" value={parameters[f.key] as number}
-                      onChange={e => updateParam(f.key, Number(e.target.value))}
-                      className="w-14 px-2 py-1 text-xs font-mono text-right border border-gray-200 rounded-lg focus:outline-none focus:border-black text-black"/>
-                    <span className="text-xs text-black/40">{f.unit}</span>
-                  </div>
-                </div>
-                <input type="range" min={f.min} max={f.max} step={f.step}
-                  value={parameters[f.key] as number}
-                  onChange={e => updateParam(f.key, Number(e.target.value))}
-                  className="w-full h-1 bg-gray-100 rounded-full appearance-none cursor-pointer accent-black"/>
-                <div className="flex justify-between mt-1">
-                  <span className="text-[10px] text-black/25">{f.min}{f.unit}</span>
-                  <span className="text-[10px] text-black/25">{f.max}{f.unit}</span>
-                </div>
-              </div>
+      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-50">
+          <p className={labelCls}>Environmental Conditions</p>
+          <div className="flex items-center gap-0.5 p-0.5 bg-gray-50 border border-gray-100 rounded-xl">
+            {[{label:'Single',v:false},{label:'Time blocks',v:true}].map(opt=>(
+              <button key={opt.label} onClick={()=>setUseBlocks(opt.v)}
+                className={`px-3 py-1.5 text-[11px] font-medium rounded-lg transition-colors ${
+                  useBlocks===opt.v?'bg-black text-white':'text-black/40 hover:text-black'
+                }`}>{opt.label}</button>
             ))}
           </div>
-        )}
+        </div>
 
-        {useBlocks && (
-          <div className="space-y-4">
+        <div className="px-5 py-5 space-y-5">
+          {/* Start time */}
+          <div>
+            <p className={labelCls + ' mb-2'}>Print Start Time</p>
+            <div className="flex items-center gap-3">
+              <input type="time"
+                value={`${String(Math.floor(startHour)).padStart(2,'0')}:${String(Math.round((startHour%1)*60)).padStart(2,'0')}`}
+                onChange={e => { const [hh,mm]=e.target.value.split(':').map(Number); handleStartHour(hh+mm/60); }}
+                className="px-3 py-2 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black bg-white"/>
+              <span className="text-xs text-black/35">{hourToLabel(startHour)}</span>
+              <span className="text-[10px] text-black/20 ml-auto hidden sm:block">RL adapts speed to hourly forecast</span>
+            </div>
+          </div>
+
+          {/* City search */}
+          <div>
+            <p className={labelCls + ' mb-2'}>Site City <span className="text-black/25 normal-case font-normal">— live weather + forecast</span></p>
+            <CitySearch onSelect={handleCityWeather} startHour={startHour}/>
+          </div>
+
+          {/* Single sliders */}
+          {!useBlocks && (
+            <>
+              <SliderRow label="Temperature" value={parameters.temperature} unit="°C"   min={5}  max={45}  step={0.5} onChange={v=>updateParam('temperature',v)}/>
+              <SliderRow label="Humidity"    value={parameters.humidity}    unit="%"    min={30} max={100} step={1}   onChange={v=>updateParam('humidity',v)}/>
+              <SliderRow label="Wind Speed"  value={parameters.windSpeed}   unit="km/h" min={0}  max={60}  step={0.5} onChange={v=>updateParam('windSpeed',v)}/>
+            </>
+          )}
+
+          {/* Time blocks */}
+          {useBlocks && (
             <div className="space-y-3">
-              {blocks.map((block, idx) => (
-                <div key={block.id} className="border border-gray-100 rounded-2xl p-4">
-                  <div className="flex items-center justify-between mb-3">
+              {blocks.map((block,idx)=>(
+                <div key={block.id} className="border border-gray-100 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-semibold text-black/30 uppercase tracking-wider">Block {idx+1}</span>
-                      <span className="text-[10px] text-black/40">{hourToLabel(block.start_hour)} – {hourToLabel(block.end_hour)}</span>
+                      <span className={labelCls}>Block {idx+1}</span>
+                      <span className="text-[10px] text-black/35">{hourToLabel(block.start_hour)} – {hourToLabel(block.end_hour)}</span>
                     </div>
                     {blocks.length > 1 && (
-                      <button onClick={() => removeBlock(block.id)} className="text-black/20 hover:text-black">&times;</button>
+                      <button onClick={()=>removeBlock(block.id)} className="text-black/20 hover:text-black text-xl leading-none">&times;</button>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div>
-                      <label className="text-[10px] text-black/40 mb-1 block">Start (hour)</label>
-                      <input type="number" min={0} max={23} step={0.5} value={block.start_hour}
-                        onChange={e => updateBlock(block.id,'start_hour',Number(e.target.value))}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black"/>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-black/40 mb-1 block">End (hour)</label>
-                      <input type="number" min={0} max={24} step={0.5} value={block.end_hour}
-                        onChange={e => updateBlock(block.id,'end_hour',Number(e.target.value))}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black"/>
-                    </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[{k:'start_hour',l:'Start hour'},{k:'end_hour',l:'End hour'}].map(f=>(
+                      <div key={f.k}>
+                        <p className="text-[10px] text-black/35 mb-1">{f.l}</p>
+                        <input type="number" min={0} max={24} step={0.5} value={(block as any)[f.k]}
+                          onChange={e=>updateBlock(block.id,f.k as keyof WeatherBlock,Number(e.target.value))}
+                          className={inputCls}/>
+                      </div>
+                    ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { key:'temperature', label:'Temp °C',    min:5,  max:45 },
-                      { key:'humidity',    label:'Humidity %', min:20, max:100 },
-                      { key:'wind_speed',  label:'Wind km/h',  min:0,  max:60 },
-                    ].map(f => (
-                      <div key={f.key}>
-                        <label className="text-[10px] text-black/40 mb-1 block">{f.label}</label>
-                        <input type="number" min={f.min} max={f.max} value={(block as any)[f.key]}
-                          onChange={e => updateBlock(block.id, f.key as keyof WeatherBlock, Number(e.target.value))}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black"/>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[{k:'temperature',l:'Temp °C',min:5,max:45},{k:'humidity',l:'Humidity %',min:20,max:100},{k:'wind_speed',l:'Wind km/h',min:0,max:60}].map(f=>(
+                      <div key={f.k}>
+                        <p className="text-[10px] text-black/35 mb-1">{f.l}</p>
+                        <input type="number" min={f.min} max={f.max} value={(block as any)[f.k]}
+                          onChange={e=>updateBlock(block.id,f.k as keyof WeatherBlock,Number(e.target.value))}
+                          className={inputCls}/>
                       </div>
                     ))}
                   </div>
                   <input type="text" placeholder="Notes (optional)" value={block.notes}
-                    onChange={e => updateBlock(block.id,'notes',e.target.value)}
-                    className="w-full mt-3 px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black placeholder:text-black/20"/>
+                    onChange={e=>updateBlock(block.id,'notes',e.target.value)}
+                    className={inputCls + ' text-xs'}/>
                 </div>
               ))}
+              <button onClick={addBlock}
+                className="w-full py-2.5 text-xs font-medium border border-dashed border-gray-200 rounded-xl text-black/35 hover:text-black hover:border-black transition-colors">
+                + Add time block
+              </button>
             </div>
-            <button onClick={addBlock}
-              className="w-full py-2 text-xs font-medium border border-dashed border-gray-300 rounded-xl text-black/40 hover:text-black hover:border-black transition-colors">
-              Add time block
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Material */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest">Material</h2>
-          <Link href="/definitions"
-            className="text-[10px] font-semibold text-black/40 hover:text-black transition-colors underline underline-offset-2">
+      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-50">
+          <p className={labelCls}>Material</p>
+          <Link href="/definitions" className="text-[10px] text-black/35 hover:text-black transition-colors underline underline-offset-2">
             View definitions →
           </Link>
         </div>
 
-        <div className="mb-4">
-          <select value={materialId} onChange={e => handleMaterialChange(e.target.value)}
-            className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black bg-white appearance-none cursor-pointer">
-            {MATERIALS.map(m => (
-              <option key={m.id} value={m.id}>{m.name}{m.region !== '—' ? ` — ${m.region}` : ''}</option>
-            ))}
-          </select>
-        </div>
+        <div className="px-5 py-5 space-y-4">
+          {/* Selector */}
+          <div className="relative">
+            <select value={materialId} onChange={e=>{setMaterialId(e.target.value);onCementChange?.(e.target.value);}}
+              className={inputCls + ' appearance-none pr-8 cursor-pointer'}>
+              {MATERIALS.map(m=>(
+                <option key={m.id} value={m.id}>{m.name}{m.region!=='—'?` — ${m.region}`:''}</option>
+              ))}
+            </select>
+            <svg className="absolute right-3 top-3.5 w-3.5 h-3.5 text-black/30 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </div>
 
-        {materialId !== 'custom' && (
-          <div className="bg-black rounded-xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-white">{selectedMaterial.name}</p>
-              <span className="text-[10px] text-white/40 font-mono">{selectedMaterial.region}</span>
+          {/* Material card */}
+          {materialId !== 'custom' && (
+            <div className="bg-black rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-white">{selected.name}</p>
+                <span className="text-[10px] text-white/35 font-mono">{selected.region}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 mb-3">
+                {[
+                  {l:'Pot life 20°C',v:`${selected.potLife20c} min`},
+                  {l:'Pot life 30°C',v:`${selected.potLife30c} min`},
+                  {l:'Pot life 10°C',v:`${selected.potLife10c} min`},
+                  {l:'28d strength', v:selected.strength28d},
+                  {l:'Grain size',   v:`≤ ${selected.grainSize} mm`},
+                  {l:'Layer height', v:`${selected.layerMin}–${selected.layerMax} mm`},
+                  {l:'Water ratio',  v:selected.waterRatio},
+                  {l:'Spread flow',  v:`${selected.spreadFlow} mm`},
+                  {l:'Colour',       v:selected.colour},
+                ].map((s,i)=>(
+                  <div key={i} className="bg-white/5 rounded-xl px-2.5 py-2">
+                    <p className="text-[8px] text-white/25 mb-0.5">{s.l}</p>
+                    <p className="text-[11px] font-semibold text-white leading-tight">{s.v}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[9px] text-white/20">{selected.co2}</p>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+          )}
+
+          {/* Custom mortar */}
+          {materialId === 'custom' && (
+            <div className="space-y-3">
+              <p className="text-[10px] text-black/40">Enter your mortar parameters so the RL optimizer can adapt.</p>
               {[
-                { label:'Pot life 20°C', value:`${selectedMaterial.potLife20c} min` },
-                { label:'Pot life 30°C', value:`${selectedMaterial.potLife30c} min` },
-                { label:'Pot life 10°C', value:`${selectedMaterial.potLife10c} min` },
-                { label:'28d strength',  value:selectedMaterial.strength28d },
-                { label:'Grain size',    value:`≤ ${selectedMaterial.grainSize} mm` },
-                { label:'Layer height',  value:`${selectedMaterial.layerMin}–${selectedMaterial.layerMax} mm` },
-                { label:'Water ratio',   value:selectedMaterial.waterRatio },
-                { label:'Spread flow',   value:`${selectedMaterial.spreadFlow} mm` },
-                { label:'Colour',        value:selectedMaterial.colour },
-              ].map((s, i) => (
-                <div key={i} className="bg-white/5 rounded-lg px-2.5 py-2">
-                  <p className="text-[8px] text-white/30 uppercase tracking-wide mb-0.5">{s.label}</p>
-                  <p className="text-[11px] font-semibold text-white">{s.value}</p>
+                {k:'pot_life_20c',    l:'Pot life @ 20°C (min)', p:'60',   t:'number'},
+                {k:'pot_life_30c',    l:'Pot life @ 30°C (min)', p:'40',   t:'number'},
+                {k:'layer_height_min',l:'Min layer height (mm)',  p:'6',    t:'number'},
+                {k:'layer_height_max',l:'Max layer height (mm)',  p:'20',   t:'number'},
+                {k:'max_grain_mm',    l:'Max grain size (mm)',    p:'3',    t:'number'},
+                {k:'spread_flow_mm',  l:'Spread flow (mm)',       p:'130',  t:'number'},
+                {k:'w_c_ratio',       l:'W/C ratio',              p:'0.45', t:'number'},
+                {k:'mix_name',        l:'Mix name / brand',       p:'e.g. BASF 3D-Print 100', t:'text'},
+              ].map(f=>(
+                <div key={f.k}>
+                  <p className="text-[10px] text-black/40 mb-1">{f.l}</p>
+                  <input type={f.t} placeholder={f.p} value={customMix[f.k]??''}
+                    onChange={e=>{const u={...customMix,[f.k]:e.target.value};setCustomMix(u);onCementChange?.('custom:'+JSON.stringify(u));}}
+                    className={inputCls}/>
                 </div>
               ))}
             </div>
-            <p className="text-[9px] text-white/25 mt-3">{selectedMaterial.co2}</p>
-          </div>
-        )}
+          )}
 
-        {materialId === 'custom' && (
-          <div className="space-y-3">
-            <p className="text-[10px] text-black/40 mb-3">Enter your mortar parameters so the RL optimizer can adapt.</p>
-            {[
-              { key:'pot_life_20c',     label:'Pot life @ 20°C (min)',  placeholder:'60',   type:'number' },
-              { key:'pot_life_30c',     label:'Pot life @ 30°C (min)',  placeholder:'40',   type:'number' },
-              { key:'layer_height_min', label:'Min layer height (mm)',   placeholder:'6',    type:'number' },
-              { key:'layer_height_max', label:'Max layer height (mm)',   placeholder:'20',   type:'number' },
-              { key:'max_grain_mm',     label:'Max grain size (mm)',     placeholder:'3',    type:'number' },
-              { key:'spread_flow_mm',   label:'Spread flow (mm)',        placeholder:'130',  type:'number' },
-              { key:'w_c_ratio',        label:'W/C ratio',               placeholder:'0.45', type:'number' },
-              { key:'mix_name',         label:'Mix name / brand',        placeholder:'e.g. BASF 3D-Print 100', type:'text' },
-            ].map(field => (
-              <div key={field.key}>
-                <label className="block text-[11px] font-medium text-black/50 mb-1">{field.label}</label>
-                <input type={field.type} placeholder={field.placeholder}
-                  value={customMix[field.key] ?? ''}
-                  onChange={e => {
-                    const updated = { ...customMix, [field.key]: e.target.value };
-                    setCustomMix(updated); onCementChange?.('custom:' + JSON.stringify(updated));
-                  }}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black placeholder:text-black/20"/>
-              </div>
-            ))}
+          {/* Batch number */}
+          <div>
+            <p className={labelCls + ' mb-2'}>Batch Number</p>
+            <input type="text" value={parameters.batchNumber}
+              onChange={e=>updateParam('batchNumber',e.target.value)}
+              placeholder="e.g. BATCH-2024-001"
+              className={inputCls + ' font-mono'}/>
           </div>
-        )}
-
-        <div className="mt-4">
-          <label className="block text-xs font-medium text-black mb-1.5">Batch Number</label>
-          <input type="text" value={parameters.batchNumber}
-            onChange={e => updateParam('batchNumber', e.target.value)}
-            placeholder="e.g. BATCH-2024-001"
-            className="w-full px-3 py-2.5 text-sm font-mono border border-gray-200 rounded-xl focus:outline-none focus:border-black text-black placeholder:text-black/20 placeholder:font-sans"/>
         </div>
       </div>
 
