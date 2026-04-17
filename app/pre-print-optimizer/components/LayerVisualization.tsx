@@ -460,8 +460,8 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
   // Bead dimensions — proven working values
   // beadW wider than nozzle so adjacent beads touch; beadH > layerHeight to close gaps
   const lhMM  = layerHeight;
-  const beadW = nozzleDiameter > 0 ? nozzleDiameter * 1.1 : lhMM * 1.4;
-  const beadH = lhMM * 1.8; // tall enough to fully close vertical gaps
+  const beadW = nozzleDiameter > 0 ? nozzleDiameter * 0.85 : lhMM * 1.2;
+  const beadH = lhMM * 1.6;
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
@@ -483,7 +483,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
 
       const nx  = -dz / len;
       const nz  =  dx / len;
-      const hw  = beadW * 0.5;
+      const hw  = Math.min(beadW * 0.5, len * 0.48); // never wider than segment length
       const y0  = s.s[1] - beadH * 0.15; // bottom — sits below layer centre
       const y1  = s.s[1] + beadH * 0.85; // top — well above layer centre, into next layer
       const ins = hw * 0.12;              // slight taper at crown
