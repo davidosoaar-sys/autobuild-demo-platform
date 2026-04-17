@@ -5,7 +5,7 @@ import {
 } from 'react';
 import { supabase, DBProject } from './supabase';
 
-// ── Project type (what components use) ───────────────────────────────────────
+// ── Project type ──────────────────────────────────────────────────────────────
 
 export interface ReportAlert {
   time:    string;
@@ -26,6 +26,27 @@ export interface ProjectReport {
   structureType?: string;
 }
 
+export interface ManualPrinterConfig {
+  nozzleDiameter?:       number;
+  nozzleShape?:          string;
+  beadCompression?:      number;
+  printSpaceX?:          number;
+  printSpaceY?:          number;
+  printSpaceZ?:          number;
+  pumpType?:             string;
+  hoseLength?:           number;
+  hoseInternalDiam?:     number;
+  maxFlowRate?:          number;
+  minFlowRate?:          number;
+  maxVelocity?:          number;
+  acceleration?:         number;
+  jerkDeviation?:        number;
+  aggregatePrinterSize?: number;
+  initialSetTime?:       number;
+  slumpValue?:           number;
+  [key: string]: any;
+}
+
 export interface Project {
   id:            string;
   name:          string;
@@ -37,11 +58,13 @@ export interface Project {
   totalLayers:   number;
   printSpeed:    number;
   printer: {
-    name:          string;
-    type?:         string;
-    nozzle:        string;
-    maxSpeed:      string;
-    manualConfig?: Record<string, any>;
+    name:             string;
+    type?:            string;
+    nozzle:           string;
+    maxSpeed:         string;
+    layerHeight?:     number;
+    beadCompression?: number;
+    manualConfig?:    ManualPrinterConfig;
   };
   report?: {
     totalLayers:    number;
@@ -53,15 +76,15 @@ export interface Project {
 }
 
 interface ProjectContextValue {
-  projects:          Project[];
-  activeProject:     Project | null;
-  loading:           boolean;
-  createProject:     (data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>) => Promise<Project>;
-  updateProject:     (id: string, updates: Partial<Project>) => Promise<void>;
-  setActive:         (id: string) => void;
-  setActiveProject:  (id: string) => void;
-  deleteProject:     (id: string) => Promise<void>;
-  refreshProjects:   () => Promise<void>;
+  projects:         Project[];
+  activeProject:    Project | null;
+  loading:          boolean;
+  createProject:    (data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>) => Promise<Project>;
+  updateProject:    (id: string, updates: Partial<Project>) => Promise<void>;
+  setActive:        (id: string) => void;
+  setActiveProject: (id: string) => void;
+  deleteProject:    (id: string) => Promise<void>;
+  refreshProjects:  () => Promise<void>;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -86,14 +109,13 @@ function dbToProject(row: DBProject, printer?: any): Project {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [projects,      setProjects]      = useState<Project[]>([]);
-  const [activeId,      setActiveId]      = useState<string | null>(null);
-  const [loading,       setLoading]       = useState(true);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [loading,  setLoading]  = useState(true);
 
   const refreshProjects = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch projects
       const { data: rows, error } = await supabase
         .from('projects')
         .select('*')
@@ -101,7 +123,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
 
-      // Fetch printer configs for all projects
       const { data: printers } = await supabase
         .from('printer_configs')
         .select('*');
@@ -112,12 +133,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       const mapped: Project[] = (rows ?? []).map(row => {
         const pc = printerMap[row.id];
         const printer = pc ? {
-          name:         pc.printer_name,
-          type:         pc.printer_type ?? '',
-          nozzle:       pc.nozzle ?? '',
-          maxSpeed:     pc.max_speed ?? '',
-          manualConfig: pc.manual_config ?? undefined,
-        } : { name:'', type:'', nozzle:'', maxSpeed:'' };
+          name:            pc.printer_name,
+          type:            pc.printer_type ?? '',
+          nozzle:          pc.nozzle ?? '',
+          maxSpeed:        pc.max_speed ?? '',
+          layerHeight:     pc.layer_height ?? undefined,
+          beadCompression: pc.bead_compression ?? undefined,
+          manualConfig:    pc.manual_config ?? undefined,
+        } : { name: '', type: '', nozzle: '', maxSpeed: '' };
         return dbToProject(row, printer);
       });
 
@@ -155,7 +178,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateProject = useCallback(async (id: string, updates: Partial<Project>) => {
-    // Update projects table fields
     const dbUpdates: Partial<DBProject> = {};
     if (updates.status        !== undefined) dbUpdates.status         = updates.status;
     if (updates.totalLayers   !== undefined) dbUpdates.total_layers   = updates.totalLayers;
@@ -168,21 +190,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       await supabase.from('projects').update(dbUpdates).eq('id', id);
     }
 
-    // Update printer config if provided
     if (updates.printer) {
       const p = updates.printer;
-      // Upsert printer config
       await supabase.from('printer_configs').upsert({
-        project_id:   id,
-        printer_name: p.name,
-        printer_type: p.type,
-        nozzle:       p.nozzle,
-        max_speed:    p.maxSpeed,
-        manual_config: p.manualConfig ?? null,
+        project_id:       id,
+        printer_name:     p.name,
+        printer_type:     p.type,
+        nozzle:           p.nozzle,
+        max_speed:        p.maxSpeed,
+        layer_height:     p.layerHeight     ?? null,
+        bead_compression: p.beadCompression ?? null,
+        manual_config:    p.manualConfig    ?? null,
       }, { onConflict: 'project_id' });
     }
 
-    // Update local state optimistically
     setProjects(prev => prev.map(p =>
       p.id === id ? { ...p, ...updates } : p
     ));

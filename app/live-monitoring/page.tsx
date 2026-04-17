@@ -26,16 +26,41 @@ interface Camera {
   active: boolean;
 }
 
+// ── Bead Analysis Types ───────────────────────────────────────────────────────
+type BeadVerdict = 'straight' | 'deviated' | 'defect' | 'unclear';
+type BeadSeverity = 'none' | 'low' | 'medium' | 'high';
+type BeadDefectType = 'none' | 'gap' | 'collapse' | 'over-extrusion' | 'under-extrusion' | 'layer-shift' | 'deformation' | 'surface-crack';
+
+interface BeadAnalysis {
+  verdict: BeadVerdict;
+  angle_deviation: number;
+  defect_type: BeadDefectType;
+  severity: BeadSeverity;
+  description: string;
+  bead_count: number;
+  confidence: 'low' | 'medium' | 'high';
+  timestamp: string;
+  cameraId: string;
+  cameraLabel: string;
+}
+
+// ── Alert Log Entry ───────────────────────────────────────────────────────────
+interface AlertEntry {
+  time: string;
+  msg: string;
+  level: 'info' | 'warn' | 'error';
+}
+
 // ── Sparkline ─────────────────────────────────────────────────────────────────
 function Sparkline({ data, color = '#fff', width = 60, height = 24 }: {
   data: number[]; color?: string; width?: number; height?: number;
 }) {
   if (data.length < 2) return null;
   const min = Math.min(...data), max = Math.max(...data), range = max - min || 1;
-  const pts = data.map((v, i) => `${(i/(data.length-1))*width},${height-((v-min)/range)*height}`).join(' ');
+  const pts = data.map((v, i) => `${(i / (data.length - 1)) * width},${height - ((v - min) / range) * height}`).join(' ');
   return (
     <svg width={width} height={height} className="opacity-60">
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round"/>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -44,56 +69,300 @@ function Sparkline({ data, color = '#fff', width = 60, height = 24 }: {
 function PlumbIndicator({ angle }: { angle: number }) {
   const isPlumb = Math.abs(angle) < 1;
   const isClose = Math.abs(angle) >= 1 && Math.abs(angle) < 5;
-  const color   = isPlumb ? '#22c55e' : isClose ? '#fbbf24' : '#ef4444';
-  const label   = isPlumb ? 'Plumb' : isClose ? 'Slight tilt' : 'Off plumb';
-  const RANGE   = 15;
-  const pct     = ((Math.max(-RANGE, Math.min(RANGE, angle)) + RANGE) / (RANGE * 2)) * 100;
+  const color = isPlumb ? '#22c55e' : isClose ? '#fbbf24' : '#ef4444';
+  const label = isPlumb ? 'Plumb' : isClose ? 'Slight tilt' : 'Off plumb';
+  const RANGE = 15;
+  const pct = ((Math.max(-RANGE, Math.min(RANGE, angle)) + RANGE) / (RANGE * 2)) * 100;
 
   return (
     <div className="bg-black px-4 py-3 rounded-b-xl border-t border-white/8 flex items-center gap-4">
       <div className="flex items-center gap-2 flex-shrink-0">
         <motion.div className="w-2 h-2 rounded-full" style={{ background: color }}
           animate={{ opacity: isPlumb ? [1, 0.3, 1] : 1 }}
-          transition={{ duration: 1.2, repeat: Infinity }}/>
+          transition={{ duration: 1.2, repeat: Infinity }} />
         <span className="text-[10px] font-semibold text-white/50">{label}</span>
         <span className="text-[11px] font-bold font-mono" style={{ color }}>
           {angle >= 0 ? '+' : ''}{angle.toFixed(1)}°
         </span>
       </div>
       <div className="relative flex-1 h-px bg-white/15 rounded-full">
-        <div className="absolute left-1/2 -translate-x-1/2 -top-1.5 w-px h-4 bg-white/40 rounded-full"/>
+        <div className="absolute left-1/2 -translate-x-1/2 -top-1.5 w-px h-4 bg-white/40 rounded-full" />
         <motion.div
           className="absolute top-1/2 w-3 h-3 rounded-full border-2 border-black shadow-lg"
           style={{ background: color, translateY: '-50%' }}
           animate={{ left: `${pct}%`, x: '-50%' }}
-          transition={{ type: 'spring', stiffness: 400, damping: 35 }}/>
+          transition={{ type: 'spring', stiffness: 400, damping: 35 }} />
       </div>
     </div>
   );
 }
 
+// ── Bead Analysis Overlay (shown on top of video) ─────────────────────────────
+function BeadOverlay({ analysis, analysing }: { analysis: BeadAnalysis | null; analysing: boolean }) {
+  if (!analysis && !analysing) return null;
+
+  const severityColor = (s: BeadSeverity) => {
+    if (s === 'high') return '#ef4444';
+    if (s === 'medium') return '#fbbf24';
+    if (s === 'low') return '#fbbf24';
+    return '#22c55e';
+  };
+
+  const verdictLabel: Record<BeadVerdict, string> = {
+    straight: 'STRAIGHT',
+    deviated: 'DEVIATED',
+    defect: 'DEFECT',
+    unclear: 'UNCLEAR',
+  };
+
+  return (
+    <div className="absolute bottom-10 left-2 right-2 z-20 pointer-events-none">
+      {analysing && !analysis && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-black/80 rounded-xl border border-white/10 w-fit">
+          <motion.div
+            className="w-3 h-3 border border-white/60 border-t-transparent rounded-full"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+          />
+          <span className="text-[10px] font-mono text-white/60">Analysing bead...</span>
+        </div>
+      )}
+
+      {analysis && (
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-start gap-2"
+        >
+          <div
+            className="px-3 py-2 rounded-xl border flex items-center gap-2"
+            style={{
+              background: 'rgba(0,0,0,0.85)',
+              borderColor: `${severityColor(analysis.severity)}40`,
+            }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: severityColor(analysis.severity) }} />
+            <span className="text-[10px] font-bold font-mono" style={{ color: severityColor(analysis.severity) }}>
+              {verdictLabel[analysis.verdict]}
+            </span>
+            {analysis.angle_deviation !== 0 && (
+              <span className="text-[10px] font-mono text-white/60">
+                {analysis.angle_deviation > 0 ? '+' : ''}{analysis.angle_deviation.toFixed(1)}°
+              </span>
+            )}
+            {analysis.defect_type !== 'none' && (
+              <span className="text-[10px] text-white/50 uppercase tracking-wide">
+                · {analysis.defect_type.replace('-', ' ')}
+              </span>
+            )}
+          </div>
+          {analysing && (
+            <div className="px-2 py-2 bg-black/70 rounded-xl border border-white/10 flex items-center">
+              <motion.div
+                className="w-2.5 h-2.5 border border-white/40 border-t-transparent rounded-full"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+              />
+            </div>
+          )}
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ── Bead Status Panel (below camera, shown when bead mode active) ─────────────
+function BeadStatusPanel({ analysis }: { analysis: BeadAnalysis | null }) {
+  if (!analysis) return null;
+
+  const severityColor = (s: BeadSeverity) => {
+    if (s === 'high') return '#ef4444';
+    if (s === 'medium') return '#fbbf24';
+    if (s === 'low') return '#fbbf24';
+    return '#22c55e';
+  };
+
+  const color = severityColor(analysis.severity);
+
+  return (
+    <div className="bg-black px-4 py-3 rounded-b-xl border-t border-white/8">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] text-white/40 font-mono mb-0.5 truncate">{analysis.description}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-white/30 uppercase tracking-wide">Deviation</span>
+              <span className="text-[11px] font-bold font-mono" style={{ color }}>
+                {analysis.angle_deviation > 0 ? '+' : ''}{analysis.angle_deviation.toFixed(1)}°
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-white/30 uppercase tracking-wide">Beads</span>
+              <span className="text-[11px] font-bold font-mono text-white">{analysis.bead_count}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-white/30 uppercase tracking-wide">Confidence</span>
+              <span className="text-[11px] font-mono text-white/60 capitalize">{analysis.confidence}</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex-shrink-0 text-right">
+          <div className="text-[9px] text-white/25 font-mono">{analysis.timestamp}</div>
+          {analysis.defect_type !== 'none' && (
+            <div
+              className="text-[9px] font-bold uppercase tracking-wide mt-0.5"
+              style={{ color }}
+            >
+              {analysis.defect_type.replace('-', ' ')}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── High Severity Alert Banner ────────────────────────────────────────────────
+function AlertBanner({ analysis, onDismiss }: { analysis: BeadAnalysis; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 8000);
+    return () => clearTimeout(t);
+  }, [analysis, onDismiss]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="fixed top-28 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4"
+    >
+      <div className="bg-red-600 text-white rounded-2xl px-5 py-4 shadow-2xl flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest mb-1">
+            Bead Alert — {analysis.cameraLabel}
+          </p>
+          <p className="text-sm font-medium leading-snug">{analysis.description}</p>
+          <div className="flex items-center gap-3 mt-2">
+            {analysis.angle_deviation !== 0 && (
+              <span className="text-xs font-mono opacity-80">
+                Deviation: {analysis.angle_deviation > 0 ? '+' : ''}{analysis.angle_deviation.toFixed(1)}°
+              </span>
+            )}
+            {analysis.defect_type !== 'none' && (
+              <span className="text-xs opacity-80 capitalize">
+                {analysis.defect_type.replace('-', ' ')}
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="text-white/60 hover:text-white text-lg leading-none flex-shrink-0 mt-0.5"
+        >
+          ×
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 // ── CameraView ────────────────────────────────────────────────────────────────
-function CameraView({ camera, onAngleChange, onRename, onRemove }: {
+function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, onBeadLog }: {
   camera: Camera;
   onAngleChange: (id: string, angle: Camera['angle']) => void;
   onRename: (id: string, label: string) => void;
   onRemove: (id: string) => void;
+  onBeadAlert: (analysis: BeadAnalysis) => void;
+  onBeadLog: (analysis: BeadAnalysis) => void;
 }) {
   const videoRef   = useRef<HTMLVideoElement>(null);
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
+  const captureRef = useRef<HTMLCanvasElement>(null);
   const timerRef   = useRef<number | null>(null);
+  const beadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [streaming, setStreaming] = useState(false);
-  const [error,     setError]     = useState('');
-  const [editing,   setEditing]   = useState(false);
-  const [label,     setLabel]     = useState(camera.label);
-  const [showPlumb, setShowPlumb] = useState(false);
-  const [alignMode, setAlignMode] = useState<'vertical'|'horizontal'>('vertical');
-  const [liveAngle, setLiveAngle] = useState(0);
+  const [streaming,  setStreaming]  = useState(false);
+  const [error,      setError]      = useState('');
+  const [editing,    setEditing]    = useState(false);
+  const [label,      setLabel]      = useState(camera.label);
+  const [showPlumb,  setShowPlumb]  = useState(false);
+  const [showBead,   setShowBead]   = useState(false);
+  const [alignMode,  setAlignMode]  = useState<'vertical' | 'horizontal'>('vertical');
+  const [liveAngle,  setLiveAngle]  = useState(0);
+  const [beadResult, setBeadResult] = useState<BeadAnalysis | null>(null);
+  const [analysing,  setAnalysing]  = useState(false);
 
   const angles: Camera['angle'][] = ['front', 'side', 'overhead', 'nozzle'];
 
+  // ── Grab frame as base64 JPEG ─────────────────────────────────────────────
+  const captureFrame = useCallback((): string | null => {
+    const video = videoRef.current;
+    const canvas = captureRef.current;
+    if (!video || !canvas || video.readyState < 2) return null;
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 360;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0);
+    // Strip the data:image/jpeg;base64, prefix
+    return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+  }, []);
+
+  // ── Send frame to Claude Vision ───────────────────────────────────────────
+  const runBeadAnalysis = useCallback(async () => {
+    if (!streaming || !showBead) return;
+    const base64 = captureFrame();
+    if (!base64) return;
+
+    setAnalysing(true);
+    try {
+      const res = await fetch('/api/analyze-beads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: 'image/jpeg' }),
+      });
+
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      const data = await res.json();
+
+      const analysis: BeadAnalysis = {
+        verdict:         data.verdict       ?? 'unclear',
+        angle_deviation: data.angle_deviation ?? 0,
+        defect_type:     data.defect_type   ?? 'none',
+        severity:        data.severity      ?? 'none',
+        description:     data.description   ?? '',
+        bead_count:      data.bead_count    ?? 0,
+        confidence:      data.confidence    ?? 'low',
+        timestamp:       new Date().toLocaleTimeString(),
+        cameraId:        camera.id,
+        cameraLabel:     camera.label,
+      };
+
+      setBeadResult(analysis);
+      onBeadLog(analysis);
+      if (analysis.severity === 'high') onBeadAlert(analysis);
+    } catch (e) {
+      console.error('[bead-analysis]', e);
+    } finally {
+      setAnalysing(false);
+    }
+  }, [streaming, showBead, captureFrame, camera.id, camera.label, onBeadLog, onBeadAlert]);
+
+  // ── Bead analysis interval (every 5s) ─────────────────────────────────────
+  useEffect(() => {
+    if (streaming && showBead) {
+      // Run immediately on activation
+      runBeadAnalysis();
+      beadTimerRef.current = setInterval(runBeadAnalysis, 15000);
+    } else {
+      if (beadTimerRef.current) clearInterval(beadTimerRef.current);
+      if (!showBead) setBeadResult(null);
+    }
+    return () => { if (beadTimerRef.current) clearInterval(beadTimerRef.current); };
+  }, [streaming, showBead, runBeadAnalysis]);
+
+  // ── Plumb / align overlay ─────────────────────────────────────────────────
   const analyseFrame = () => {
     const video   = videoRef.current;
     const canvas  = canvasRef.current;
@@ -115,31 +384,31 @@ function CameraView({ camera, onAngleChange, onRename, onRemove }: {
     const { data } = ctx.getImageData(0, 0, vw, vh);
 
     const grey = new Float32Array(vw * vh);
-    for (let i = 0; i < vw*vh; i++)
-      grey[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114) / 255;
+    for (let i = 0; i < vw * vh; i++)
+      grey[i] = (data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114) / 255;
 
     const isHorizontal = alignMode === 'horizontal';
-    const stepX = Math.max(1, Math.floor(vw/40));
-    const stepY = Math.max(1, Math.floor(vh/60));
+    const stepX = Math.max(1, Math.floor(vw / 40));
+    const stepY = Math.max(1, Math.floor(vh / 60));
 
-    const pts: {x:number;y:number}[] = [];
-    for (let y = stepY; y < vh-stepY; y+=stepY) {
-      for (let x = stepX; x < vw-stepX; x+=stepX) {
-        const gx = Math.abs(grey[y*vw+(x+1)] - grey[y*vw+(x-1)]);
-        const gy = Math.abs(grey[(y+1)*vw+x] - grey[(y-1)*vw+x]);
+    const pts: { x: number; y: number }[] = [];
+    for (let y = stepY; y < vh - stepY; y += stepY) {
+      for (let x = stepX; x < vw - stepX; x += stepX) {
+        const gx = Math.abs(grey[y * vw + (x + 1)] - grey[y * vw + (x - 1)]);
+        const gy = Math.abs(grey[(y + 1) * vw + x] - grey[(y - 1) * vw + x]);
         const mag = gx + gy;
         if (isHorizontal ? gy > gx && mag > 0.08 : gx > gy && mag > 0.08)
-          pts.push({x, y});
+          pts.push({ x, y });
       }
     }
 
     let tilt = 0;
     if (pts.length > 5) {
-      const n=pts.length, sumY=pts.reduce((s,p)=>s+p.y,0), sumX=pts.reduce((s,p)=>s+p.x,0);
-      const sumYY=pts.reduce((s,p)=>s+p.y*p.y,0), sumXY=pts.reduce((s,p)=>s+p.x*p.y,0);
-      const denom = n*sumYY - sumY*sumY;
+      const n = pts.length, sumY = pts.reduce((s, p) => s + p.y, 0), sumX = pts.reduce((s, p) => s + p.x, 0);
+      const sumYY = pts.reduce((s, p) => s + p.y * p.y, 0), sumXY = pts.reduce((s, p) => s + p.x * p.y, 0);
+      const denom = n * sumYY - sumY * sumY;
       if (Math.abs(denom) > 1e-6)
-        tilt = Math.atan((n*sumXY - sumX*sumY) / denom) * 180 / Math.PI;
+        tilt = Math.atan((n * sumXY - sumX * sumY) / denom) * 180 / Math.PI;
     }
 
     const deviation  = isHorizontal ? 90 - Math.abs(tilt) : tilt;
@@ -151,38 +420,38 @@ function CameraView({ camera, onAngleChange, onRename, onRemove }: {
     const rad        = ((tilt + baseAngle) * Math.PI) / 180;
     const refRad     = (baseAngle * Math.PI) / 180;
     const half       = oh * 0.45;
-    const cx = pts.length > 0 ? (pts.reduce((s,p)=>s+p.x,0)/pts.length/vw)*ow : ow/2;
-    const cy = pts.length > 0 ? (pts.reduce((s,p)=>s+p.y,0)/pts.length/vh)*oh : oh/2;
+    const cx = pts.length > 0 ? (pts.reduce((s, p) => s + p.x, 0) / pts.length / vw) * ow : ow / 2;
+    const cy = pts.length > 0 ? (pts.reduce((s, p) => s + p.y, 0) / pts.length / vh) * oh : oh / 2;
 
     setLiveAngle(deviation);
 
-    octx.strokeStyle='rgba(255,255,255,0.35)'; octx.lineWidth=1.5; octx.setLineDash([6,5]);
+    octx.strokeStyle = 'rgba(255,255,255,0.35)'; octx.lineWidth = 1.5; octx.setLineDash([6, 5]);
     octx.beginPath();
-    octx.moveTo(cx-Math.sin(refRad)*half, cy-Math.cos(refRad)*half);
-    octx.lineTo(cx+Math.sin(refRad)*half, cy+Math.cos(refRad)*half);
+    octx.moveTo(cx - Math.sin(refRad) * half, cy - Math.cos(refRad) * half);
+    octx.lineTo(cx + Math.sin(refRad) * half, cy + Math.cos(refRad) * half);
     octx.stroke(); octx.setLineDash([]);
 
-    const lx1=cx-Math.sin(rad)*half, ly1=cy-Math.cos(rad)*half;
-    const lx2=cx+Math.sin(rad)*half, ly2=cy+Math.cos(rad)*half;
-    octx.strokeStyle=lineColor; octx.lineWidth=3; octx.lineCap='round';
-    octx.beginPath(); octx.moveTo(lx1,ly1); octx.lineTo(lx2,ly2); octx.stroke();
-    octx.fillStyle=lineColor;
-    octx.beginPath(); octx.arc(lx1,ly1,4,0,Math.PI*2); octx.fill();
-    octx.beginPath(); octx.arc(lx2,ly2,4,0,Math.PI*2); octx.fill();
+    const lx1 = cx - Math.sin(rad) * half, ly1 = cy - Math.cos(rad) * half;
+    const lx2 = cx + Math.sin(rad) * half, ly2 = cy + Math.cos(rad) * half;
+    octx.strokeStyle = lineColor; octx.lineWidth = 3; octx.lineCap = 'round';
+    octx.beginPath(); octx.moveTo(lx1, ly1); octx.lineTo(lx2, ly2); octx.stroke();
+    octx.fillStyle = lineColor;
+    octx.beginPath(); octx.arc(lx1, ly1, 4, 0, Math.PI * 2); octx.fill();
+    octx.beginPath(); octx.arc(lx2, ly2, 4, 0, Math.PI * 2); octx.fill();
 
-    const lbl=`${deviation>=0?'+':''}${deviation.toFixed(1)}°`;
-    octx.font='bold 13px monospace';
-    const tw=octx.measureText(lbl).width+14;
-    const bx2=cx+Math.sin(rad)*55+14, by2=cy-Math.cos(rad)*55;
-    octx.fillStyle=lineColor;
-    octx.beginPath(); octx.roundRect(bx2-tw/2,by2-11,tw,20,4); octx.fill();
-    octx.fillStyle='white'; octx.fillText(lbl,bx2-tw/2+7,by2+4);
+    const lbl = `${deviation >= 0 ? '+' : ''}${deviation.toFixed(1)}°`;
+    octx.font = 'bold 13px monospace';
+    const tw = octx.measureText(lbl).width + 14;
+    const bx2 = cx + Math.sin(rad) * 55 + 14, by2 = cy - Math.cos(rad) * 55;
+    octx.fillStyle = lineColor;
+    octx.beginPath(); octx.roundRect(bx2 - tw / 2, by2 - 11, tw, 20, 4); octx.fill();
+    octx.fillStyle = 'white'; octx.fillText(lbl, bx2 - tw / 2 + 7, by2 + 4);
   };
 
   useEffect(() => {
     if (streaming && showPlumb) {
-      const loop = () => { analyseFrame(); timerRef.current=window.setTimeout(loop,125) as unknown as number; };
-      timerRef.current = window.setTimeout(loop,125) as unknown as number;
+      const loop = () => { analyseFrame(); timerRef.current = window.setTimeout(loop, 125) as unknown as number; };
+      timerRef.current = window.setTimeout(loop, 125) as unknown as number;
     } else {
       if (timerRef.current) clearTimeout(timerRef.current);
     }
@@ -193,55 +462,82 @@ function CameraView({ camera, onAngleChange, onRename, onRemove }: {
     setError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }, audio: false,
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
       });
-      if (videoRef.current) { videoRef.current.srcObject=stream; await videoRef.current.play(); setStreaming(true); }
-    } catch (e: any) { setError(e.message||'Camera access denied'); }
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); setStreaming(true); }
+    } catch (e: any) { setError(e.message || 'Camera access denied'); }
   };
 
   const stopCamera = () => {
-    if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t=>t.stop());
-    if (videoRef.current) videoRef.current.srcObject=null;
+    if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+    if (videoRef.current) videoRef.current.srcObject = null;
     setStreaming(false);
+    setShowBead(false);
+    setBeadResult(null);
   };
 
   const saveLabel = () => { onRename(camera.id, label); setEditing(false); };
+
+  const showBeadPanel = showBead && (beadResult !== null || analysing);
 
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 flex-wrap gap-1">
         <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${streaming?'bg-red-500 animate-pulse':'bg-gray-300'}`}/>
+          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${streaming ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`} />
           {editing ? (
-            <input autoFocus value={label} onChange={e=>setLabel(e.target.value)}
-              onBlur={saveLabel} onKeyDown={e=>e.key==='Enter'&&saveLabel()}
-              className="text-xs font-semibold border-b border-black outline-none bg-transparent w-28"/>
+            <input autoFocus value={label} onChange={e => setLabel(e.target.value)}
+              onBlur={saveLabel} onKeyDown={e => e.key === 'Enter' && saveLabel()}
+              className="text-xs font-semibold border-b border-black outline-none bg-transparent w-28" />
           ) : (
-            <button onClick={()=>setEditing(true)} className="text-xs font-semibold text-black hover:text-black/60 truncate max-w-[120px]">
+            <button onClick={() => setEditing(true)} className="text-xs font-semibold text-black hover:text-black/60 truncate max-w-[120px]">
               {camera.label}
             </button>
           )}
-          {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">● LIVE</span>}
+          {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">LIVE</span>}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
-          {angles.map(a=>(
-            <button key={a} onClick={()=>onAngleChange(camera.id,a)}
-              className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${camera.angle===a?'bg-black text-white':'text-black/30 hover:text-black'}`}>
+          {angles.map(a => (
+            <button key={a} onClick={() => onAngleChange(camera.id, a)}
+              className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${camera.angle === a ? 'bg-black text-white' : 'text-black/30 hover:text-black'}`}>
               {a}
             </button>
           ))}
-          <button onClick={()=>setShowPlumb(v=>!v)}
-            className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>
+          {/* Align toggle */}
+          <button onClick={() => setShowPlumb(v => !v)}
+            className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb ? 'bg-black text-white' : 'text-black/30 hover:text-black border border-gray-200'}`}>
             Align
           </button>
           {showPlumb && (
             <>
-              <button onClick={()=>setAlignMode('vertical')}
-                className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode==='vertical'?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>V</button>
-              <button onClick={()=>setAlignMode('horizontal')}
-                className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode==='horizontal'?'bg-black text-white':'text-black/30 hover:text-black border border-gray-200'}`}>H</button>
+              <button onClick={() => setAlignMode('vertical')}
+                className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode === 'vertical' ? 'bg-black text-white' : 'text-black/30 hover:text-black border border-gray-200'}`}>V</button>
+              <button onClick={() => setAlignMode('horizontal')}
+                className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode === 'horizontal' ? 'bg-black text-white' : 'text-black/30 hover:text-black border border-gray-200'}`}>H</button>
             </>
+          )}
+          {/* Bead toggle — only enabled when streaming */}
+          <button
+            onClick={() => streaming && setShowBead(v => !v)}
+            disabled={!streaming}
+            className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${
+              !streaming
+                ? 'text-black/15 border border-gray-100 cursor-not-allowed'
+                : showBead
+                  ? 'bg-black text-white'
+                  : 'text-black/30 hover:text-black border border-gray-200'
+            }`}
+            title={!streaming ? 'Start camera to enable bead analysis' : 'Toggle bead analysis'}
+          >
+            Bead
+          </button>
+          {showBead && analysing && (
+            <motion.div
+              className="w-3 h-3 border border-black/40 border-t-black rounded-full"
+              animate={{ rotate: 360 }}
+              transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+            />
           )}
         </div>
       </div>
@@ -249,19 +545,39 @@ function CameraView({ camera, onAngleChange, onRename, onRemove }: {
       {/* Video */}
       <div className="relative bg-black aspect-video flex items-center justify-center">
         <video ref={videoRef} autoPlay playsInline muted
-          className={`absolute inset-0 w-full h-full object-cover ${streaming?'block':'hidden'}`}/>
-        <canvas ref={canvasRef} className="hidden"/>
+          className={`absolute inset-0 w-full h-full object-cover ${streaming ? 'block' : 'hidden'}`} />
+        {/* Hidden canvases */}
+        <canvas ref={canvasRef} className="hidden" />
+        <canvas ref={captureRef} className="hidden" />
+        {/* Plumb overlay canvas */}
         <canvas ref={overlayRef}
-          className={`absolute inset-0 w-full h-full z-10 ${streaming&&showPlumb?'block':'hidden'}`}/>
-        {streaming && !showPlumb && (
+          className={`absolute inset-0 w-full h-full z-10 ${streaming && showPlumb ? 'block' : 'hidden'}`} />
+
+        {/* Bead analysis overlay */}
+        {streaming && showBead && (
+          <BeadOverlay analysis={beadResult} analysing={analysing} />
+        )}
+
+        {streaming && !showPlumb && !showBead && (
           <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded-lg z-10">
             <span className="text-[9px] text-white/70 font-mono uppercase">{camera.angle} view</span>
           </div>
         )}
+
+        {/* Bead mode label */}
+        {streaming && showBead && (
+          <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2 py-0.5 bg-black/70 rounded-lg">
+            <span className="text-[9px] text-white/70 font-mono uppercase">Bead Analysis</span>
+            {beadResult && (
+              <span className="text-[9px] font-mono text-white/40">· {beadResult.timestamp}</span>
+            )}
+          </div>
+        )}
+
         {!streaming && (
           <div className="text-center z-10 px-4">
             <svg className="w-8 h-8 text-white/20 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
             {error && <p className="text-red-400 text-[10px] mb-2">{error}</p>}
             <button onClick={startCamera}
@@ -278,7 +594,11 @@ function CameraView({ camera, onAngleChange, onRename, onRemove }: {
         )}
       </div>
 
-      {showPlumb && <PlumbIndicator angle={liveAngle}/>}
+      {/* Plumb indicator */}
+      {showPlumb && <PlumbIndicator angle={liveAngle} />}
+
+      {/* Bead status panel */}
+      {showBeadPanel && <BeadStatusPanel analysis={beadResult} />}
     </div>
   );
 }
@@ -286,10 +606,10 @@ function CameraView({ camera, onAngleChange, onRename, onRemove }: {
 // ── Defect Detection ──────────────────────────────────────────────────────────
 const DEFECT_CLASSES = ['Cracking', 'Delamination', 'Over-extrusion', 'Under-extrusion', 'Layer Shift', 'Void'];
 
-function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info'|'warn'|'error') => void }) {
+function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info' | 'warn' | 'error') => void }) {
   const [image,   setImage]   = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [results, setResults] = useState<{label:string; confidence:number; detected:boolean}[] | null>(null);
+  const [results, setResults] = useState<{ label: string; confidence: number; detected: boolean }[] | null>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -298,20 +618,20 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
     onAlert('Defect analysis running…', 'info');
     try {
       const form = new FormData(); form.append('file', file);
-      const res = await fetch(`${API}/detect`, { method:'POST', body:form });
+      const res = await fetch(`${API}/detect`, { method: 'POST', body: form });
       if (res.ok) {
         const data = await res.json();
         setResults(data.detections ?? data.results ?? []);
-        const found = (data.detections??[]).filter((d:any)=>d.detected);
-        onAlert(found.length>0?`Detected: ${found.map((d:any)=>d.label).join(', ')}`:'No defects detected', found.length>0?'error':'info');
+        const found = (data.detections ?? []).filter((d: any) => d.detected);
+        onAlert(found.length > 0 ? `Detected: ${found.map((d: any) => d.label).join(', ')}` : 'No defects detected', found.length > 0 ? 'error' : 'info');
       } else {
-        const sim = DEFECT_CLASSES.map(label=>({label, confidence:Math.random(), detected:Math.random()>0.75}));
+        const sim = DEFECT_CLASSES.map(label => ({ label, confidence: Math.random(), detected: Math.random() > 0.75 }));
         setResults(sim);
-        const found = sim.filter(d=>d.detected);
-        onAlert(found.length>0?`Detected: ${found.map(d=>d.label).join(', ')}`:'No defects detected', found.length>0?'error':'info');
+        const found = sim.filter(d => d.detected);
+        onAlert(found.length > 0 ? `Detected: ${found.map(d => d.label).join(', ')}` : 'No defects detected', found.length > 0 ? 'error' : 'info');
       }
     } catch {
-      const sim = DEFECT_CLASSES.map(label=>({label, confidence:Math.random(), detected:Math.random()>0.75}));
+      const sim = DEFECT_CLASSES.map(label => ({ label, confidence: Math.random(), detected: Math.random() > 0.75 }));
       setResults(sim);
     }
     setRunning(false);
@@ -324,18 +644,18 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
           <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Input Image</h3>
           <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 bg-black text-white text-[11px] font-semibold rounded-xl hover:bg-black/80 transition-all">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
             Upload Image
-            <input type="file" accept="image/*" className="hidden" onChange={handleUpload}/>
+            <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
           </label>
         </div>
         <div className="aspect-video bg-gray-50 flex items-center justify-center relative">
-          {image ? <img src={image} alt="input" className="w-full h-full object-contain"/> : (
+          {image ? <img src={image} alt="input" className="w-full h-full object-contain" /> : (
             <div className="text-center">
               <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
                 <svg className="w-6 h-6 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </div>
               <p className="text-xs text-black/30">Upload a layer image to analyse</p>
@@ -345,7 +665,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
             <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
               <div className="text-center">
                 <motion.div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full mx-auto mb-2"
-                  animate={{rotate:360}} transition={{duration:0.8,repeat:Infinity,ease:'linear'}}/>
+                  animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
                 <p className="text-white text-xs font-semibold">Running YOLOv8…</p>
               </div>
             </div>
@@ -358,28 +678,28 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
           <p className="text-[10px] text-black/30 mt-0.5">YOLOv8 Nano · 22 defect classes · trained on 3DCP dataset</p>
         </div>
         <div className="p-5">
-          {!results&&!running&&<div className="text-center py-12 text-black/25 text-xs">Upload an image to see results</div>}
+          {!results && !running && <div className="text-center py-12 text-black/25 text-xs">Upload an image to see results</div>}
           {results && (
             <div className="space-y-3">
-              {results.map((r,i)=>(
-                <motion.div key={i} initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.05}}
-                  className={`flex items-center justify-between p-3 rounded-xl border ${r.detected?'bg-red-50 border-red-200':'bg-gray-50 border-gray-100'}`}>
+              {results.map((r, i) => (
+                <motion.div key={i} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+                  className={`flex items-center justify-between p-3 rounded-xl border ${r.detected ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100'}`}>
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.detected?'bg-red-500':'bg-emerald-500'}`}/>
-                    <span className={`text-xs font-semibold truncate ${r.detected?'text-red-700':'text-black'}`}>{r.label}</span>
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.detected ? 'bg-red-500' : 'bg-emerald-500'}`} />
+                    <span className={`text-xs font-semibold truncate ${r.detected ? 'text-red-700' : 'text-black'}`}>{r.label}</span>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <div className="hidden sm:block w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${r.detected?'bg-red-500':'bg-emerald-500'}`} style={{width:`${r.confidence*100}%`}}/>
+                      <div className={`h-full rounded-full ${r.detected ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${r.confidence * 100}%` }} />
                     </div>
-                    <span className={`text-[10px] font-mono font-bold ${r.detected?'text-red-600':'text-black/40'}`}>{(r.confidence*100).toFixed(1)}%</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${r.detected?'bg-red-100 text-red-700':'bg-emerald-100 text-emerald-700'}`}>{r.detected?'DETECTED':'CLEAR'}</span>
+                    <span className={`text-[10px] font-mono font-bold ${r.detected ? 'text-red-600' : 'text-black/40'}`}>{(r.confidence * 100).toFixed(1)}%</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${r.detected ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{r.detected ? 'DETECTED' : 'CLEAR'}</span>
                   </div>
                 </motion.div>
               ))}
-              <div className={`mt-4 p-3 rounded-xl ${results.some(r=>r.detected)?'bg-red-50 border border-red-200':'bg-emerald-50 border border-emerald-200'}`}>
-                <p className={`text-xs font-bold ${results.some(r=>r.detected)?'text-red-700':'text-emerald-700'}`}>
-                  {results.some(r=>r.detected)?`⚠ ${results.filter(r=>r.detected).length} defect(s) detected — review recommended`:'✓ Layer quality OK — no defects detected'}
+              <div className={`mt-4 p-3 rounded-xl ${results.some(r => r.detected) ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'}`}>
+                <p className={`text-xs font-bold ${results.some(r => r.detected) ? 'text-red-700' : 'text-emerald-700'}`}>
+                  {results.some(r => r.detected) ? `${results.filter(r => r.detected).length} defect(s) detected — review recommended` : 'Layer quality OK — no defects detected'}
                 </p>
               </div>
             </div>
@@ -394,15 +714,15 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
 function PrinterPositionGrid({ paused }: { paused: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const posRef    = useRef({ x: 0.1, y: 0.1 });
-  const pathRef   = useRef<{x:number;y:number}[]>([]);
+  const pathRef   = useRef<{ x: number; y: number }[]>([]);
   const animRef   = useRef<number | null>(null);
   const tRef      = useRef(0);
 
   const DEMO_PATH = (() => {
-    const pts: {x:number;y:number}[] = [];
+    const pts: { x: number; y: number }[] = [];
     for (let l = 0; l < 3; l++) {
       const m = 0.08 + l * 0.04;
-      pts.push({x:m,y:m},{x:1-m,y:m},{x:1-m,y:1-m},{x:m,y:1-m},{x:m,y:m});
+      pts.push({ x: m, y: m }, { x: 1 - m, y: m }, { x: 1 - m, y: 1 - m }, { x: m, y: 1 - m }, { x: m, y: m });
     }
     return pts;
   })();
@@ -416,39 +736,39 @@ function PrinterPositionGrid({ paused }: { paused: boolean }) {
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d')!;
       ctx.clearRect(0, 0, w, h);
-      const cols=12, rows=8;
-      ctx.strokeStyle='rgba(0,0,0,0.06)'; ctx.lineWidth=0.5;
-      for (let i=0;i<=cols;i++){ctx.beginPath();ctx.moveTo(i/cols*w,0);ctx.lineTo(i/cols*w,h);ctx.stroke();}
-      for (let i=0;i<=rows;i++){ctx.beginPath();ctx.moveTo(0,i/rows*h);ctx.lineTo(w,i/rows*h);ctx.stroke();}
+      const cols = 12, rows = 8;
+      ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 0.5;
+      for (let i = 0; i <= cols; i++) { ctx.beginPath(); ctx.moveTo(i / cols * w, 0); ctx.lineTo(i / cols * w, h); ctx.stroke(); }
+      for (let i = 0; i <= rows; i++) { ctx.beginPath(); ctx.moveTo(0, i / rows * h); ctx.lineTo(w, i / rows * h); ctx.stroke(); }
       if (!paused) {
-        tRef.current+=0.004;
-        const total=DEMO_PATH.length-1, seg=Math.floor(tRef.current%total), frac=(tRef.current%total)-seg;
-        const a=DEMO_PATH[seg%DEMO_PATH.length], b=DEMO_PATH[(seg+1)%DEMO_PATH.length];
-        posRef.current={x:a.x+(b.x-a.x)*frac, y:a.y+(b.y-a.y)*frac};
-        pathRef.current.push({...posRef.current});
-        if(pathRef.current.length>400) pathRef.current.shift();
+        tRef.current += 0.004;
+        const total = DEMO_PATH.length - 1, seg = Math.floor(tRef.current % total), frac = (tRef.current % total) - seg;
+        const a = DEMO_PATH[seg % DEMO_PATH.length], b = DEMO_PATH[(seg + 1) % DEMO_PATH.length];
+        posRef.current = { x: a.x + (b.x - a.x) * frac, y: a.y + (b.y - a.y) * frac };
+        pathRef.current.push({ ...posRef.current });
+        if (pathRef.current.length > 400) pathRef.current.shift();
       }
-      if (pathRef.current.length>1) {
-        ctx.beginPath(); ctx.moveTo(pathRef.current[0].x*w,pathRef.current[0].y*h);
-        for(let i=1;i<pathRef.current.length;i++) ctx.lineTo(pathRef.current[i].x*w,pathRef.current[i].y*h);
-        ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.stroke();
+      if (pathRef.current.length > 1) {
+        ctx.beginPath(); ctx.moveTo(pathRef.current[0].x * w, pathRef.current[0].y * h);
+        for (let i = 1; i < pathRef.current.length; i++) ctx.lineTo(pathRef.current[i].x * w, pathRef.current[i].y * h);
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.stroke();
       }
-      const nx=posRef.current.x*w, ny=posRef.current.y*h;
-      const grd=ctx.createRadialGradient(nx,ny,0,nx,ny,18);
-      grd.addColorStop(0,'rgba(0,0,0,0.15)'); grd.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(nx,ny,18,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(nx,ny,5,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(nx,ny,2.5,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=0.75; ctx.setLineDash([3,3]);
-      ctx.beginPath(); ctx.moveTo(nx,0); ctx.lineTo(nx,h); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,ny); ctx.lineTo(w,ny); ctx.stroke();
+      const nx = posRef.current.x * w, ny = posRef.current.y * h;
+      const grd = ctx.createRadialGradient(nx, ny, 0, nx, ny, 18);
+      grd.addColorStop(0, 'rgba(0,0,0,0.15)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(nx, ny, 18, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(nx, ny, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(nx, ny, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.75; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(nx, 0); ctx.lineTo(nx, h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, ny); ctx.lineTo(w, ny); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.font='bold 9px monospace';
-      ctx.fillText(`X:${(posRef.current.x*100).toFixed(1)}% Y:${(posRef.current.y*100).toFixed(1)}%`,nx+8,ny-6);
-      animRef.current=requestAnimationFrame(draw);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.font = 'bold 9px monospace';
+      ctx.fillText(`X:${(posRef.current.x * 100).toFixed(1)}% Y:${(posRef.current.y * 100).toFixed(1)}%`, nx + 8, ny - 6);
+      animRef.current = requestAnimationFrame(draw);
     };
-    animRef.current=requestAnimationFrame(draw);
-    return ()=>{ if(animRef.current) cancelAnimationFrame(animRef.current); };
+    animRef.current = requestAnimationFrame(draw);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [paused]);
 
   return (
@@ -459,12 +779,12 @@ function PrinterPositionGrid({ paused }: { paused: boolean }) {
           <p className="text-[9px] text-black/25 mt-0.5">Overhead view — live XY tracking</p>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-black animate-pulse"/>
+          <div className="w-1.5 h-1.5 rounded-full bg-black animate-pulse" />
           <span className="text-[9px] font-mono text-black/40">DEMO</span>
         </div>
       </div>
       <div className="p-3">
-        <canvas ref={canvasRef} className="w-full rounded-xl bg-gray-50" style={{height:140}}/>
+        <canvas ref={canvasRef} className="w-full rounded-xl bg-gray-50" style={{ height: 140 }} />
         <div className="flex justify-between mt-2 px-1">
           <span className="text-[8px] text-black/25 font-mono">0,0</span>
           <span className="text-[8px] text-black/25 font-mono">Print bed</span>
@@ -475,80 +795,175 @@ function PrinterPositionGrid({ paused }: { paused: boolean }) {
   );
 }
 
+// ── Bead Event Log ────────────────────────────────────────────────────────────
+function BeadEventLog({ entries }: { entries: BeadAnalysis[] }) {
+  if (entries.length === 0) return null;
+
+  const severityDot = (s: BeadSeverity) => {
+    if (s === 'high')   return 'bg-red-500';
+    if (s === 'medium') return 'bg-amber-400';
+    if (s === 'low')    return 'bg-amber-300';
+    return 'bg-emerald-400';
+  };
+
+  const verdictColor: Record<BeadVerdict, string> = {
+    straight: 'text-emerald-700',
+    deviated: 'text-amber-700',
+    defect:   'text-red-700',
+    unclear:  'text-black/40',
+  };
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Bead Analysis Log</h3>
+        <span className="text-[9px] font-mono text-black/30">{entries.length} reading{entries.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div className="divide-y divide-gray-50 max-h-52 overflow-y-auto">
+        {entries.map((e, i) => (
+          <div key={i} className="flex items-start gap-3 px-4 py-2.5">
+            <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
+              <div className={`w-1.5 h-1.5 rounded-full ${severityDot(e.severity)}`} />
+              <span className="text-[9px] font-mono text-black/30">{e.timestamp}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[10px] font-bold uppercase ${verdictColor[e.verdict]}`}>
+                  {e.verdict}
+                </span>
+                {e.angle_deviation !== 0 && (
+                  <span className="text-[10px] font-mono text-black/40">
+                    {e.angle_deviation > 0 ? '+' : ''}{e.angle_deviation.toFixed(1)}°
+                  </span>
+                )}
+                {e.defect_type !== 'none' && (
+                  <span className="text-[10px] text-red-600 capitalize">{e.defect_type.replace('-', ' ')}</span>
+                )}
+                <span className="text-[9px] text-black/25">{e.cameraLabel}</span>
+              </div>
+              {e.description && (
+                <p className="text-[10px] text-black/40 mt-0.5 truncate">{e.description}</p>
+              )}
+            </div>
+            <div className="flex-shrink-0 text-[9px] font-mono text-black/20">{e.confidence}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function LiveMonitoring() {
   const router = useRouter();
   const { activeProject, updateProject } = useProjects();
-  const sessionRef = useRef({ layersPrinted:0, errorsDetected:0, alerts:[] as ReportAlert[] });
+  const sessionRef = useRef({ layersPrinted: 0, errorsDetected: 0, alerts: [] as ReportAlert[] });
   const tickRef    = useRef<NodeJS.Timeout | null>(null);
 
-  const [activeTab,   setActiveTab]   = useState<Tab>('monitor');
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [elapsed,     setElapsed]     = useState(0);
-  const [alertLog,    setAlertLog]    = useState<{time:string;msg:string;level:'info'|'warn'|'error'}[]>([]);
-  const [controls,    setControls]    = useState<PrinterControl>({ printSpeed:60, extrusionRate:100, pumpPressure:4.2, paused:false });
-
-  // ── Starts with NO cameras ─────────────────────────────────────────────────
-  const [cameras, setCameras] = useState<Camera[]>([]);
+  const [activeTab,    setActiveTab]    = useState<Tab>('monitor');
+  const [showConfirm,  setShowConfirm]  = useState(false);
+  const [elapsed,      setElapsed]      = useState(0);
+  const [alertLog,     setAlertLog]     = useState<AlertEntry[]>([]);
+  const [beadLog,      setBeadLog]      = useState<BeadAnalysis[]>([]);
+  const [activeAlert,  setActiveAlert]  = useState<BeadAnalysis | null>(null);
+  const [controls,     setControls]     = useState<PrinterControl>({ printSpeed: 60, extrusionRate: 100, pumpPressure: 4.2, paused: false });
+  const [cameras,      setCameras]      = useState<Camera[]>([]);
 
   const [sensors] = useState<SensorReading[]>([
-    { label:'Ambient Temp',    value:'—', unit:'°C',    status:'ok', trend:'stable', history:[] },
-    { label:'Humidity',        value:'—', unit:'%',     status:'ok', trend:'stable', history:[] },
-    { label:'Wind Speed',      value:'—', unit:'km/h',  status:'ok', trend:'stable', history:[] },
-    { label:'Flow Rate',       value:'—', unit:'L/min', status:'ok', trend:'stable', history:[] },
-    { label:'Pump Pressure',   value:'—', unit:'bar',   status:'ok', trend:'stable', history:[] },
-    { label:'Concrete Temp',   value:'—', unit:'°C',    status:'ok', trend:'stable', history:[] },
-    { label:'Pot Life Left',   value:'—', unit:'min',   status:'ok', trend:'stable', history:[] },
-    { label:'Mix Consistency', value:'—', unit:'%',     status:'ok', trend:'stable', history:[] },
+    { label: 'Ambient Temp',    value: '—', unit: '°C',    status: 'ok', trend: 'stable', history: [] },
+    { label: 'Humidity',        value: '—', unit: '%',     status: 'ok', trend: 'stable', history: [] },
+    { label: 'Wind Speed',      value: '—', unit: 'km/h',  status: 'ok', trend: 'stable', history: [] },
+    { label: 'Flow Rate',       value: '—', unit: 'L/min', status: 'ok', trend: 'stable', history: [] },
+    { label: 'Pump Pressure',   value: '—', unit: 'bar',   status: 'ok', trend: 'stable', history: [] },
+    { label: 'Concrete Temp',   value: '—', unit: '°C',    status: 'ok', trend: 'stable', history: [] },
+    { label: 'Pot Life Left',   value: '—', unit: 'min',   status: 'ok', trend: 'stable', history: [] },
+    { label: 'Mix Consistency', value: '—', unit: '%',     status: 'ok', trend: 'stable', history: [] },
   ]);
 
   useEffect(() => {
-    tickRef.current = setInterval(() => setElapsed(s=>s+1), 1000);
-    return ()=>{ if(tickRef.current) clearInterval(tickRef.current); };
+    tickRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
   }, []);
 
-  const addAlert = useCallback((msg:string, level:'info'|'warn'|'error'='info')=>{
-    const time=new Date().toLocaleTimeString();
-    setAlertLog(prev=>[{time,msg,level},...prev.slice(0,19)]);
-    if(level!=='info') sessionRef.current.alerts.push({time,layer:sessionRef.current.layersPrinted,message:msg});
-  },[]);
+  const addAlert = useCallback((msg: string, level: 'info' | 'warn' | 'error' = 'info') => {
+    const time = new Date().toLocaleTimeString();
+    setAlertLog(prev => [{ time, msg, level }, ...prev.slice(0, 49)]);
+    if (level !== 'info') sessionRef.current.alerts.push({ time, layer: sessionRef.current.layersPrinted, message: msg });
+  }, []);
 
-  const updateControl=(key:keyof PrinterControl, val:number|boolean)=>{
-    setControls(prev=>({...prev,[key]:val}));
-    if(key!=='paused') addAlert(`${key} set to ${val}`,'info');
+  // ── Bead analysis callbacks ───────────────────────────────────────────────
+  const handleBeadLog = useCallback((analysis: BeadAnalysis) => {
+    setBeadLog(prev => [analysis, ...prev.slice(0, 99)]);
+
+    // Log to system log
+    const level: 'info' | 'warn' | 'error' =
+      analysis.severity === 'high'   ? 'error' :
+      analysis.severity === 'medium' ? 'warn'  : 'info';
+
+    const msg = analysis.verdict === 'unclear'
+      ? `Bead analysis unclear — ${analysis.cameraLabel}`
+      : `Bead [${analysis.cameraLabel}]: ${analysis.verdict}${analysis.angle_deviation !== 0 ? ` ${analysis.angle_deviation > 0 ? '+' : ''}${analysis.angle_deviation.toFixed(1)}°` : ''}${analysis.defect_type !== 'none' ? ` · ${analysis.defect_type}` : ''}`;
+
+    addAlert(msg, level);
+
+    // Save high-severity to project report alerts
+    if (analysis.severity === 'high') {
+      sessionRef.current.errorsDetected += 1;
+      sessionRef.current.alerts.push({
+        time:    analysis.timestamp,
+        layer:   sessionRef.current.layersPrinted,
+        message: `[Bead] ${analysis.description}`,
+      });
+    }
+  }, [addAlert]);
+
+  const handleBeadAlert = useCallback((analysis: BeadAnalysis) => {
+    setActiveAlert(analysis);
+  }, []);
+
+  const updateControl = (key: keyof PrinterControl, val: number | boolean) => {
+    setControls(prev => ({ ...prev, [key]: val }));
+    if (key !== 'paused') addAlert(`${key} set to ${val}`, 'info');
   };
 
-  const addCamera    = ()=>{ const id=String(Date.now()); setCameras(prev=>[...prev,{id,label:`Camera ${prev.length+1}`,angle:'front',active:true}]); };
-  const removeCamera = (id:string)=>setCameras(prev=>prev.filter(c=>c.id!==id));
-  const updateAngle  = (id:string,angle:Camera['angle'])=>setCameras(prev=>prev.map(c=>c.id===id?{...c,angle}:c));
-  const renameCamera = (id:string,label:string)=>setCameras(prev=>prev.map(c=>c.id===id?{...c,label}:c));
+  const addCamera    = () => { const id = String(Date.now()); setCameras(prev => [...prev, { id, label: `Camera ${prev.length + 1}`, angle: 'front', active: true }]); };
+  const removeCamera = (id: string) => setCameras(prev => prev.filter(c => c.id !== id));
+  const updateAngle  = (id: string, angle: Camera['angle']) => setCameras(prev => prev.map(c => c.id === id ? { ...c, angle } : c));
+  const renameCamera = (id: string, label: string) => setCameras(prev => prev.map(c => c.id === id ? { ...c, label } : c));
 
-  const fmtElapsed=()=>{
-    const h=Math.floor(elapsed/3600),m=Math.floor((elapsed%3600)/60),s=elapsed%60;
-    return h>0?`${h}h ${m}m`:`${m}m ${String(s).padStart(2,'0')}s`;
+  const fmtElapsed = () => {
+    const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m ${String(s).padStart(2, '0')}s`;
   };
 
-  const endPrint=()=>{
-    if(!activeProject) return;
-    const s=sessionRef.current;
-    const h=Math.floor(elapsed/3600),m=Math.floor((elapsed%3600)/60);
-    const report:ProjectReport={
-      generatedAt:new Date().toISOString(), duration:h>0?`${h}h ${m}m`:`${m}m`,
-      totalLayers:activeProject.totalLayers, layersPrinted:s.layersPrinted,
-      errorsDetected:s.errorsDetected,
-      errorRate:activeProject.totalLayers>0?`${((s.errorsDetected/activeProject.totalLayers)*100).toFixed(1)}%`:'0%',
-      alerts:s.alerts, printerName:activeProject.printer.name, structureType:activeProject.structureType,
+  const endPrint = () => {
+    if (!activeProject) return;
+    const s = sessionRef.current;
+    const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60);
+    const report: ProjectReport = {
+      generatedAt:    new Date().toISOString(), duration: h > 0 ? `${h}h ${m}m` : `${m}m`,
+      totalLayers:    activeProject.totalLayers, layersPrinted: s.layersPrinted,
+      errorsDetected: s.errorsDetected,
+      errorRate:      activeProject.totalLayers > 0 ? `${((s.errorsDetected / activeProject.totalLayers) * 100).toFixed(1)}%` : '0%',
+      alerts:         s.alerts, printerName: activeProject.printer.name, structureType: activeProject.structureType,
     };
-    updateProject(activeProject.id,{status:'complete',report});
+    updateProject(activeProject.id, { status: 'complete', report });
     router.push('/report');
   };
 
-  const keySensors = sensors.slice(0,4);
+  const keySensors = sensors.slice(0, 4);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-6">
-      <AppNav currentStep="monitor"/>
+      <AppNav currentStep="monitor" />
       <style>{`footer{display:none!important}`}</style>
+
+      {/* ── High severity alert banner ── */}
+      <AnimatePresence>
+        {activeAlert && (
+          <AlertBanner analysis={activeAlert} onDismiss={() => setActiveAlert(null)} />
+        )}
+      </AnimatePresence>
 
       {/* ── Top bar ── */}
       <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sticky top-14 z-20">
@@ -556,25 +971,30 @@ export default function LiveMonitoring() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <motion.div className="w-2 h-2 rounded-full bg-emerald-500"
-                animate={{opacity:controls.paused?1:[1,0.3,1]}} transition={{duration:1.2,repeat:Infinity}}/>
-              <span className="text-sm font-semibold">{controls.paused?'Paused':'Printing'}</span>
+                animate={{ opacity: controls.paused ? 1 : [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }} />
+              <span className="text-sm font-semibold">{controls.paused ? 'Paused' : 'Printing'}</span>
             </div>
             <span className="text-xs font-mono text-black/40 hidden sm:block">{fmtElapsed()}</span>
-            {activeProject&&<span className="text-xs text-black/40 hidden md:block truncate max-w-[160px]">{activeProject.printer.name||'—'}</span>}
+            {activeProject && <span className="text-xs text-black/40 hidden md:block truncate max-w-[160px]">{activeProject.printer.name || '—'}</span>}
+            {beadLog.length > 0 && (
+              <span className="text-[10px] font-mono text-black/30 hidden sm:block">
+                {beadLog.length} bead scan{beadLog.length !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
-            {(['monitor','sensors','defects'] as Tab[]).map(t=>(
-              <button key={t} onClick={()=>setActiveTab(t)}
-                className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${activeTab===t?'bg-black text-white':'text-black/40 hover:text-black hover:bg-gray-100'}`}>
-                {t==='monitor'?'Monitor':t==='sensors'?'Sensors':'Defects'}
+            {(['monitor', 'sensors', 'defects'] as Tab[]).map(t => (
+              <button key={t} onClick={() => setActiveTab(t)}
+                className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${activeTab === t ? 'bg-black text-white' : 'text-black/40 hover:text-black hover:bg-gray-100'}`}>
+                {t === 'monitor' ? 'Monitor' : t === 'sensors' ? 'Sensors' : 'Defects'}
               </button>
             ))}
-            <div className="w-px h-4 bg-gray-200"/>
-            <button onClick={()=>updateControl('paused',!controls.paused)}
+            <div className="w-px h-4 bg-gray-200" />
+            <button onClick={() => updateControl('paused', !controls.paused)}
               className="px-2.5 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
-              {controls.paused?'Resume':'Pause'}
+              {controls.paused ? 'Resume' : 'Pause'}
             </button>
-            <button onClick={()=>setShowConfirm(true)}
+            <button onClick={() => setShowConfirm(true)}
               className="px-2.5 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
               End Print
             </button>
@@ -586,11 +1006,11 @@ export default function LiveMonitoring() {
         <AnimatePresence mode="wait">
 
           {/* ── Monitor tab ── */}
-          {activeTab==='monitor' && (
-            <motion.div key="monitor" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+          {activeTab === 'monitor' && (
+            <motion.div key="monitor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="grid grid-cols-1 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_320px] gap-6">
 
-              {/* Left — cameras + log */}
+              {/* Left — cameras + logs */}
               <div className="space-y-4">
                 <div className={`grid gap-4 ${
                   cameras.length === 0 ? 'grid-cols-1' :
@@ -598,10 +1018,17 @@ export default function LiveMonitoring() {
                   cameras.length <= 2  ? 'grid-cols-1 sm:grid-cols-2' :
                   cameras.length <= 4  ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
                 }`}>
-                  {cameras.map(cam=>(
+                  {cameras.map(cam => (
                     <div key={cam.id} className="relative group">
-                      <CameraView camera={cam} onAngleChange={updateAngle} onRename={renameCamera} onRemove={removeCamera}/>
-                      <button onClick={()=>removeCamera(cam.id)}
+                      <CameraView
+                        camera={cam}
+                        onAngleChange={updateAngle}
+                        onRename={renameCamera}
+                        onRemove={removeCamera}
+                        onBeadAlert={handleBeadAlert}
+                        onBeadLog={handleBeadLog}
+                      />
+                      <button onClick={() => removeCamera(cam.id)}
                         className="absolute top-10 right-2 w-5 h-5 bg-black/70 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-red-600 z-20">
                         ×
                       </button>
@@ -618,13 +1045,16 @@ export default function LiveMonitoring() {
                   </button>
                 </div>
 
+                {/* Bead event log */}
+                {beadLog.length > 0 && <BeadEventLog entries={beadLog} />}
+
                 {/* System log */}
                 <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">System Log</h3>
                   <div className="space-y-1 max-h-28 overflow-y-auto">
-                    {alertLog.length===0&&<p className="text-xs text-black/25 text-center py-3">No events</p>}
-                    {alertLog.map((a,i)=>(
-                      <div key={i} className={`flex gap-2 px-2 py-1 rounded-lg text-[11px] ${a.level==='error'?'bg-red-50 text-red-700':a.level==='warn'?'bg-amber-50 text-amber-700':'bg-gray-50 text-black/50'}`}>
+                    {alertLog.length === 0 && <p className="text-xs text-black/25 text-center py-3">No events</p>}
+                    {alertLog.map((a, i) => (
+                      <div key={i} className={`flex gap-2 px-2 py-1 rounded-lg text-[11px] ${a.level === 'error' ? 'bg-red-50 text-red-700' : a.level === 'warn' ? 'bg-amber-50 text-amber-700' : 'bg-gray-50 text-black/50'}`}>
                         <span className="font-mono opacity-50 flex-shrink-0">{a.time}</span>
                         <span className="truncate">{a.msg}</span>
                       </div>
@@ -635,30 +1065,30 @@ export default function LiveMonitoring() {
 
               {/* Right — controls + sensors */}
               <div className="space-y-4">
-                <PrinterPositionGrid paused={controls.paused}/>
+                <PrinterPositionGrid paused={controls.paused} />
 
                 <div className="bg-black rounded-2xl p-5 shadow-sm">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-4">Printer Control</h3>
                   <div className="space-y-5">
                     {[
-                      {label:'Print Speed',    key:'printSpeed'    as const, min:10,  max:150, step:5,   unit:' mm/s', warn:controls.printSpeed>120},
-                      {label:'Extrusion Rate', key:'extrusionRate' as const, min:50,  max:150, step:5,   unit:'%',     warn:controls.extrusionRate>130},
-                      {label:'Pump Pressure',  key:'pumpPressure'  as const, min:1,   max:10,  step:0.1, unit:' bar',  warn:controls.pumpPressure>8},
-                    ].map(s=>{
-                      const pct=((controls[s.key] as number-s.min)/(s.max-s.min))*100;
+                      { label: 'Print Speed',    key: 'printSpeed'    as const, min: 10,  max: 150, step: 5,   unit: ' mm/s', warn: controls.printSpeed > 120 },
+                      { label: 'Extrusion Rate', key: 'extrusionRate' as const, min: 50,  max: 150, step: 5,   unit: '%',     warn: controls.extrusionRate > 130 },
+                      { label: 'Pump Pressure',  key: 'pumpPressure'  as const, min: 1,   max: 10,  step: 0.1, unit: ' bar',  warn: controls.pumpPressure > 8 },
+                    ].map(s => {
+                      const pct = ((controls[s.key] as number - s.min) / (s.max - s.min)) * 100;
                       return (
                         <div key={s.key} className="space-y-1.5">
                           <div className="flex justify-between">
                             <span className="text-xs font-medium text-white/60">{s.label}</span>
                             <div className="flex items-center gap-1">
-                              {s.warn&&<span className="text-[9px] text-amber-400">⚠</span>}
+                              {s.warn && <span className="text-[9px] text-amber-400">!</span>}
                               <span className="text-xs font-bold font-mono text-white">{controls[s.key]}{s.unit}</span>
                             </div>
                           </div>
                           <input type="range" min={s.min} max={s.max} step={s.step} value={controls[s.key] as number}
-                            onChange={e=>updateControl(s.key,Number(e.target.value))}
+                            onChange={e => updateControl(s.key, Number(e.target.value))}
                             className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                            style={{background:`linear-gradient(to right,#fff ${pct}%,rgba(255,255,255,0.15) ${pct}%)`}}/>
+                            style={{ background: `linear-gradient(to right,#fff ${pct}%,rgba(255,255,255,0.15) ${pct}%)` }} />
                           <div className="flex justify-between text-[9px] text-white/25">
                             <span>{s.min}{s.unit}</span><span>{s.max}{s.unit}</span>
                           </div>
@@ -668,16 +1098,16 @@ export default function LiveMonitoring() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-5">
                     {[
-                      {label:'Home',  action:()=>addAlert('Homing nozzle…')},
-                      {label:'Purge', action:()=>addAlert('Purge started')},
-                      {label:'Prime', action:()=>addAlert('Priming pump…')},
-                    ].map((btn,i)=>(
+                      { label: 'Home',  action: () => addAlert('Homing nozzle…') },
+                      { label: 'Purge', action: () => addAlert('Purge started') },
+                      { label: 'Prime', action: () => addAlert('Priming pump…') },
+                    ].map((btn, i) => (
                       <button key={i} onClick={btn.action}
                         className="py-2 text-[11px] font-semibold rounded-xl border border-white/20 text-white hover:bg-white/10 transition-all">
                         {btn.label}
                       </button>
                     ))}
-                    <button onClick={()=>{updateControl('paused',true);addAlert('EMERGENCY STOP','error');}}
+                    <button onClick={() => { updateControl('paused', true); addAlert('EMERGENCY STOP', 'error'); }}
                       className="py-2 text-[11px] font-semibold rounded-xl bg-red-600 text-white hover:bg-red-700 transition-all">
                       E-Stop
                     </button>
@@ -687,22 +1117,22 @@ export default function LiveMonitoring() {
                 <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Live Sensors</h3>
-                    <button onClick={()=>setActiveTab('sensors')} className="text-[10px] text-black/30 hover:text-black">View all →</button>
+                    <button onClick={() => setActiveTab('sensors')} className="text-[10px] text-black/30 hover:text-black">View all →</button>
                   </div>
                   <div className="space-y-3">
-                    {keySensors.map((s,i)=>(
+                    {keySensors.map((s, i) => (
                       <div key={i} className="bg-black rounded-xl p-3 flex items-center justify-between">
                         <div>
                           <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40 mb-0.5">{s.label}</p>
                           <div className="flex items-baseline gap-1">
-                            <span className={`font-bold text-white ${s.value==='—'?'text-sm text-white/30':'text-lg'}`}>{s.value}</span>
-                            {s.value!=='—' && <span className="text-[10px] text-white/40">{s.unit}</span>}
+                            <span className={`font-bold text-white ${s.value === '—' ? 'text-sm text-white/30' : 'text-lg'}`}>{s.value}</span>
+                            {s.value !== '—' && <span className="text-[10px] text-white/40">{s.unit}</span>}
                           </div>
-                          {s.value==='—' && <p className="text-[8px] text-white/20 mt-0.5">No sensor connected</p>}
+                          {s.value === '—' && <p className="text-[8px] text-white/20 mt-0.5">No sensor connected</p>}
                         </div>
                         <div className="flex flex-col items-end gap-1">
-                          <div className={`w-1.5 h-1.5 rounded-full ${s.value==='—'?'bg-white/20':s.status==='ok'?'bg-emerald-400 animate-pulse':s.status==='warn'?'bg-amber-400 animate-pulse':'bg-red-400 animate-pulse'}`}/>
-                          {s.history.length > 1 && <Sparkline data={s.history} color={s.status==='ok'?'#4ade80':s.status==='warn'?'#fbbf24':'#f87171'}/>}
+                          <div className={`w-1.5 h-1.5 rounded-full ${s.value === '—' ? 'bg-white/20' : s.status === 'ok' ? 'bg-emerald-400 animate-pulse' : s.status === 'warn' ? 'bg-amber-400 animate-pulse' : 'bg-red-400 animate-pulse'}`} />
+                          {s.history.length > 1 && <Sparkline data={s.history} color={s.status === 'ok' ? '#4ade80' : s.status === 'warn' ? '#fbbf24' : '#f87171'} />}
                         </div>
                       </div>
                     ))}
@@ -713,27 +1143,27 @@ export default function LiveMonitoring() {
           )}
 
           {/* ── Sensors tab ── */}
-          {activeTab==='sensors' && (
-            <motion.div key="sensors" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-6">
+          {activeTab === 'sensors' && (
+            <motion.div key="sensors" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
               {[
-                {title:'Environmental',   items:sensors.slice(0,3)},
-                {title:'Flow & Pressure', items:sensors.slice(3,5)},
-                {title:'Mix & Material',  items:sensors.slice(5,8)},
-              ].map(group=>(
+                { title: 'Environmental',   items: sensors.slice(0, 3) },
+                { title: 'Flow & Pressure', items: sensors.slice(3, 5) },
+                { title: 'Mix & Material',  items: sensors.slice(5, 8) },
+              ].map(group => (
                 <div key={group.title}>
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">{group.title}</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                    {group.items.map((s,i)=>(
+                    {group.items.map((s, i) => (
                       <div key={i} className="bg-black rounded-2xl p-4">
                         <div className="flex justify-between mb-2">
                           <p className="text-[9px] font-semibold uppercase tracking-wide text-white/40">{s.label}</p>
-                          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${s.status==='ok'?'bg-emerald-400':s.status==='warn'?'bg-amber-400':'bg-red-400'}`}/>
+                          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${s.status === 'ok' ? 'bg-emerald-400' : s.status === 'warn' ? 'bg-amber-400' : 'bg-red-400'}`} />
                         </div>
                         <div className="flex items-baseline gap-1 mb-2">
                           <span className="text-xl sm:text-2xl font-bold text-white">{s.value}</span>
                           <span className="text-xs text-white/40">{s.unit}</span>
                         </div>
-                        <Sparkline data={s.history} color={s.status==='ok'?'#4ade80':s.status==='warn'?'#fbbf24':'#f87171'} width={80}/>
+                        <Sparkline data={s.history} color={s.status === 'ok' ? '#4ade80' : s.status === 'warn' ? '#fbbf24' : '#f87171'} width={80} />
                       </div>
                     ))}
                     <button className="bg-white border-2 border-dashed border-gray-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-black transition-all group min-h-[100px]">
@@ -747,9 +1177,9 @@ export default function LiveMonitoring() {
           )}
 
           {/* ── Defects tab ── */}
-          {activeTab==='defects' && (
-            <motion.div key="defects" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
-              <DefectDetectionPanel onAlert={addAlert}/>
+          {activeTab === 'defects' && (
+            <motion.div key="defects" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <DefectDetectionPanel onAlert={addAlert} />
             </motion.div>
           )}
 
@@ -759,14 +1189,14 @@ export default function LiveMonitoring() {
       {/* ── End print confirm ── */}
       <AnimatePresence>
         {showConfirm && (
-          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-            <motion.div initial={{scale:0.95}} animate={{scale:1}} exit={{scale:0.95}}
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
               className="bg-white rounded-2xl p-6 sm:p-8 max-w-sm w-full shadow-2xl">
               <h3 className="text-base font-bold text-black mb-2">End print session?</h3>
               <p className="text-sm text-black/40 mb-6">This will generate your report and mark the project as complete.</p>
               <div className="flex gap-3">
-                <button onClick={()=>setShowConfirm(false)}
+                <button onClick={() => setShowConfirm(false)}
                   className="flex-1 py-2.5 text-sm font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
                 <button onClick={endPrint}
                   className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/80">
