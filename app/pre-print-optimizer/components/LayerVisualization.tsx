@@ -470,8 +470,8 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
   // Height ≈ layerHeight (vertical) — typically 0.6× nozzle diameter
   // Shape: squashed ellipse — flat bottom (compressed on prev layer), rounded dome top
   // Width-to-height ratio ~2.5:1 matches real COBOD prints
-  const beadW = nozzleDiameter;           // full nozzle width
-  const beadH = layerHeight * 1.35;       // 35% taller than layer spacing → guaranteed overlap, no gaps
+  const beadW = nozzleDiameter;
+  const beadH = layerHeight * 1.6; // tall enough that top of bead reaches next layer center
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
@@ -517,7 +517,9 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
       const nx = -dz / len;  // across-bead normal (width direction)
       const nz =  dx / len;
       const vb = i * vertsPerSeg;
-      const y0 = s.s[1];     // layer centre Y
+      // Shift bead down by 30% of beadH so bottom rests on previous layer
+      // and top dome overlaps into the next layer — eliminates visible gaps
+      const y0 = s.s[1] - beadH * 0.15;
 
       for (let p = 0; p < PROFILE; p++) {
         const across = px[p];
