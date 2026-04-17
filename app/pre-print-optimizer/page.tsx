@@ -336,8 +336,46 @@ export default function PrePrintOptimizer() {
   };
 
   const beginPrint = () => {
-    if (!activeProject) return;
-    updateProject(activeProject.id, { status:'printing', totalLayers, printSpeed });
+    if (!activeProject || !result) return;
+    updateProject(activeProject.id, {
+      status:      'printing',
+      totalLayers,
+      printSpeed,
+      report: {
+        // existing
+        generatedAt:    new Date().toISOString(),
+        duration:       result.estimated_print_time ?? '—',
+        totalLayers:    result.geometry.num_layers,
+        layersPrinted:  0,
+        errorsDetected: 0,
+        errorRate:      '0%',
+        alerts:         [],
+        printerName:    activeProject.printer.name ?? '—',
+        printerModel:   activeProject.printer.type ?? '—',
+        structureType:  activeProject.structureType ?? '—',
+        // new fields for report page
+        printStartedAt:  new Date().toISOString(),
+        materialName:    parameters.cementMix,
+        batchNumber:     parameters.batchNumber || '—',
+        gcodeLines:      result.gcode_lines,
+        gcodeRef:        `autobuild_${result.result_id?.slice(0,8) ?? 'unknown'}.gcode`,
+        totalSegments:   result.optimization.total_segments,
+        layerHeight:     result.printer?.layer_height_mm ?? '—',
+        nozzle:          result.printer?.nozzle_mm ?? '—',
+        travelSaved:     result.optimization.time_saved_pct,
+        computedIn:      result.elapsed_seconds,
+        envRisk:         result.optimization.env_risk_score,
+        conditions: {
+          temperature: parameters.temperature,
+          humidity:    parameters.humidity,
+          windSpeed:   parameters.windSpeed,
+        },
+        events: [
+          { time: new Date().toISOString(), label: 'Print started',        type: 'info' },
+          { time: new Date().toISOString(), label: 'G-code sent to printer', type: 'info' },
+        ],
+      },
+    });
     router.push('/live-monitoring');
   };
 
