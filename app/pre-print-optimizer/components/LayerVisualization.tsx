@@ -465,14 +465,24 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  const beadW = (nozzleDiameter ?? layerHeight * 1.67) * 0.88;
-  const beadH = layerHeight * 1.5;
+  // Real 3DCP bead cross-section:
+  // Width ≈ nozzle diameter (horizontal)
+  // Height ≈ layerHeight (vertical) — typically 0.6× nozzle diameter
+  // Shape: squashed ellipse — flat bottom (compressed on prev layer), rounded dome top
+  // Width-to-height ratio ~2.5:1 matches real COBOD prints
+  const beadW = nozzleDiameter;           // full nozzle width
+  const beadH = layerHeight * 1.05;       // just over layer spacing — ensures zero gaps
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
     if (total === 0) return null;
 
-    const PROFILE = 6;
+    // 10-point elliptical profile — smooth oval cross-section
+    // Sampled from a squashed ellipse: x = hw·cos(θ), y = hh·sin(θ)
+    // θ goes from π (left) to 0 (right) across the top (dome)
+    // and 0 to -π across the flat bottom
+    // Bottom is slightly flattened to simulate compression on previous layer
+    const PROFILE  = 10;
     const vertsPerSeg = PROFILE * 2;
     const trisPerSeg  = (PROFILE - 1) * 2;
     const idxPerSeg   = trisPerSeg * 3;
@@ -480,11 +490,24 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     const positions = new Float32Array(total * vertsPerSeg * 3);
     const indices   = new Uint32Array(total * idxPerSeg);
 
-    const hw = beadW * 0.5;
-    const h  = beadH;
+    const hw = beadW * 0.5;   // half-width
+    const hh = beadH * 0.5;   // half-height
 
-    const px = [-hw, -hw, -hw * 0.95, hw * 0.95, hw, hw];
-    const py = [-h * 0.5, h * 0.35, h * 0.5, h * 0.5, h * 0.35, -h * 0.5];
+    // Build profile points — ellipse sampled at PROFILE points
+    // Bottom flattened by 20% to simulate compression
+    const px: number[] = [];
+    const py: number[] = [];
+    for (let k = 0; k < PROFILE; k++) {
+      // θ: from -π/2 (bottom-left) going CCW to -π/2 (bottom-right)
+      // i.e. full ellipse, starting bottom-left, going up left side, over top, down right side
+      const theta = Math.PI + (k / (PROFILE - 1)) * Math.PI; // π to 2π (bottom-left to bottom-right via top)
+      const x = hw * Math.cos(theta);
+      let   y = hh * Math.sin(theta);
+      // Flatten bottom: compress downward half by 20%
+      if (y < 0) y *= 0.8;
+      px.push(x);
+      py.push(y);
+    }
 
     for (let i = 0; i < total; i++) {
       const s  = allSegs[i];
@@ -493,27 +516,32 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
       const len = Math.sqrt(dx*dx + dz*dz);
       if (len < 1e-9) continue;
 
-      const nx = -dz / len;
+      const nx = -dz / len;  // across-bead normal (width direction)
       const nz =  dx / len;
       const vb = i * vertsPerSeg;
-      const y0 = s.s[1];
+      const y0 = s.s[1];     // layer centre Y
 
       for (let p = 0; p < PROFILE; p++) {
-        const across = px[p], up = py[p];
+        const across = px[p];
+        const up     = py[p];
+        // start cap
         positions[(vb + p) * 3 + 0] = s.s[0] + nx * across;
         positions[(vb + p) * 3 + 1] = y0 + up;
         positions[(vb + p) * 3 + 2] = s.s[2] + nz * across;
+        // end cap
         positions[(vb + PROFILE + p) * 3 + 0] = s.e[0] + nx * across;
         positions[(vb + PROFILE + p) * 3 + 1] = y0 + up;
         positions[(vb + PROFILE + p) * 3 + 2] = s.e[2] + nz * across;
       }
 
+      // Quads connecting start to end ring
       const ib = i * idxPerSeg;
       let ti = 0;
       for (let p = 0; p < PROFILE - 1; p++) {
-        const a = vb+p, b = vb+p+1, c = vb+PROFILE+p+1, d = vb+PROFILE+p;
-        indices[ib+ti++]=a; indices[ib+ti++]=b; indices[ib+ti++]=c;
-        indices[ib+ti++]=a; indices[ib+ti++]=c; indices[ib+ti++]=d;
+        const a = vb + p,         b = vb + p + 1;
+        const c = vb + PROFILE + p + 1, d = vb + PROFILE + p;
+        indices[ib + ti++] = a; indices[ib + ti++] = b; indices[ib + ti++] = c;
+        indices[ib + ti++] = a; indices[ib + ti++] = c; indices[ib + ti++] = d;
       }
     }
 
@@ -526,7 +554,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
 
   useEffect(() => {
     if (!fullGeo) return;
-    const idxPerSeg = (6 - 1) * 2 * 3;
+    const idxPerSeg = (10 - 1) * 2 * 3; // 54
     if (progress >= 1) {
       fullGeo.setDrawRange(0, Infinity);
     } else {
@@ -538,21 +566,19 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     <group>
       {fullGeo && (
         <mesh geometry={fullGeo}>
-          <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} side={THREE.DoubleSide}/>
+          <meshStandardMaterial
+            color={pathColor}
+            roughness={0.88}
+            metalness={0.0}
+            side={THREE.DoubleSide}
+          />
         </mesh>
       )}
+      {/* Nozzle indicator */}
       <group position={nozzle}>
-        <mesh rotation={[-Math.PI/2,0,0]}>
-          <ringGeometry args={[beadW*0.6, beadW*1.2, 24]}/>
-          <meshBasicMaterial color={pathColor} transparent opacity={0.4}/>
-        </mesh>
         <mesh>
-          <sphereGeometry args={[beadW*0.5, 16, 16]}/>
-          <meshBasicMaterial color="#ffffff"/>
-        </mesh>
-        <mesh position={[0, -beadH*0.5, 0]}>
-          <sphereGeometry args={[beadW*0.3, 10, 10]}/>
-          <meshBasicMaterial color={pathColor} transparent opacity={0.9}/>
+          <sphereGeometry args={[beadW * 0.4, 12, 12]}/>
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.8}/>
         </mesh>
       </group>
     </group>
