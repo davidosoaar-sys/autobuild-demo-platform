@@ -331,14 +331,14 @@ function ModelMeshInner({ geo, obj, opacity, scale, enableTransform, transformMo
   const meshRef = useRef<THREE.Mesh>(null);
   const grpRef  = useRef<THREE.Group>(null);
 
+  // STL geometry is pre-grounded (bottom at Y=0) — no Box3 needed
+  // OBJ: ground it once on load
   useEffect(() => {
-    if (!wrapRef.current) return;
+    if (!obj || !wrapRef.current) return;
     wrapRef.current.position.y = 0;
     const box = new THREE.Box3().setFromObject(wrapRef.current);
-    if (box.min.y < 0) {
-      wrapRef.current.position.y = -box.min.y;
-    }
-  }, [geo, obj, scale]);
+    if (box.min.y < 0) wrapRef.current.position.y = -box.min.y;
+  }, [obj, scale]);
 
   const clonedObj = useMemo(() => {
     if (!obj) return null;
@@ -360,7 +360,7 @@ function ModelMeshInner({ geo, obj, opacity, scale, enableTransform, transformMo
     <>
       <group ref={wrapRef} scale={[scale, scale, scale]}>
         {geo && (
-          <mesh ref={meshRef} geometry={geo} castShadow receiveShadow rotation={[-Math.PI/2,0,0]}>
+          <mesh ref={meshRef} geometry={geo} castShadow receiveShadow>
             <meshStandardMaterial color="#ddd8d0" roughness={0.82} metalness={0.04} transparent opacity={opacity} />
           </mesh>
         )}
@@ -394,7 +394,18 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
     setGeo(null); setObj(null);
     if (fileExt === 'stl') {
       import('three/examples/jsm/loaders/STLLoader.js').then(({ STLLoader }) => {
-        new STLLoader().load(fileUrl, g => { g.computeVertexNormals(); g.center(); setGeo(g); });
+        new STLLoader().load(fileUrl, g => {
+          g.computeVertexNormals();
+          // Don't use g.center() — it fights with grounding logic
+          // Instead translate so geometry sits exactly on Y=0
+          g.computeBoundingBox();
+          const box = g.boundingBox!;
+          const cx = (box.min.x + box.max.x) / 2;
+          const cy = box.min.y; // bottom of model
+          const cz = (box.min.z + box.max.z) / 2;
+          g.translate(-cx, -cy, -cz); // center X/Z, lift bottom to Y=0
+          setGeo(g);
+        });
       });
     } else {
       import('three/examples/jsm/loaders/OBJLoader.js').then(({ OBJLoader }) => {

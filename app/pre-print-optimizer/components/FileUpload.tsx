@@ -10,23 +10,33 @@ export interface SiteDimensions {
   slope:  number;
 }
 
+export interface ModelDimensions {
+  x: number;
+  y: number;
+  z: number;
+}
+
 interface FileUploadProps {
   file:                 File | null;
   onFileChange:         (file: File | null) => void;
   onSiteChange?:        (site: SiteDimensions) => void;
   onSitePlanParsed?:    (data: SitePlanData) => void;
   onScaleChange?:       (scale: number) => void;
+  onDimensionsChange?:  (dims: ModelDimensions) => void;
   printScale?:          number;
 }
 
 const PRESET_SCALES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 export default function FileUpload({
-  file, onFileChange, onSiteChange, onSitePlanParsed, onScaleChange, printScale = 1.0,
+  file, onFileChange, onSiteChange, onSitePlanParsed,
+  onScaleChange, onDimensionsChange, printScale = 1.0,
 }: FileUploadProps) {
   const [site,        setSite]        = React.useState<SiteDimensions>({ width: 0, length: 0, slope: 0 });
   const [customScale, setCustomScale] = React.useState('');
   const [useCustom,   setUseCustom]   = React.useState(false);
+  const [dims,        setDims]        = React.useState<ModelDimensions>({ x: 0, y: 0, z: 0 });
+  const [showDims,    setShowDims]    = React.useState(false);
 
   const updateSite = (key: keyof SiteDimensions, raw: string) => {
     const val     = parseFloat(raw) || 0;
@@ -35,12 +45,15 @@ export default function FileUpload({
     onSiteChange?.(updated);
   };
 
+  const updateDim = (key: keyof ModelDimensions, raw: string) => {
+    const val     = parseFloat(raw) || 0;
+    const updated = { ...dims, [key]: val };
+    setDims(updated);
+    onDimensionsChange?.(updated);
+  };
+
   const handleSitePlanParsed = (data: SitePlanData) => {
-    const updated: SiteDimensions = {
-      width:  data.width,
-      length: data.length,
-      slope:  site.slope,
-    };
+    const updated: SiteDimensions = { width: data.width, length: data.length, slope: site.slope };
     setSite(updated);
     onSiteChange?.(updated);
     onSitePlanParsed?.(data);
@@ -55,12 +68,12 @@ export default function FileUpload({
   const handleCustomScale = (raw: string) => {
     setCustomScale(raw);
     const v = parseFloat(raw);
-    if (v > 0 && v <= 10) {
-      onScaleChange?.(parseFloat(v.toFixed(3)));
-    }
+    if (v > 0 && v <= 10) onScaleChange?.(parseFloat(v.toFixed(3)));
   };
 
-  const onDropModel = useCallback((f: File[]) => { if (f.length) onFileChange(f[0]); }, [onFileChange]);
+  const onDropModel = useCallback((f: File[]) => {
+    if (f.length) { onFileChange(f[0]); setShowDims(true); }
+  }, [onFileChange]);
 
   const { getRootProps: getModelProps, getInputProps: getModelInput, isDragActive: isDragModel } = useDropzone({
     onDrop: onDropModel,
@@ -75,14 +88,15 @@ export default function FileUpload({
     maxFiles: 1,
   });
 
+  const fileExt = file ? file.name.split('.').pop()?.toUpperCase() : null;
   const scaledW = site.width  > 0 ? (site.width  * printScale).toFixed(2) : null;
   const scaledL = site.length > 0 ? (site.length * printScale).toFixed(2) : null;
-  const fileExt = file ? file.name.split('.').pop()?.toUpperCase() : null;
+  const hasDims = dims.x > 0 || dims.y > 0 || dims.z > 0;
 
   return (
     <div className="space-y-4">
 
-      {/* 3D Model */}
+      {/* ── 3D Model ── */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-5 pt-5">
           <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-4">
@@ -95,8 +109,7 @@ export default function FileUpload({
             <div {...getModelProps()}
               className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
                 isDragModel ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-black hover:bg-gray-50'
-              }`}
-            >
+              }`}>
               <input {...getModelInput()} />
               <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center mx-auto mb-3">
                 <svg className="w-5 h-5 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -110,133 +123,148 @@ export default function FileUpload({
             </div>
           </div>
         ) : (
-          <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center flex-shrink-0">
-                <span className="text-[9px] font-bold text-white uppercase">{fileExt}</span>
+          <>
+            {/* File info row */}
+            <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center flex-shrink-0">
+                  <span className="text-[9px] font-bold text-white uppercase">{fileExt}</span>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-black truncate max-w-[160px]">{file.name}</p>
+                  <p className="text-[10px] text-black/40">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs font-medium text-black truncate max-w-[160px]">{file.name}</p>
-                <p className="text-[10px] text-black/40">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-              </div>
-            </div>
-            <button
-              {...(getModelProps() as any)}
-              onClick={() => onFileChange(null)}
-              className="text-xs text-black/30 hover:text-black border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
-            >
-              Replace
-            </button>
-            <input {...getModelInput()} />
-          </div>
-        )}
-
-        {/* Print Scale */}
-        {file && (
-          <div className="px-5 pb-5 border-t border-gray-100 pt-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-black">
-                Print Scale
-                <span className="ml-1.5 text-[10px] text-black/30 font-normal">
-                  — scales the actual geometry, not just the view
-                </span>
-              </label>
-              <span className="text-xs font-bold text-black font-mono">{printScale.toFixed(2)}×</span>
-            </div>
-
-            <div className="flex items-center gap-1.5 mb-2">
-              {PRESET_SCALES.map(s => (
-                <button key={s} onClick={() => handlePresetScale(s)}
-                  className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${
-                    !useCustom && printScale === s
-                      ? 'bg-black text-white border-black'
-                      : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
-                  }`}>
-                  {s}×
-                </button>
-              ))}
-              <button onClick={() => setUseCustom(true)}
-                className={`px-2 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${
-                  useCustom ? 'bg-black text-white border-black' : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
-                }`}>
-                Custom
+              <button
+                onClick={() => { onFileChange(null); setShowDims(false); setDims({ x:0, y:0, z:0 }); }}
+                className="text-xs text-black/30 hover:text-black border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
+                Replace
               </button>
             </div>
 
-            {useCustom && (
-              <div className="flex items-center gap-2 mb-2">
-                <input type="number" min={0.1} max={10} step={0.05}
-                  placeholder="e.g. 1.75" value={customScale}
-                  onChange={e => handleCustomScale(e.target.value)}
-                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl outline-none focus:border-black text-black placeholder:text-black/20"
-                  autoFocus/>
-                <span className="text-xs text-black/40">×</span>
-              </div>
-            )}
-
-            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-              {printScale === 1.0 ? (
-                <p className="text-[10px] text-black/40">Original size — all dimensions as modelled</p>
-              ) : (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] text-black/60 font-medium">
-                    Scaled {printScale}× — all geometry, segments, and time estimates adjust
+            {/* ── Real-world Dimensions ── */}
+            <div className="px-5 py-4 border-t border-gray-100">
+              <button onClick={() => setShowDims(v => !v)}
+                className="flex items-center justify-between w-full mb-1">
+                <div>
+                  <p className="text-xs font-medium text-black text-left">Real-world Dimensions</p>
+                  <p className="text-[10px] text-black/30 text-left mt-0.5">
+                    {hasDims ? `${dims.x}m × ${dims.y}m × ${dims.z}m` : 'Set actual building size in metres'}
                   </p>
-                  {(scaledW || scaledL) && (
-                    <p className="text-[10px] text-black/40">
-                      Site footprint: {scaledW ?? '—'}m × {scaledL ?? '—'}m
-                    </p>
+                </div>
+                <svg className={`w-4 h-4 text-black/30 transition-transform ${showDims ? 'rotate-180' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </button>
+
+              {showDims && (
+                <div className="space-y-3 mt-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { key: 'x' as const, label: 'Width (m)',  placeholder: 'e.g. 7.3' },
+                      { key: 'y' as const, label: 'Depth (m)',  placeholder: 'e.g. 5.8' },
+                      { key: 'z' as const, label: 'Height (m)', placeholder: 'e.g. 3.0' },
+                    ]).map(f => (
+                      <div key={f.key}>
+                        <input type="number" min={0} step={0.01}
+                          placeholder={f.placeholder}
+                          value={dims[f.key] || ''}
+                          onChange={e => updateDim(f.key, e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/20"/>
+                        <p className="text-[10px] text-black/30 mt-1">{f.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {hasDims && (
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-[10px] text-emerald-600 font-medium">
+                        {dims.x}m × {dims.y}m × {dims.z}m — displayed in 3D viewer overlay
+                      </p>
+                    </div>
                   )}
-                  <p className="text-[10px] text-black/40">
-                    Print time scales by {printScale.toFixed(2)}× · Material volume scales by {(printScale ** 3).toFixed(2)}×
+                  <p className="text-[10px] text-black/30 leading-relaxed">
+                    If your STL was modelled in mm, enter actual real-world metres here. Use Print Scale below to resize the geometry.
                   </p>
                 </div>
               )}
             </div>
-          </div>
+
+            {/* ── Print Scale ── */}
+            <div className="px-5 pb-5 border-t border-gray-100 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-medium text-black">
+                  Print Scale
+                  <span className="ml-1.5 text-[10px] text-black/30 font-normal">
+                    — scales geometry, segments and time
+                  </span>
+                </label>
+                <span className="text-xs font-bold text-black font-mono">{printScale.toFixed(2)}×</span>
+              </div>
+
+              <div className="flex items-center gap-1.5 mb-2">
+                {PRESET_SCALES.map(s => (
+                  <button key={s} onClick={() => handlePresetScale(s)}
+                    className={`flex-1 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${
+                      !useCustom && printScale === s
+                        ? 'bg-black text-white border-black'
+                        : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
+                    }`}>
+                    {s}×
+                  </button>
+                ))}
+                <button onClick={() => setUseCustom(true)}
+                  className={`px-2 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${
+                    useCustom ? 'bg-black text-white border-black' : 'text-black/50 border-gray-200 hover:border-black hover:text-black'
+                  }`}>
+                  Custom
+                </button>
+              </div>
+
+              {useCustom && (
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="number" min={0.1} max={10} step={0.05}
+                    placeholder="e.g. 1.75" value={customScale}
+                    onChange={e => handleCustomScale(e.target.value)}
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-xl outline-none focus:border-black text-black placeholder:text-black/20"
+                    autoFocus/>
+                  <span className="text-xs text-black/40">×</span>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                {printScale === 1.0 ? (
+                  <p className="text-[10px] text-black/40">Original size — all dimensions as modelled</p>
+                ) : (
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] text-black/60 font-medium">
+                      Scaled {printScale}× — geometry, segments and time estimates adjust
+                    </p>
+                    {(scaledW || scaledL) && (
+                      <p className="text-[10px] text-black/40">
+                        Site footprint: {scaledW ?? '—'}m × {scaledL ?? '—'}m
+                      </p>
+                    )}
+                    <p className="text-[10px] text-black/40">
+                      Material volume scales by {(printScale ** 3).toFixed(2)}×
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         )}
       </div>
 
-      {/* Site Details */}
+      {/* ── Site Plan ── */}
       <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-4">
-          Site Details
+        <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-1">
+          Site Plan
         </h2>
-        <div className="mb-5">
-          <label className="text-xs font-medium text-black mb-2 block">
-            Site Dimensions
-            <span className="text-black/30 font-normal ml-1.5">— updates the 3D environment</span>
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <input type="number" placeholder="Width" min={0}
-                value={site.width || ''}
-                onChange={e => updateSite('width', e.target.value)}
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/20"/>
-              <p className="text-[10px] text-black/30 mt-1">Width (m)</p>
-            </div>
-            <div>
-              <input type="number" placeholder="Length" min={0}
-                value={site.length || ''}
-                onChange={e => updateSite('length', e.target.value)}
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/20"/>
-              <p className="text-[10px] text-black/30 mt-1">Length (m)</p>
-            </div>
-          </div>
-          {(site.width > 0 || site.length > 0) && (
-            <p className="text-[10px] text-emerald-600 mt-2">
-              Site set to {site.width}m × {site.length}m — 3D view will update
-            </p>
-          )}
-        </div>
-        <div>
-          <label className="text-xs font-medium text-black mb-2 block">
-            Site Plan
-            <span className="ml-1.5 text-[10px] text-black/30 font-normal">— AI reads dimensions and road position</span>
-          </label>
-          <SitePlanReader onSitePlanParsed={handleSitePlanParsed}/>
-        </div>
+        <p className="text-[10px] text-black/30 mb-4">AI reads dimensions and road position from your drawing</p>
+        <SitePlanReader onSitePlanParsed={handleSitePlanParsed}/>
       </div>
+
     </div>
   );
 }
