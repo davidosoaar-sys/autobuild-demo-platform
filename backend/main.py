@@ -283,6 +283,8 @@ async def optimize_endpoint(
             max(LAYER_HEIGHT_MIN_M,
                 min(LAYER_HEIGHT_MAX_M, (nozzle_diameter_mm * bead_compression) / 1000.0))
         )
+    print(f"[DEBUG] nozzle={nozzle_diameter_mm}mm bead={bead_compression} => layer_height={layer_height_m*1000:.1f}mm", flush=True)
+
     # ── Weather schedule ──────────────────────────────────────────────────────
     weather_sched: WeatherSchedule
 
@@ -412,6 +414,7 @@ async def optimize_endpoint(
         "toolpath":               toolpath_json,
         "gcode_lines":            len(gcode_str.splitlines()),
         "gcode_preview":          "\n".join(gcode_str.splitlines()[:40]),
+        "gcode_full":             gcode_str,
         "layer_stats": [
             {
                 "layer":            lm["index"],

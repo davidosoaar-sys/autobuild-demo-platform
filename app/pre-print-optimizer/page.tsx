@@ -38,7 +38,7 @@ interface OptimizeResult {
   weather?:  WeatherInfo;
   optimization: OptInfo;
   toolpath: { x0: number; y0: number; x1: number; y1: number }[][];
-  gcode_lines: number; gcode_preview: string;
+  gcode_lines: number; gcode_preview: string; gcode_full?: string;
   layer_stats?: LayerStat[];
   estimated_print_time?: string;
   estimated_print_time_s?: number;
@@ -321,34 +321,18 @@ export default function PrePrintOptimizer() {
     }
   };
 
-  const downloadGCode = async (ext: 'txt' | 'gcode' = 'gcode') => {
+  const downloadGCode = (ext: 'gcode' | 'txt') => {
     if (!result) return;
-    try {
-      const res = await fetch(`${API}/gcode/${result.result_id}`);
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const t = await res.text();
-      const blob = new Blob([t], { type: 'text/plain' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `autobuild_${result.result_id.slice(0, 8)}.${ext}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e: any) {
-      // Fallback — download gcode_preview if endpoint fails
-      const t    = result.gcode_preview ?? '';
-      const blob = new Blob([t], { type: 'text/plain' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `autobuild_preview.${ext}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
+    const content = result.gcode_full ?? result.gcode_preview ?? '';
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `autobuild_${result.result_id.slice(0, 8)}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const beginPrint = () => {
@@ -685,15 +669,20 @@ export default function PrePrintOptimizer() {
 
               {/* Actions */}
               <div className="px-4 pb-4 pt-3 border-t border-white/8 flex-shrink-0 space-y-2">
-                <div className="flex gap-2">
-                  <button onClick={()=>downloadGCode('gcode')}
-                    className="flex-1 py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
-                    .gcode
+                <div className="relative group">
+                  <button className="w-full py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
+                    Download G-code ↓
                   </button>
-                  <button onClick={()=>downloadGCode('txt')}
-                    className="flex-1 py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
-                    .txt
-                  </button>
+                  <div className="absolute bottom-full left-0 right-0 mb-1 hidden group-hover:flex flex-col gap-1 z-50">
+                    <button onClick={()=>downloadGCode('gcode')}
+                      className="w-full py-2 text-xs font-medium rounded-xl border border-white/15 text-white bg-black/90 hover:bg-white/10 transition-all backdrop-blur-md">
+                      Download .gcode
+                    </button>
+                    <button onClick={()=>downloadGCode('txt')}
+                      className="w-full py-2 text-xs font-medium rounded-xl border border-white/15 text-white bg-black/90 hover:bg-white/10 transition-all backdrop-blur-md">
+                      Download .txt
+                    </button>
+                  </div>
                 </div>
                 <AnimatePresence mode="wait">
                   {showConfirm ? (
