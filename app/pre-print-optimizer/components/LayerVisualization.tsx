@@ -438,19 +438,11 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
-        const dx = seg.x1 - seg.x0;
-        const dy = seg.y1 - seg.y0;
-        const minLen = nozzleDiameter * 0.4;
-        if (dx * dx + dy * dy < minLen * minLen) return;
-        out.push({
-          s: [seg.x0, y, -seg.y0],
-          e: [seg.x1, y, -seg.y1],
-          layer: li,
-        });
+        out.push({ s:[seg.x0, y, -seg.y0], e:[seg.x1, y, -seg.y1], layer: li });
       });
     });
     return out;
-  }, [toolpath, layerHeight, nozzleDiameter]);
+  }, [toolpath, layerHeight]);
 
   if (allSegs.length === 0) return null;
 
@@ -465,88 +457,71 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
   ];
 
-  // Real 3DCP bead cross-section:
-  // Width ≈ nozzle diameter (horizontal)
-  // Height ≈ layerHeight (vertical) — typically 0.6× nozzle diameter
-  // Shape: squashed ellipse — flat bottom (compressed on prev layer), rounded dome top
-  // Width-to-height ratio ~2.5:1 matches real COBOD prints
-  const beadW = nozzleDiameter;
-  const beadH = layerHeight * 1.6; // tall enough that top of bead reaches next layer center
+  // Bead dimensions — proven working values
+  // beadW wider than nozzle so adjacent beads touch; beadH > layerHeight to close gaps
+  const lhMM  = layerHeight;
+  const beadW = nozzleDiameter > 0 ? nozzleDiameter * 1.1 : lhMM * 1.4;
+  const beadH = lhMM * 1.8; // tall enough to fully close vertical gaps
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
     if (total === 0) return null;
 
-    // 10-point elliptical profile — smooth oval cross-section
-    // Sampled from a squashed ellipse: x = hw·cos(θ), y = hh·sin(θ)
-    // θ goes from π (left) to 0 (right) across the top (dome)
-    // and 0 to -π across the flat bottom
-    // Bottom is slightly flattened to simulate compression on previous layer
-    const PROFILE  = 10;
-    const vertsPerSeg = PROFILE * 2;
-    const trisPerSeg  = (PROFILE - 1) * 2;
-    const idxPerSeg   = trisPerSeg * 3;
-
-    const positions = new Float32Array(total * vertsPerSeg * 3);
-    const indices   = new Uint32Array(total * idxPerSeg);
-
-    const hw = beadW * 0.5;   // half-width
-    const hh = beadH * 0.5;   // half-height
-
-    // Bead cross-section: toothpaste-squeezed oval
-    // θ from 0 to 2π, x = hw·cos(θ), y = hh·sin(θ)
-    // This gives a proper ellipse: wide on X (across bead), tall on Y (up)
-    // beadH > layerSpacing so adjacent layers overlap — no gaps
-    const px: number[] = [];
-    const py: number[] = [];
-    for (let k = 0; k < PROFILE; k++) {
-      const theta = (k / (PROFILE - 1)) * Math.PI * 2; // 0 → 2π
-      px.push(hw * Math.cos(theta));
-      // Flatten bottom slightly (y<0 side) to simulate compression on previous layer
-      const sy = Math.sin(theta);
-      py.push(hh * (sy < 0 ? sy * 0.75 : sy));
-    }
+    // 8-vertex tapered box — proven bead shape:
+    // flat base at y0, slightly narrower top at y1 (ins = inset)
+    // This gives the rounded-top concrete look without complex geometry
+    const positions = new Float32Array(total * 8 * 3);
+    const normals   = new Float32Array(total * 8 * 3);
+    const indices   = new Uint32Array(total * 36);
 
     for (let i = 0; i < total; i++) {
-      const s  = allSegs[i];
-      const dx = s.e[0] - s.s[0];
-      const dz = s.e[2] - s.s[2];
+      const s   = allSegs[i];
+      const dx  = s.e[0] - s.s[0];
+      const dz  = s.e[2] - s.s[2];
       const len = Math.sqrt(dx*dx + dz*dz);
-      if (len < 1e-9) continue;
+      if (len < 0.0005) continue;
 
-      const nx = -dz / len;  // across-bead normal (width direction)
-      const nz =  dx / len;
-      const vb = i * vertsPerSeg;
-      // Shift bead down by 30% of beadH so bottom rests on previous layer
-      // and top dome overlaps into the next layer — eliminates visible gaps
-      const y0 = s.s[1] - beadH * 0.15;
+      const nx  = -dz / len;
+      const nz  =  dx / len;
+      const hw  = beadW * 0.5;
+      const y0  = s.s[1] - beadH * 0.15; // bottom — sits below layer centre
+      const y1  = s.s[1] + beadH * 0.85; // top — well above layer centre, into next layer
+      const ins = hw * 0.12;              // slight taper at crown
 
-      for (let p = 0; p < PROFILE; p++) {
-        const across = px[p];
-        const up     = py[p];
-        // start cap
-        positions[(vb + p) * 3 + 0] = s.s[0] + nx * across;
-        positions[(vb + p) * 3 + 1] = y0 + up;
-        positions[(vb + p) * 3 + 2] = s.s[2] + nz * across;
-        // end cap
-        positions[(vb + PROFILE + p) * 3 + 0] = s.e[0] + nx * across;
-        positions[(vb + PROFILE + p) * 3 + 1] = y0 + up;
-        positions[(vb + PROFILE + p) * 3 + 2] = s.e[2] + nz * across;
+      const vb = i * 8;
+      const verts: [number,number,number][] = [
+        [s.s[0]-nx*hw,       y0, s.s[2]-nz*hw],       // 0 base-left  start
+        [s.s[0]+nx*hw,       y0, s.s[2]+nz*hw],       // 1 base-right start
+        [s.e[0]+nx*hw,       y0, s.e[2]+nz*hw],       // 2 base-right end
+        [s.e[0]-nx*hw,       y0, s.e[2]-nz*hw],       // 3 base-left  end
+        [s.s[0]-nx*(hw-ins), y1, s.s[2]-nz*(hw-ins)], // 4 top-left  start
+        [s.s[0]+nx*(hw-ins), y1, s.s[2]+nz*(hw-ins)], // 5 top-right start
+        [s.e[0]+nx*(hw-ins), y1, s.e[2]+nz*(hw-ins)], // 6 top-right end
+        [s.e[0]-nx*(hw-ins), y1, s.e[2]-nz*(hw-ins)], // 7 top-left  end
+      ];
+
+      for (let v = 0; v < 8; v++) {
+        positions[(vb+v)*3+0] = verts[v][0];
+        positions[(vb+v)*3+1] = verts[v][1];
+        positions[(vb+v)*3+2] = verts[v][2];
+        normals[(vb+v)*3+1]   = v >= 4 ? 1 : -1;
       }
 
-      // Quads connecting start to end ring
-      const ib = i * idxPerSeg;
-      let ti = 0;
-      for (let p = 0; p < PROFILE - 1; p++) {
-        const a = vb + p,         b = vb + p + 1;
-        const c = vb + PROFILE + p + 1, d = vb + PROFILE + p;
-        indices[ib + ti++] = a; indices[ib + ti++] = b; indices[ib + ti++] = c;
-        indices[ib + ti++] = a; indices[ib + ti++] = c; indices[ib + ti++] = d;
-      }
+      const ib   = i * 36;
+      const tris = [
+        vb+4,vb+5,vb+6, vb+4,vb+6,vb+7, // top face
+        vb+0,vb+2,vb+1, vb+0,vb+3,vb+2, // bottom face
+        vb+0,vb+1,vb+5, vb+0,vb+5,vb+4, // front face
+        vb+2,vb+3,vb+7, vb+2,vb+7,vb+6, // back face
+        vb+3,vb+0,vb+4, vb+3,vb+4,vb+7, // left face
+        vb+1,vb+2,vb+6, vb+1,vb+6,vb+5, // right face
+      ];
+      for (let ti = 0; ti < 36; ti++) indices[ib+ti] = tris[ti];
     }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('normal',   new THREE.BufferAttribute(normals,   3));
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
     geo.computeVertexNormals();
     return geo;
@@ -554,11 +529,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
 
   useEffect(() => {
     if (!fullGeo) return;
-    const idxPerSeg = (10 - 1) * 2 * 3; // 54
     if (progress >= 1) {
       fullGeo.setDrawRange(0, Infinity);
     } else {
-      fullGeo.setDrawRange(0, (segIdx + 1) * idxPerSeg);
+      fullGeo.setDrawRange(0, (segIdx + 1) * 36);
     }
   }, [fullGeo, progress, segIdx, allSegs.length]);
 
@@ -568,23 +542,24 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
         <mesh geometry={fullGeo}>
           <meshStandardMaterial
             color={pathColor}
-            roughness={0.88}
+            roughness={0.92}
             metalness={0.0}
             side={THREE.DoubleSide}
           />
         </mesh>
       )}
-      {/* Nozzle indicator */}
       <group position={nozzle}>
         <mesh>
           <sphereGeometry args={[beadW * 0.4, 12, 12]}/>
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.8}/>
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.85}/>
         </mesh>
       </group>
     </group>
   );
 }
 
+
+// ── Camera controller ─────────────────────────────────────────────────────────
 // ── Camera controller ─────────────────────────────────────────────────────────
 
 function CameraController({ snap, site }: { snap: string|null; site: SiteDimensions }) {
