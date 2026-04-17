@@ -137,30 +137,32 @@ function LoadingOverlay({ fileName, onCancel }: { fileName:string; onCancel:()=>
   );
 }
 
-// ── Stat / Factor rows ────────────────────────────────────────────────────────
+// ── Stat row — clean minimal ──────────────────────────────────────────────────
 
-function StatRow({ label, value, highlight, delay=0 }: { label:string; value:string; highlight?:boolean; delay?:number }) {
+function StatRow({ label, value, highlight, delay=0, accent }: {
+  label:string; value:string; highlight?:boolean; delay?:number; accent?:string;
+}) {
   return (
-    <motion.div initial={{opacity:0,x:10}} animate={{opacity:1,x:0}} transition={{delay,duration:0.3}}
-      className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${highlight?'bg-white/15 border-white/20':'bg-white/5 hover:bg-white/8 border-white/5'}`}>
-      <span className={`text-[11px] ${highlight?'text-white/70':'text-white/40'}`}>{label}</span>
-      <span className={`text-[12px] font-bold font-mono ${highlight?'text-white':'text-white/80'}`}>{value}</span>
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay,duration:0.25}}
+      className="flex items-center justify-between py-2.5 border-b border-white/6 last:border-0">
+      <span className="text-[11px] text-white/35 font-medium">{label}</span>
+      <span className={`text-[12px] font-semibold font-mono ${accent ?? (highlight ? 'text-white' : 'text-white/75')}`}>{value}</span>
     </motion.div>
   );
 }
 
 function FactorRow({ label, value, impact, ok, delay=0 }: { label:string; value:string; impact:string; ok:boolean; delay?:number }) {
   return (
-    <motion.div initial={{opacity:0,y:6}} animate={{opacity:1,y:0}} transition={{delay,duration:0.3}}
-      className={`rounded-xl p-3 border ${ok?'border-white/8 bg-white/5':'border-amber-400/20 bg-amber-400/8'}`}>
-      <div className="flex items-center justify-between mb-1.5">
+    <motion.div initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} transition={{delay,duration:0.25}}
+      className="py-3 border-b border-white/6 last:border-0">
+      <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full ${ok?'bg-emerald-400':'bg-amber-400'}`}/>
-          <span className="text-[11px] font-semibold text-white">{label}</span>
+          <div className={`w-1 h-1 rounded-full ${ok?'bg-emerald-400':'bg-amber-400'}`}/>
+          <span className="text-[11px] font-medium text-white/70">{label}</span>
         </div>
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${ok?'bg-emerald-400/15 text-emerald-300':'bg-amber-400/15 text-amber-300'}`}>{value}</span>
+        <span className={`text-[10px] font-mono font-semibold ${ok?'text-emerald-400':'text-amber-400'}`}>{value}</span>
       </div>
-      <p className="text-[10px] text-white/35 leading-relaxed pl-3.5">{impact}</p>
+      <p className="text-[10px] text-white/30 leading-relaxed pl-3">{impact}</p>
     </motion.div>
   );
 }
@@ -378,19 +380,17 @@ export default function PrePrintOptimizer() {
           />
 
           {/* Header */}
-          <div className="absolute top-0 left-0 right-0 z-30 flex items-center px-4 py-1.5 gap-2"
-            style={{background:'linear-gradient(to bottom,rgba(0,0,0,0.55) 0%,transparent 100%)'}}>
+          <div className="absolute top-0 left-0 right-0 z-30 flex items-center px-4 py-2 gap-3"
+            style={{background:'linear-gradient(to bottom,rgba(0,0,0,0.6) 0%,transparent 100%)'}}>
             <button onClick={()=>setActiveTab('setup')}
-              className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-white/50 hover:text-white transition-colors rounded-lg hover:bg-white/8">
+              className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white transition-colors">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
               </svg>
               Setup
             </button>
-            <div className="w-px h-3 bg-white/15"/>
-            <span className="text-xs font-semibold text-white px-2 py-1 rounded-lg bg-white/10 border border-white/10">Results</span>
             <div className="flex-1"/>
-            <span className="text-[10px] text-white/25 font-mono hidden sm:block">{file?.name}</span>
+            <span className="text-[10px] text-white/20 font-mono truncate max-w-[180px] hidden sm:block">{file?.name}</span>
           </div>
 
           {/* Sidebar toggle */}
@@ -411,7 +411,7 @@ export default function PrePrintOptimizer() {
               style={{background:'rgba(6,6,10,0.78)',backdropFilter:'blur(24px)'}}>
 
               {/* Tabs */}
-              <div className="flex items-center p-1.5 gap-1 border-b border-white/8 flex-shrink-0">
+              <div className="flex items-center border-b border-white/8 flex-shrink-0 px-3">
                 {([
                   {id:'results' as SidebarPanel, label:'Results'},
                   {id:'layers'  as SidebarPanel, label:'Layers' },
@@ -419,12 +419,15 @@ export default function PrePrintOptimizer() {
                   {id:'scan'    as SidebarPanel, label:'Scan'   },
                 ]).map(panel=>(
                   <button key={panel.id} onClick={()=>setSidebarPanel(panel.id)}
-                    className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all relative ${
-                      sidebarPanel===panel.id?'bg-white/12 text-white border border-white/10':'text-white/35 hover:text-white/70'
+                    className={`relative py-3 px-2 text-[11px] font-medium transition-all mr-1 ${
+                      sidebarPanel===panel.id ? 'text-white' : 'text-white/30 hover:text-white/60'
                     }`}>
                     {panel.label}
+                    {sidebarPanel===panel.id && (
+                      <span className="absolute bottom-0 left-0 right-0 h-px bg-white rounded-full"/>
+                    )}
                     {panel.id==='scan' && scanBadge && (
-                      <span className={`absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full text-[8px] font-bold text-white flex items-center justify-center ${scanBadge.cls}`}>
+                      <span className={`absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 rounded-full text-[8px] font-bold text-white flex items-center justify-center ${scanBadge.cls}`}>
                         {scanBadge.txt}
                       </span>
                     )}
@@ -437,76 +440,77 @@ export default function PrePrintOptimizer() {
                 <AnimatePresence mode="wait">
 
                   {sidebarPanel==='results' && (
-                    <motion.div key="res" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="space-y-1.5">
-                      {/* Print time + finish time hero */}
-                      <motion.div initial={{opacity:0,y:6}} animate={{opacity:1,y:0}}
-                        className="rounded-xl p-3 border border-white/10 bg-white/8 mb-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] text-white/40 uppercase tracking-widest">Est. Print Time</span>
-                          <span className="text-[9px] text-white/20 font-mono">starts {weatherStart < 12 ? `${Math.floor(weatherStart)}:00 AM` : `${Math.floor(weatherStart)-12||12}:00 PM`}</span>
-                        </div>
-                        <p className="text-2xl font-bold text-white font-mono">{result.estimated_print_time ?? '—'}</p>
-                        {estFinish && (
-                          <p className="text-[10px] text-white/40 mt-1">
-                            Est. finish: <span className="text-white/70 font-semibold">{estFinish}</span>
-                          </p>
-                        )}
-                      </motion.div>
+                    <motion.div key="res" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
 
-                      {/* Weather during print */}
-                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.05}}
-                        className="rounded-xl p-3 border border-white/8 bg-white/4 mb-1">
-                        <p className="text-[9px] text-white/30 uppercase tracking-widest mb-2">Conditions During Print</p>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {[
-                            { label:'Temp', value:`${parameters.temperature}°C` },
-                            { label:'Humidity', value:`${parameters.humidity}%` },
-                            { label:'Wind', value:`${parameters.windSpeed} km/h` },
-                          ].map((s,i) => (
-                            <div key={i} className="bg-white/5 rounded-lg px-2 py-1.5 text-center">
-                              <p className="text-[8px] text-white/25 mb-0.5">{s.label}</p>
-                              <p className="text-[11px] font-bold text-white">{s.value}</p>
-                            </div>
-                          ))}
+                      {/* Hero — print time */}
+                      <div className="pt-1 pb-4 border-b border-white/8 mb-3">
+                        <p className="text-[10px] text-white/30 uppercase tracking-widest mb-1">Est. Print Time</p>
+                        <p className="text-3xl font-bold text-white tracking-tight leading-none mb-1">{result.estimated_print_time ?? '—'}</p>
+                        <div className="flex items-center gap-3 mt-2">
+                          <span className="text-[10px] text-white/30">
+                            Starts {weatherStart < 12 ? `${Math.floor(weatherStart)}:00 AM` : `${Math.floor(weatherStart)-12||12}:00 PM`}
+                          </span>
+                          {estFinish && (
+                            <>
+                              <span className="text-white/15">·</span>
+                              <span className="text-[10px] text-white/50">Finish {estFinish}</span>
+                            </>
+                          )}
                         </div>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="text-[9px] text-white/30">Env Risk</span>
-                          <span className={`text-[10px] font-bold ${
-                            result.optimization.env_risk_score < 20 ? 'text-emerald-400' :
-                            result.optimization.env_risk_score < 50 ? 'text-amber-400' : 'text-red-400'
-                          }`}>{result.optimization.env_risk_score}/100</span>
+                      </div>
+
+                      {/* Key stats — flat list */}
+                      <div className="mb-3">
+                        <StatRow label="Layers"         value={String(result.geometry.num_layers)}                            delay={0.04}/>
+                        <StatRow label="Layer Height"   value={`${result.printer?.layer_height_mm ?? '—'} mm`}                delay={0.06}/>
+                        <StatRow label="Nozzle"         value={`${result.printer?.nozzle_mm ?? '—'} mm`}                     delay={0.08}/>
+                        <StatRow label="Print Speed"    value={`${result.printer?.effective_speed ?? printSpeed} mm/s`}       delay={0.10}/>
+                        <StatRow label="Travel Saved"   value={`${result.optimization.time_saved_pct}%`} accent="text-emerald-400" delay={0.12}/>
+                        <StatRow label="Total Segments" value={String(result.optimization.total_segments)}                    delay={0.14}/>
+                        <StatRow label="G-code Lines"   value={String(result.gcode_lines)}                                    delay={0.16}/>
+                        <StatRow label="Computed In"    value={`${result.elapsed_seconds}s`}                                  delay={0.18}/>
+                      </div>
+
+                      {/* Conditions */}
+                      <div className="border-t border-white/6 pt-3 mb-3">
+                        <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">Conditions</p>
+                        <div className="space-y-0">
+                          <StatRow label="Temperature"  value={`${parameters.temperature}°C`}  delay={0.20}/>
+                          <StatRow label="Humidity"     value={`${parameters.humidity}%`}       delay={0.22}/>
+                          <StatRow label="Wind"         value={`${parameters.windSpeed} km/h`}  delay={0.24}/>
+                          <StatRow label="Env Risk"
+                            value={`${result.optimization.env_risk_score}/100`}
+                            accent={result.optimization.env_risk_score < 20 ? 'text-emerald-400' : result.optimization.env_risk_score < 50 ? 'text-amber-400' : 'text-red-400'}
+                            delay={0.26}/>
                         </div>
-                      </motion.div>
+                      </div>
 
-                      <StatRow label="Layers"         value={String(result.geometry.num_layers)}           delay={0.08}/>
-                      <StatRow label="Layer Height"   value={`${result.printer?.layer_height_mm??'—'} mm`} delay={0.10}/>
-                      <StatRow label="Nozzle"         value={`${result.printer?.nozzle_mm??'—'} mm`}       delay={0.12}/>
-                      <StatRow label="Total Segments" value={String(result.optimization.total_segments)}   delay={0.14}/>
-                      <StatRow label="Travel Saved"   value={`${result.optimization.time_saved_pct}%`}     delay={0.16}/>
-                      <StatRow label="Print Speed"    value={`${result.printer?.effective_speed??printSpeed} mm/s`} delay={0.18}/>
-                      <StatRow label="G-code Lines"   value={String(result.gcode_lines)}                   delay={0.20}/>
-                      <StatRow label="Computed In"    value={`${result.elapsed_seconds}s`}                 delay={0.22}/>
-
-                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.24}}
-                        className="rounded-xl p-3 border border-white/8 mt-2" style={{background:'rgba(255,255,255,0.04)'}}>
+                      {/* Model scale */}
+                      <div className="border-t border-white/6 pt-3 mb-3">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-[11px] text-white/50">Model Scale</span>
-                          <span className="text-[11px] font-mono font-bold text-white">{modelScale.toFixed(2)}×</span>
+                          <p className="text-[10px] text-white/25 uppercase tracking-widest">Model Scale</p>
+                          <span className="text-[11px] font-mono font-semibold text-white/60">{modelScale.toFixed(2)}×</span>
                         </div>
                         <input type="range" min={0.1} max={3.0} step={0.05} value={modelScale}
-                          onChange={e=>setModelScale(Number(e.target.value))} className="w-full accent-white mb-1"/>
-                        <div className="flex justify-between text-[9px] text-white/20"><span>0.1×</span><span>1×</span><span>3×</span></div>
-                        <button onClick={()=>setModelScale(1.0)}
-                          className="w-full mt-2 py-1 text-[10px] text-white/30 hover:text-white/60 border border-white/8 rounded-lg transition-colors">
-                          Reset to 1×
-                        </button>
-                      </motion.div>
+                          onChange={e=>setModelScale(Number(e.target.value))}
+                          className="w-full accent-white h-px mb-1"/>
+                        <div className="flex justify-between text-[9px] text-white/20 mt-1">
+                          <span>0.1×</span><span>1×</span><span>3×</span>
+                        </div>
+                        {modelScale !== 1.0 && (
+                          <button onClick={()=>setModelScale(1.0)}
+                            className="mt-2 text-[10px] text-white/25 hover:text-white/50 transition-colors">
+                            Reset to 1×
+                          </button>
+                        )}
+                      </div>
 
-                      <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.28}}
-                        className="rounded-xl p-3 border border-white/6" style={{background:'rgba(255,255,255,0.04)'}}>
-                        <p className="text-[9px] text-white/25 uppercase tracking-wider mb-1.5">G-code preview</p>
-                        <pre className="text-[9px] text-white/40 font-mono leading-relaxed overflow-x-auto max-h-20">{result.gcode_preview}</pre>
-                      </motion.div>
+                      {/* G-code preview */}
+                      <div className="border-t border-white/6 pt-3">
+                        <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">G-code Preview</p>
+                        <pre className="text-[9px] text-white/35 font-mono leading-relaxed overflow-x-auto max-h-20 scrollbar-none">{result.gcode_preview}</pre>
+                      </div>
+
                     </motion.div>
                   )}
 
@@ -672,16 +676,16 @@ export default function PrePrintOptimizer() {
               </div>
 
               {/* Actions */}
-              <div className="p-3 border-t border-white/8 flex-shrink-0 space-y-2">
+              <div className="px-4 pb-4 pt-3 border-t border-white/8 flex-shrink-0 space-y-2">
                 <button onClick={downloadGCode}
-                  className="w-full py-2.5 text-xs font-semibold rounded-xl border border-white/15 text-white/60 hover:text-white hover:border-white/30 hover:bg-white/5 transition-all">
+                  className="w-full py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
                   Download G-code
                 </button>
                 <AnimatePresence mode="wait">
                   {showConfirm ? (
                     <motion.div key="c" initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="flex gap-2">
-                      <button onClick={beginPrint} className="flex-1 py-2.5 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-colors">Confirm</button>
-                      <button onClick={()=>setShowConfirm(false)} className="flex-1 py-2.5 border border-white/12 text-white/50 text-xs font-semibold rounded-xl hover:text-white transition-colors">Cancel</button>
+                      <button onClick={beginPrint} className="flex-1 py-2.5 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-colors">Confirm</button>
+                      <button onClick={()=>setShowConfirm(false)} className="flex-1 py-2.5 border border-white/10 text-white/40 text-xs rounded-xl hover:text-white transition-colors">Cancel</button>
                     </motion.div>
                   ) : (
                     <motion.button key="b" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
@@ -691,10 +695,7 @@ export default function PrePrintOptimizer() {
                     </motion.button>
                   )}
                 </AnimatePresence>
-              </div>
-
-              <div className="px-3 py-2 border-t border-white/5 flex-shrink-0">
-                <p className="text-[9px] text-white/20 font-mono">
+                <p className="text-[9px] text-white/15 font-mono text-center pt-1">
                   {result.geometry.num_layers} layers · {result.estimated_print_time} · {resolvedSite.width}m × {resolvedSite.length}m
                 </p>
               </div>
