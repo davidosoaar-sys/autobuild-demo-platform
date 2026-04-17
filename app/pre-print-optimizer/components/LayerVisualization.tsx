@@ -471,7 +471,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
   // Shape: squashed ellipse — flat bottom (compressed on prev layer), rounded dome top
   // Width-to-height ratio ~2.5:1 matches real COBOD prints
   const beadW = nozzleDiameter;           // full nozzle width
-  const beadH = layerHeight * 1.05;       // just over layer spacing — ensures zero gaps
+  const beadH = layerHeight * 1.35;       // 35% taller than layer spacing → guaranteed overlap, no gaps
 
   const fullGeo = useMemo(() => {
     const total = allSegs.length;
@@ -493,20 +493,18 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     const hw = beadW * 0.5;   // half-width
     const hh = beadH * 0.5;   // half-height
 
-    // Build profile points — ellipse sampled at PROFILE points
-    // Bottom flattened by 20% to simulate compression
+    // Bead cross-section: toothpaste-squeezed oval
+    // θ from 0 to 2π, x = hw·cos(θ), y = hh·sin(θ)
+    // This gives a proper ellipse: wide on X (across bead), tall on Y (up)
+    // beadH > layerSpacing so adjacent layers overlap — no gaps
     const px: number[] = [];
     const py: number[] = [];
     for (let k = 0; k < PROFILE; k++) {
-      // θ: from -π/2 (bottom-left) going CCW to -π/2 (bottom-right)
-      // i.e. full ellipse, starting bottom-left, going up left side, over top, down right side
-      const theta = Math.PI + (k / (PROFILE - 1)) * Math.PI; // π to 2π (bottom-left to bottom-right via top)
-      const x = hw * Math.cos(theta);
-      let   y = hh * Math.sin(theta);
-      // Flatten bottom: compress downward half by 20%
-      if (y < 0) y *= 0.8;
-      px.push(x);
-      py.push(y);
+      const theta = (k / (PROFILE - 1)) * Math.PI * 2; // 0 → 2π
+      px.push(hw * Math.cos(theta));
+      // Flatten bottom slightly (y<0 side) to simulate compression on previous layer
+      const sy = Math.sin(theta);
+      py.push(hh * (sy < 0 ? sy * 0.75 : sy));
     }
 
     for (let i = 0; i < total; i++) {
