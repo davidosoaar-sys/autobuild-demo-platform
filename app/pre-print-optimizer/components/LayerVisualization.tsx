@@ -430,14 +430,77 @@ class ThreeErrorBoundary extends React.Component<
 // Uses InstancedMesh + BoxGeometry: one solid box per bead, zero open ends,
 // zero gaps between layers. count controls animation instead of drawRange.
 
+// Build a unit oval prism geometry centred at origin, pointing along +Z (−0.5 to +0.5).
+// Cross-section is a unit circle in XY (radius 0.5). When scaled per-instance to
+// (beadW, beadH, len), the circle becomes an ellipse — the correct 3DCP bead shape:
+// oval cross-section that is wider than tall, giving natural ridges between stacked layers.
+function makeBeadGeo(): THREE.BufferGeometry {
+  const segs  = 14; // radial segments — enough curvature, low poly
+  const verts: number[] = [];
+  const norms: number[] = [];
+  const tris:  number[] = [];
+
+  // Side faces — one quad per radial segment, spanning z = -0.5 to +0.5
+  for (let i = 0; i < segs; i++) {
+    const a0 = (i       / segs) * Math.PI * 2;
+    const a1 = ((i + 1) / segs) * Math.PI * 2;
+    const x0 = Math.cos(a0) * 0.5, y0 = Math.sin(a0) * 0.5;
+    const x1 = Math.cos(a1) * 0.5, y1 = Math.sin(a1) * 0.5;
+    const base = verts.length / 3;
+    // 4 verts: start-front, start-back, end-front, end-back
+    verts.push(x0, y0, -0.5,  x0, y0, 0.5,  x1, y1, -0.5,  x1, y1, 0.5);
+    // Outward radial normal (averaged across the two edge directions)
+    const mx = x0 + x1, my = y0 + y1;
+    const ml = Math.sqrt(mx * mx + my * my);
+    const nx = mx / ml, ny = my / ml;
+    for (let k = 0; k < 4; k++) norms.push(nx, ny, 0);
+    tris.push(base, base + 2, base + 1,  base + 1, base + 2, base + 3);
+  }
+
+  // Front cap (z = -0.5, normal points −Z)
+  const f0 = verts.length / 3;
+  verts.push(0, 0, -0.5); norms.push(0, 0, -1);
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    verts.push(Math.cos(a) * 0.5, Math.sin(a) * 0.5, -0.5);
+    norms.push(0, 0, -1);
+  }
+  for (let i = 0; i < segs; i++) {
+    tris.push(f0, f0 + 1 + (i + 1) % segs, f0 + 1 + i);
+  }
+
+  // Back cap (z = +0.5, normal points +Z)
+  const b0 = verts.length / 3;
+  verts.push(0, 0, 0.5); norms.push(0, 0, 1);
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    verts.push(Math.cos(a) * 0.5, Math.sin(a) * 0.5, 0.5);
+    norms.push(0, 0, 1);
+  }
+  for (let i = 0; i < segs; i++) {
+    tris.push(b0, b0 + 1 + i, b0 + 1 + (i + 1) % segs);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
+  geo.setAttribute('normal',   new THREE.BufferAttribute(new Float32Array(norms), 3));
+  geo.setIndex(tris);
+  geo.computeVertexNormals(); // smooth shading on curved side
+  return geo;
+}
+
 function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb0', nozzleDiameter = 0.025 }: {
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
-  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const meshRef   = useRef<THREE.InstancedMesh>(null);
+  const jointsRef = useRef<THREE.InstancedMesh>(null);
+
+  // Shared oval prism geometry — created once, reused by all instances
+  const beadGeo = useMemo(() => makeBeadGeo(), []);
 
   const allSegs = useMemo(() => {
     const out: { s: [number,number,number]; e: [number,number,number] }[] = [];
-    const minLen = nozzleDiameter * 0.5;
+    const minLen  = nozzleDiameter * 0.5;
     const minLen2 = minLen * minLen;
     toolpath.forEach((layer, li) => {
       const y = (li + 0.5) * layerHeight;
@@ -451,19 +514,21 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     return out;
   }, [toolpath, layerHeight, nozzleDiameter]);
 
-  const beadW = nozzleDiameter * 0.88;
-  // 1.3× layer height: 30% overlap keeps it gap-free while leaving the top edge of
-  // each box protruding 0.15×lh above the next layer's base — the ridge that gives
-  // 3DCP its characteristic horizontal texture (visible in real concrete prints).
-  const beadH = layerHeight * 1.3;
+  // beadW: slightly wider than nozzle (concrete spreads a little on deposit)
+  // beadH: 1.05× layer height — just enough overlap to prevent gaps;
+  //        the ellipse curvature creates the visible ridges, not the overlap amount
+  const beadW      = nozzleDiameter * 0.95;
+  const beadH      = layerHeight * 1.05;
+  const jointCount = allSegs.length * 2; // start AND end of every segment
 
-  // Set instance transforms whenever segments change
+  // Set oval prism instance transforms
   useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh || allSegs.length === 0) return;
     const dummy = new THREE.Object3D();
     allSegs.forEach((seg, i) => {
-      const dx = seg.e[0] - seg.s[0], dz = seg.e[2] - seg.s[2];
+      const dx  = seg.e[0] - seg.s[0];
+      const dz  = seg.e[2] - seg.s[2];
       const len = Math.sqrt(dx * dx + dz * dz);
       if (len < 1e-9) return;
       dummy.position.set((seg.s[0] + seg.e[0]) / 2, seg.s[1], (seg.s[2] + seg.e[2]) / 2);
@@ -475,14 +540,36 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     mesh.instanceMatrix.needsUpdate = true;
   }, [allSegs, beadW, beadH]);
 
-  // Drive animation by setting visible instance count
+  // Junction fill cubes — one beadW×beadH×beadW cube at BOTH endpoints of every segment.
+  // These cover the open ellipse ends of the oval prism, plugging the corner gaps where
+  // adjacent beads meet at an angle. Two cubes per segment covers chain starts, chain ends,
+  // and every in-chain junction simultaneously.
   useEffect(() => {
-    if (!meshRef.current) return;
-    const n = allSegs.length;
-    meshRef.current.count = progress >= 1
-      ? n
-      : Math.min(Math.floor(progress * n) + 1, n);
-  }, [progress, allSegs.length]);
+    const jmesh = jointsRef.current;
+    if (!jmesh || allSegs.length === 0) return;
+    const dummy = new THREE.Object3D();
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(beadW, beadH, beadW);
+    allSegs.forEach((seg, i) => {
+      dummy.position.set(seg.s[0], seg.s[1], seg.s[2]);
+      dummy.updateMatrix();
+      jmesh.setMatrixAt(i * 2, dummy.matrix);
+
+      dummy.position.set(seg.e[0], seg.e[1], seg.e[2]);
+      dummy.updateMatrix();
+      jmesh.setMatrixAt(i * 2 + 1, dummy.matrix);
+    });
+    jmesh.instanceMatrix.needsUpdate = true;
+  }, [allSegs, beadW, beadH]);
+
+  // Drive animation — segments and joint cubes in lockstep
+  useEffect(() => {
+    const n        = allSegs.length;
+    const segCount = progress >= 1 ? n : Math.min(Math.floor(progress * n) + 1, n);
+    const jntCount = Math.min(segCount * 2, jointCount);
+    if (meshRef.current)   meshRef.current.count   = segCount;
+    if (jointsRef.current) jointsRef.current.count = jntCount;
+  }, [progress, allSegs.length, jointCount]);
 
   const rawIdx = progress * allSegs.length;
   const segIdx = Math.min(Math.floor(rawIdx), allSegs.length - 1);
@@ -497,12 +584,19 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
     cur.s[2] + (cur.e[2] - cur.s[2]) * frac,
   ] : [0, 0, 0];
 
+  const segKey = allSegs.length;
+
   return (
     <group>
-      {/* key forces remount when segment count changes (new optimise result) */}
-      <instancedMesh key={allSegs.length} ref={meshRef} args={[undefined, undefined, Math.max(allSegs.length, 1)]}>
+      {/* Oval prism bead segments — elliptical cross-section gives 3DCP ridge texture */}
+      <instancedMesh key={segKey} ref={meshRef} args={[beadGeo, undefined, Math.max(allSegs.length, 1)]}>
+        <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} />
+      </instancedMesh>
+
+      {/* Junction cubes — cover open ellipse ends at every segment endpoint */}
+      <instancedMesh key={segKey + 1} ref={jointsRef} args={[undefined, undefined, Math.max(jointCount, 1)]}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={pathColor} roughness={0.96} metalness={0.0} />
+        <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} />
       </instancedMesh>
 
       {cur && (
