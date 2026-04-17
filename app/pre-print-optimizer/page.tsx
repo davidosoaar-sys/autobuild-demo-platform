@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useProjects, ManualPrinterConfig } from '@/lib/project-store';
 import AppNav from '@/components/AppNav';
 import ParameterInputs from './components/ParameterInputs';
-import FileUpload, { SiteDimensions, ModelDimensions } from './components/FileUpload';
+import FileUpload, { SiteDimensions } from './components/FileUpload';
 import LayerVisualization from './components/LayerVisualization';
 import { ScanResult } from './components/ScanBanner';
 
@@ -229,7 +229,6 @@ export default function PrePrintOptimizer() {
   const [file,          setFile]          = useState<File | null>(null);
   const [sitePlanData,  setSitePlanData]  = useState<import('./components/SitePlanReader').SitePlanData | null>(null);
   const [site,          setSite]          = useState<SiteDimensions>({ width:12, length:10, slope:0 });
-  const [userModelDims, setUserModelDims] = useState<ModelDimensions | null>(null);
   const [parameters,    setParameters]    = useState<Parameters>({ temperature:24, humidity:65, windSpeed:8, groundSlope:0, cementMix:'standard', batchNumber:'' });
   const [weatherBlocks, setWeatherBlocks] = useState<WeatherBlock[]>([]);
   const [weatherStart,  setWeatherStart]  = useState(8.0);
@@ -379,11 +378,11 @@ export default function PrePrintOptimizer() {
             externalMode={viewMode} onModeChange={setViewMode}
             modelScale={modelScale} sitePlan={sitePlanData}
             onBack={()=>setActiveTab('setup')}
-            modelDimensions={userModelDims ?? (result.geometry.bounds_x && result.geometry.bounds_z ? {
+            modelDimensions={result.geometry.bounds_x && result.geometry.bounds_z ? {
               x: result.geometry.bounds_x[1] - result.geometry.bounds_x[0],
               y: result.geometry.bounds_y[1] - result.geometry.bounds_y[0],
               z: result.geometry.total_height_m,
-            } : undefined)}
+            } : undefined}
           />
 
           {/* Sidebar toggle */}
@@ -745,7 +744,6 @@ export default function PrePrintOptimizer() {
                 <FileUpload
                   file={file} onFileChange={setFile}
                   onScaleChange={setPrintScale}
-                  onDimensionsChange={d => setUserModelDims(d.x>0||d.y>0||d.z>0 ? d : null)}
                 />
                 <ParameterInputs parameters={parameters} onChange={handleParamsChange}
                   onWeatherChange={(b,h)=>{setWeatherBlocks(b);setWeatherStart(h);}}
