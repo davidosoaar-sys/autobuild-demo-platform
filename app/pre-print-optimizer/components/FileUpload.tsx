@@ -2,7 +2,6 @@
 
 import React, { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import SitePlanReader, { SitePlanData } from './SitePlanReader';
 
 export interface SiteDimensions {
   width:  number;
@@ -17,46 +16,28 @@ export interface ModelDimensions {
 }
 
 interface FileUploadProps {
-  file:                 File | null;
-  onFileChange:         (file: File | null) => void;
-  onSiteChange?:        (site: SiteDimensions) => void;
-  onSitePlanParsed?:    (data: SitePlanData) => void;
-  onScaleChange?:       (scale: number) => void;
-  onDimensionsChange?:  (dims: ModelDimensions) => void;
-  printScale?:          number;
+  file:                File | null;
+  onFileChange:        (file: File | null) => void;
+  onScaleChange?:      (scale: number) => void;
+  onDimensionsChange?: (dims: ModelDimensions) => void;
+  printScale?:         number;
 }
 
 const PRESET_SCALES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 export default function FileUpload({
-  file, onFileChange, onSiteChange, onSitePlanParsed,
-  onScaleChange, onDimensionsChange, printScale = 1.0,
+  file, onFileChange, onScaleChange, onDimensionsChange, printScale = 1.0,
 }: FileUploadProps) {
-  const [site,        setSite]        = React.useState<SiteDimensions>({ width: 0, length: 0, slope: 0 });
   const [customScale, setCustomScale] = React.useState('');
   const [useCustom,   setUseCustom]   = React.useState(false);
   const [dims,        setDims]        = React.useState<ModelDimensions>({ x: 0, y: 0, z: 0 });
   const [showDims,    setShowDims]    = React.useState(false);
-
-  const updateSite = (key: keyof SiteDimensions, raw: string) => {
-    const val     = parseFloat(raw) || 0;
-    const updated = { ...site, [key]: val };
-    setSite(updated);
-    onSiteChange?.(updated);
-  };
 
   const updateDim = (key: keyof ModelDimensions, raw: string) => {
     const val     = parseFloat(raw) || 0;
     const updated = { ...dims, [key]: val };
     setDims(updated);
     onDimensionsChange?.(updated);
-  };
-
-  const handleSitePlanParsed = (data: SitePlanData) => {
-    const updated: SiteDimensions = { width: data.width, length: data.length, slope: site.slope };
-    setSite(updated);
-    onSiteChange?.(updated);
-    onSitePlanParsed?.(data);
   };
 
   const handlePresetScale = (s: number) => {
@@ -89,14 +70,12 @@ export default function FileUpload({
   });
 
   const fileExt = file ? file.name.split('.').pop()?.toUpperCase() : null;
-  const scaledW = site.width  > 0 ? (site.width  * printScale).toFixed(2) : null;
-  const scaledL = site.length > 0 ? (site.length * printScale).toFixed(2) : null;
   const hasDims = dims.x > 0 || dims.y > 0 || dims.z > 0;
 
   return (
     <div className="space-y-4">
 
-      {/* ── 3D Model ── */}
+      {/* 3D Model */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-5 pt-5">
           <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-4">
@@ -124,7 +103,7 @@ export default function FileUpload({
           </div>
         ) : (
           <>
-            {/* File info row */}
+            {/* File info */}
             <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center flex-shrink-0">
@@ -142,7 +121,7 @@ export default function FileUpload({
               </button>
             </div>
 
-            {/* ── Real-world Dimensions ── */}
+            {/* Real-world Dimensions */}
             <div className="px-5 py-4 border-t border-gray-100">
               <button onClick={() => setShowDims(v => !v)}
                 className="flex items-center justify-between w-full mb-1">
@@ -152,7 +131,7 @@ export default function FileUpload({
                     {hasDims ? `${dims.x}m × ${dims.y}m × ${dims.z}m` : 'Set actual building size in metres'}
                   </p>
                 </div>
-                <svg className={`w-4 h-4 text-black/30 transition-transform ${showDims ? 'rotate-180' : ''}`}
+                <svg className={`w-4 h-4 text-black/30 transition-transform flex-shrink-0 ${showDims ? 'rotate-180' : ''}`}
                   fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
                 </svg>
@@ -177,27 +156,20 @@ export default function FileUpload({
                     ))}
                   </div>
                   {hasDims && (
-                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                      <p className="text-[10px] text-emerald-600 font-medium">
-                        {dims.x}m × {dims.y}m × {dims.z}m — displayed in 3D viewer overlay
-                      </p>
-                    </div>
+                    <p className="text-[10px] text-emerald-600 font-medium">
+                      {dims.x}m × {dims.y}m × {dims.z}m — shown in 3D viewer
+                    </p>
                   )}
-                  <p className="text-[10px] text-black/30 leading-relaxed">
-                    If your STL was modelled in mm, enter actual real-world metres here. Use Print Scale below to resize the geometry.
-                  </p>
                 </div>
               )}
             </div>
 
-            {/* ── Print Scale ── */}
+            {/* Print Scale */}
             <div className="px-5 pb-5 border-t border-gray-100 pt-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-medium text-black">
                   Print Scale
-                  <span className="ml-1.5 text-[10px] text-black/30 font-normal">
-                    — scales geometry, segments and time
-                  </span>
+                  <span className="ml-1.5 text-[10px] text-black/30 font-normal">— scales geometry and time</span>
                 </label>
                 <span className="text-xs font-bold text-black font-mono">{printScale.toFixed(2)}×</span>
               </div>
@@ -236,35 +208,15 @@ export default function FileUpload({
                 {printScale === 1.0 ? (
                   <p className="text-[10px] text-black/40">Original size — all dimensions as modelled</p>
                 ) : (
-                  <div className="space-y-0.5">
-                    <p className="text-[10px] text-black/60 font-medium">
-                      Scaled {printScale}× — geometry, segments and time estimates adjust
-                    </p>
-                    {(scaledW || scaledL) && (
-                      <p className="text-[10px] text-black/40">
-                        Site footprint: {scaledW ?? '—'}m × {scaledL ?? '—'}m
-                      </p>
-                    )}
-                    <p className="text-[10px] text-black/40">
-                      Material volume scales by {(printScale ** 3).toFixed(2)}×
-                    </p>
-                  </div>
+                  <p className="text-[10px] text-black/60 font-medium">
+                    Scaled {printScale}× · Material volume scales by {(printScale ** 3).toFixed(2)}×
+                  </p>
                 )}
               </div>
             </div>
           </>
         )}
       </div>
-
-      {/* ── Site Plan ── */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <h2 className="text-[10px] font-semibold text-black/40 uppercase tracking-widest mb-1">
-          Site Plan
-        </h2>
-        <p className="text-[10px] text-black/30 mb-4">AI reads dimensions and road position from your drawing</p>
-        <SitePlanReader onSitePlanParsed={handleSitePlanParsed}/>
-      </div>
-
     </div>
   );
 }

@@ -744,8 +744,7 @@ export default function PrePrintOptimizer() {
               <div className="space-y-4">
                 <FileUpload
                   file={file} onFileChange={setFile}
-                  onSiteChange={setSite} onSitePlanParsed={setSitePlanData}
-                  printScale={printScale} onScaleChange={setPrintScale}
+                  onScaleChange={setPrintScale}
                   onDimensionsChange={d => setUserModelDims(d.x>0||d.y>0||d.z>0 ? d : null)}
                 />
                 <ParameterInputs parameters={parameters} onChange={handleParamsChange}
