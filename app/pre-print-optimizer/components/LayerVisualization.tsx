@@ -429,7 +429,7 @@ class ThreeErrorBoundary extends React.Component<
 
 // ── Printer animation ─────────────────────────────────────────────────────────
 
-function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb0', nozzleDiameter = 0.025 }: {
+function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a8', nozzleDiameter = 0.025 }: {
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
   const allSegs = useMemo(() => {
@@ -542,8 +542,8 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
         <mesh geometry={fullGeo}>
           <meshStandardMaterial
             color={pathColor}
-            roughness={0.92}
-            metalness={0.0}
+            roughness={0.88}
+            metalness={0.02}
             side={THREE.DoubleSide}
           />
         </mesh>
@@ -627,7 +627,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
 
       {fileUrl && showModel && (
         <ModelLoader fileUrl={fileUrl} fileExt={fileExt}
-          opacity={toolpath.length > 0 && animProgress < 1 ? 0.3 : 1.0}
+          opacity={toolpath.length > 0 ? 0.25 : 1.0}
           scale={modelScale} enableTransform={enableTransform}
           transformMode={transformMode} orbitRef={orbitRef}/>
       )}
@@ -755,7 +755,7 @@ export default function LayerVisualization({
   const [internalScale,   setInternalScale]   = useState(1.0);
   const [enableTransform, setEnableTransform] = useState(false);
   const [transformMode,   setTransformMode]   = useState<TransformMode>('translate');
-  const [pathColor,       setPathColor]       = useState('#c8bfb0');
+  const [pathColor,       setPathColor]       = useState('#c2b8a8');
   const [showModel,       setShowModel]       = useState(true);
   const [showToolpath,    setShowToolpath]    = useState(true);
   const orbitRef = useRef<any>(null);

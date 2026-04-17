@@ -321,13 +321,34 @@ export default function PrePrintOptimizer() {
     }
   };
 
-  const downloadGCode = async () => {
+  const downloadGCode = async (ext: 'txt' | 'gcode' = 'gcode') => {
     if (!result) return;
-    const t = await (await fetch(`${API}/gcode/${result.result_id}`)).text();
-    Object.assign(document.createElement('a'), {
-      href:     URL.createObjectURL(new Blob([t], { type: 'text/plain' })),
-      download: `autobuild_${result.result_id.slice(0, 8)}.txt`,
-    }).click();
+    try {
+      const res = await fetch(`${API}/gcode/${result.result_id}`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const t = await res.text();
+      const blob = new Blob([t], { type: 'text/plain' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `autobuild_${result.result_id.slice(0, 8)}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      // Fallback — download gcode_preview if endpoint fails
+      const t    = result.gcode_preview ?? '';
+      const blob = new Blob([t], { type: 'text/plain' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `autobuild_preview.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   const beginPrint = () => {
@@ -379,6 +400,7 @@ export default function PrePrintOptimizer() {
               z: result.geometry.total_height_m,
             } : undefined}
           />
+
           {/* Sidebar toggle */}
           <button onClick={()=>setShowSidebar(v=>!v)}
             className="absolute top-3 right-3 z-30 w-7 h-7 rounded-xl flex items-center justify-center transition-all hover:bg-white/10"
@@ -663,10 +685,16 @@ export default function PrePrintOptimizer() {
 
               {/* Actions */}
               <div className="px-4 pb-4 pt-3 border-t border-white/8 flex-shrink-0 space-y-2">
-                <button onClick={downloadGCode}
-                  className="w-full py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
-                  Download G-code
-                </button>
+                <div className="flex gap-2">
+                  <button onClick={()=>downloadGCode('gcode')}
+                    className="flex-1 py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
+                    .gcode
+                  </button>
+                  <button onClick={()=>downloadGCode('txt')}
+                    className="flex-1 py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
+                    .txt
+                  </button>
+                </div>
                 <AnimatePresence mode="wait">
                   {showConfirm ? (
                     <motion.div key="c" initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="flex gap-2">
