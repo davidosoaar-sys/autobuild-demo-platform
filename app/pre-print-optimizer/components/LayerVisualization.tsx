@@ -427,133 +427,89 @@ class ThreeErrorBoundary extends React.Component<
 }
 
 // ── Printer animation ─────────────────────────────────────────────────────────
+// Uses InstancedMesh + BoxGeometry: one solid box per bead, zero open ends,
+// zero gaps between layers. count controls animation instead of drawRange.
 
 function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb0', nozzleDiameter = 0.025 }: {
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+
   const allSegs = useMemo(() => {
-    const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
+    const out: { s: [number,number,number]; e: [number,number,number] }[] = [];
+    const minLen = nozzleDiameter * 0.5;
+    const minLen2 = minLen * minLen;
     toolpath.forEach((layer, li) => {
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
-        const dx = seg.x1 - seg.x0;
-        const dy = seg.y1 - seg.y0;
-        const minLen = nozzleDiameter * 0.4;
-        if (dx * dx + dy * dy < minLen * minLen) return;
-        out.push({
-          s: [seg.x0, y, -seg.y0],
-          e: [seg.x1, y, -seg.y1],
-          layer: li,
-        });
+        const dx = seg.x1 - seg.x0, dy = seg.y1 - seg.y0;
+        if (dx * dx + dy * dy < minLen2) return;
+        out.push({ s: [seg.x0, y, -seg.y0], e: [seg.x1, y, -seg.y1] });
       });
     });
     return out;
   }, [toolpath, layerHeight, nozzleDiameter]);
 
-  if (allSegs.length === 0) return null;
+  const beadW = nozzleDiameter * 0.88;
+  // 5% taller than layer height: boxes overlap by 5% on each side — mathematically gap-free.
+  // Solid BoxGeometry means no open ends, no seams, no profile tuning needed.
+  const beadH = layerHeight * 1.05;
 
-  const rawIdx  = progress * allSegs.length;
-  const segIdx  = Math.min(Math.floor(rawIdx), allSegs.length - 1);
-  const segFrac = rawIdx - segIdx;
-  const cur     = allSegs[segIdx];
-
-  const nozzle: [number,number,number] = [
-    cur.s[0] + (cur.e[0]-cur.s[0])*segFrac,
-    cur.s[1] + (cur.e[1]-cur.s[1])*segFrac + layerHeight * 0.5,
-    cur.s[2] + (cur.e[2]-cur.s[2])*segFrac,
-  ];
-
-  const beadW = (nozzleDiameter ?? layerHeight * 1.67) * 0.88;
-  const beadH = layerHeight * 1.5;
-
-  const fullGeo = useMemo(() => {
-    const total = allSegs.length;
-    if (total === 0) return null;
-
-    const PROFILE = 6;
-    const vertsPerSeg = PROFILE * 2;
-    const trisPerSeg  = (PROFILE - 1) * 2;
-    const idxPerSeg   = trisPerSeg * 3;
-
-    const positions = new Float32Array(total * vertsPerSeg * 3);
-    const indices   = new Uint32Array(total * idxPerSeg);
-
-    const hw = beadW * 0.5;
-    const h  = beadH;
-
-    const px = [-hw, -hw, -hw * 0.95, hw * 0.95, hw, hw];
-    const py = [-h * 0.5, h * 0.35, h * 0.5, h * 0.5, h * 0.35, -h * 0.5];
-
-    for (let i = 0; i < total; i++) {
-      const s  = allSegs[i];
-      const dx = s.e[0] - s.s[0];
-      const dz = s.e[2] - s.s[2];
-      const len = Math.sqrt(dx*dx + dz*dz);
-      if (len < 1e-9) continue;
-
-      const nx = -dz / len;
-      const nz =  dx / len;
-      const vb = i * vertsPerSeg;
-      const y0 = s.s[1];
-
-      for (let p = 0; p < PROFILE; p++) {
-        const across = px[p], up = py[p];
-        positions[(vb + p) * 3 + 0] = s.s[0] + nx * across;
-        positions[(vb + p) * 3 + 1] = y0 + up;
-        positions[(vb + p) * 3 + 2] = s.s[2] + nz * across;
-        positions[(vb + PROFILE + p) * 3 + 0] = s.e[0] + nx * across;
-        positions[(vb + PROFILE + p) * 3 + 1] = y0 + up;
-        positions[(vb + PROFILE + p) * 3 + 2] = s.e[2] + nz * across;
-      }
-
-      const ib = i * idxPerSeg;
-      let ti = 0;
-      for (let p = 0; p < PROFILE - 1; p++) {
-        const a = vb+p, b = vb+p+1, c = vb+PROFILE+p+1, d = vb+PROFILE+p;
-        indices[ib+ti++]=a; indices[ib+ti++]=b; indices[ib+ti++]=c;
-        indices[ib+ti++]=a; indices[ib+ti++]=c; indices[ib+ti++]=d;
-      }
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setIndex(new THREE.BufferAttribute(indices, 1));
-    geo.computeVertexNormals();
-    return geo;
+  // Set instance transforms whenever segments change
+  useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh || allSegs.length === 0) return;
+    const dummy = new THREE.Object3D();
+    allSegs.forEach((seg, i) => {
+      const dx = seg.e[0] - seg.s[0], dz = seg.e[2] - seg.s[2];
+      const len = Math.sqrt(dx * dx + dz * dz);
+      if (len < 1e-9) return;
+      dummy.position.set((seg.s[0] + seg.e[0]) / 2, seg.s[1], (seg.s[2] + seg.e[2]) / 2);
+      dummy.rotation.set(0, Math.atan2(dx, dz), 0);
+      dummy.scale.set(beadW, beadH, len);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
   }, [allSegs, beadW, beadH]);
 
+  // Drive animation by setting visible instance count
   useEffect(() => {
-    if (!fullGeo) return;
-    const idxPerSeg = (6 - 1) * 2 * 3;
-    if (progress >= 1) {
-      fullGeo.setDrawRange(0, Infinity);
-    } else {
-      fullGeo.setDrawRange(0, (segIdx + 1) * idxPerSeg);
-    }
-  }, [fullGeo, progress, segIdx, allSegs.length]);
+    if (!meshRef.current) return;
+    const n = allSegs.length;
+    meshRef.current.count = progress >= 1
+      ? n
+      : Math.min(Math.floor(progress * n) + 1, n);
+  }, [progress, allSegs.length]);
+
+  const rawIdx = progress * allSegs.length;
+  const segIdx = Math.min(Math.floor(rawIdx), allSegs.length - 1);
+  const cur    = allSegs[segIdx];
+  const frac   = rawIdx - segIdx;
+
+  if (allSegs.length === 0) return null;
+
+  const nozzlePos: [number,number,number] = cur ? [
+    cur.s[0] + (cur.e[0] - cur.s[0]) * frac,
+    cur.s[1] + layerHeight * 0.5,
+    cur.s[2] + (cur.e[2] - cur.s[2]) * frac,
+  ] : [0, 0, 0];
 
   return (
     <group>
-      {fullGeo && (
-        <mesh geometry={fullGeo}>
-          <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} side={THREE.DoubleSide}/>
+      {/* key forces remount when segment count changes (new optimise result) */}
+      <instancedMesh key={allSegs.length} ref={meshRef} args={[undefined, undefined, Math.max(allSegs.length, 1)]}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} />
+      </instancedMesh>
+
+      {cur && (
+        <mesh position={nozzlePos}>
+          <sphereGeometry args={[beadW * 0.5, 12, 12]} />
+          <meshBasicMaterial color="#ffffff" />
         </mesh>
       )}
-      <group position={nozzle}>
-        <mesh rotation={[-Math.PI/2,0,0]}>
-          <ringGeometry args={[beadW*0.6, beadW*1.2, 24]}/>
-          <meshBasicMaterial color={pathColor} transparent opacity={0.4}/>
-        </mesh>
-        <mesh>
-          <sphereGeometry args={[beadW*0.5, 16, 16]}/>
-          <meshBasicMaterial color="#ffffff"/>
-        </mesh>
-        <mesh position={[0, -beadH*0.5, 0]}>
-          <sphereGeometry args={[beadW*0.3, 10, 10]}/>
-          <meshBasicMaterial color={pathColor} transparent opacity={0.9}/>
-        </mesh>
-      </group>
     </group>
   );
 }
