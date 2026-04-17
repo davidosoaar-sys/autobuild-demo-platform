@@ -132,68 +132,100 @@ function Sun({ tod }: { tod: TimeOfDay }) {
   );
 }
 
-// ── Realistic clouds ──────────────────────────────────────────────────────────
+// ── Cirrus clouds (wispy streaks like the reference photo) ───────────────────
 
-function CloudPuff({ position, puffs }: {
+function CirrusCloud({ position, rotation, length, width, opacity }: {
   position: [number,number,number];
-  puffs: { x:number; y:number; z:number; r:number }[];
+  rotation: number;
+  length: number;
+  width: number;
+  opacity: number;
 }) {
+  const geo = useMemo(() => {
+    // Build a wispy streak from many tiny overlapping ellipsoids along a curved path
+    const g = new THREE.BufferGeometry();
+    const verts: number[] = [];
+    const norms: number[] = [];
+    const uvs:   number[] = [];
+    const tris:  number[] = [];
+
+    const segments = 18;
+    const slices   = 6;
+
+    for (let s = 0; s <= segments; s++) {
+      const t     = s / segments;
+      // Gentle curve — sine gives a natural wisp shape
+      const x     = (t - 0.5) * length;
+      const y     = Math.sin(t * Math.PI) * width * 0.18;
+      const z     = 0;
+      // Width tapers at both ends (wider in middle)
+      const w     = width * Math.sin(t * Math.PI) * 0.5;
+
+      for (let sl = 0; sl <= slices; sl++) {
+        const angle = (sl / slices) * Math.PI * 2;
+        const nx    = 0;
+        const ny    = Math.cos(angle);
+        const nz    = Math.sin(angle);
+        verts.push(x, y + ny * w * 0.25, z + nz * w);
+        norms.push(nx, ny, nz);
+        uvs.push(t, sl / slices);
+      }
+    }
+
+    for (let s = 0; s < segments; s++) {
+      for (let sl = 0; sl < slices; sl++) {
+        const a = s * (slices + 1) + sl;
+        const b = a + 1;
+        const c = a + (slices + 1);
+        const d = c + 1;
+        tris.push(a, b, c, b, d, c);
+      }
+    }
+
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
+    g.setAttribute('normal',   new THREE.BufferAttribute(new Float32Array(norms), 3));
+    g.setAttribute('uv',       new THREE.BufferAttribute(new Float32Array(uvs),   2));
+    g.setIndex(tris);
+    g.computeVertexNormals();
+    return g;
+  }, [length, width]);
+
   return (
-    <group position={position}>
-      {puffs.map((p, i) => (
-        <mesh key={i} position={[p.x, p.y, p.z]}>
-          <sphereGeometry args={[p.r, 10, 8]} />
-          <meshStandardMaterial color="#f5f5f5" roughness={1} metalness={0} />
-        </mesh>
-      ))}
+    <group position={position} rotation={[0, rotation, 0]}>
+      <mesh geometry={geo}>
+        <meshBasicMaterial color="#ffffff" transparent opacity={opacity} depthWrite={false}/>
+      </mesh>
+      {/* Secondary wisp — offset and rotated slightly for layered look */}
+      <mesh geometry={geo} rotation={[0.08, 0.05, 0]} position={[length*0.05, width*0.1, 0]}>
+        <meshBasicMaterial color="#f0f4ff" transparent opacity={opacity * 0.45} depthWrite={false}/>
+      </mesh>
     </group>
   );
 }
 
 function Clouds({ tod }: { tod: TimeOfDay }) {
-  const cloudColor = tod === 'sunset' ? '#f8c8a0' : tod === 'morning' ? '#fdeac8' : '#f8f8f8';
+  // Reduced opacity at sunset for warm haze feel
+  const baseOpacity = tod === 'sunset' ? 0.28 : tod === 'morning' ? 0.38 : 0.45;
 
-  const clouds = useMemo(() => [
-    // Each cloud: position + array of puff spheres
-    { pos: [-55, 38, -95] as [number,number,number], puffs: [
-      {x:0,y:0,z:0,r:8},{x:9,y:2,z:1,r:6.5},{x:-8,y:1,z:-1,r:6},{x:4,y:5,z:0,r:5.5},
-      {x:-3,y:4,z:2,r:4.5},{x:14,y:1,z:2,r:5},{x:-13,y:0,z:1,r:5},{x:0,y:-2,z:0,r:7},
-    ]},
-    { pos: [55, 42, -105] as [number,number,number], puffs: [
-      {x:0,y:0,z:0,r:10},{x:11,y:3,z:0,r:8},{x:-10,y:2,z:0,r:7.5},{x:5,y:6,z:1,r:6},
-      {x:-4,y:5,z:-1,r:5},{x:18,y:1,z:1,r:6},{x:-16,y:0,z:1,r:5.5},{x:0,y:-3,z:0,r:9},
-    ]},
-    { pos: [110, 34, -75] as [number,number,number], puffs: [
-      {x:0,y:0,z:0,r:7},{x:8,y:2,z:0,r:5.5},{x:-7,y:1,z:0,r:5},{x:3,y:4,z:0,r:4},
-      {x:13,y:0,z:1,r:4.5},{x:-11,y:0,z:-1,r:4.5},{x:0,y:-1.5,z:0,r:6},
-    ]},
-    { pos: [-115, 40, -55] as [number,number,number], puffs: [
-      {x:0,y:0,z:0,r:9},{x:10,y:3,z:0,r:7},{x:-9,y:2,z:0,r:6.5},{x:4,y:5.5,z:1,r:5.5},
-      {x:-3,y:4,z:-1,r:5},{x:16,y:0,z:1,r:5.5},{x:-14,y:0,z:1,r:5},{x:0,y:-2.5,z:0,r:8},
-    ]},
-    { pos: [20, 36, -125] as [number,number,number], puffs: [
-      {x:0,y:0,z:0,r:6},{x:7,y:1.5,z:0,r:5},{x:-6,y:1,z:0,r:4.5},{x:2,y:3.5,z:0,r:4},
-      {x:11,y:0,z:0,r:4},{x:-9,y:0,z:0,r:4},{x:0,y:-1.5,z:0,r:5.5},
-    ]},
-    { pos: [-30, 44, -85] as [number,number,number], puffs: [
-      {x:0,y:0,z:0,r:8.5},{x:10,y:2.5,z:0,r:7},{x:-9,y:1.5,z:0,r:6.5},{x:4,y:5,z:1,r:5},
-      {x:-3,y:4.5,z:-1,r:4.5},{x:16,y:0.5,z:1,r:5.5},{x:-14,y:0,z:1,r:5},{x:0,y:-2,z:0,r:7.5},
-    ]},
+  const cirrus = useMemo(() => [
+    // pos [x,y,z], yaw rotation, length, width, opacity multiplier
+    { pos: [-40, 55, -120] as [number,number,number], rot: 0.3,  len: 55, w: 6,  o: 1.0  },
+    { pos: [ 30, 60, -140] as [number,number,number], rot:-0.15, len: 70, w: 7,  o: 0.85 },
+    { pos: [ 80, 50, -100] as [number,number,number], rot: 0.5,  len: 40, w: 5,  o: 0.7  },
+    { pos: [-80, 58, -90]  as [number,number,number], rot:-0.4,  len: 48, w: 5,  o: 0.6  },
+    { pos: [  5, 65, -160] as [number,number,number], rot: 0.1,  len: 80, w: 8,  o: 0.5  },
+    { pos: [-20, 52, -75]  as [number,number,number], rot: 0.7,  len: 35, w: 4,  o: 0.4  },
+    { pos: [ 60, 62, -130] as [number,number,number], rot:-0.25, len: 50, w: 6,  o: 0.55 },
   ], []);
-
-  const opacity = tod === 'sunset' ? 0.88 : 0.95;
 
   return (
     <>
-      {clouds.map((c, i) => (
-        <group key={i}>
-          {c.puffs.map((p, j) => (
-            <mesh key={j} position={[c.pos[0]+p.x, c.pos[1]+p.y, c.pos[2]+p.z]}>
-              <sphereGeometry args={[p.r, 10, 8]} />
-              <meshStandardMaterial color={cloudColor} roughness={1} metalness={0} transparent opacity={opacity}/>
-            </mesh>
-          ))}
-        </group>
+      {cirrus.map((c, i) => (
+        <CirrusCloud key={i}
+          position={c.pos} rotation={c.rot}
+          length={c.len} width={c.w}
+          opacity={baseOpacity * c.o}
+        />
       ))}
     </>
   );
