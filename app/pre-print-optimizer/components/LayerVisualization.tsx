@@ -452,9 +452,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
   }, [toolpath, layerHeight, nozzleDiameter]);
 
   const beadW = nozzleDiameter * 0.88;
-  // 5% taller than layer height: boxes overlap by 5% on each side — mathematically gap-free.
-  // Solid BoxGeometry means no open ends, no seams, no profile tuning needed.
-  const beadH = layerHeight * 1.05;
+  // 2× layer height: each box overlaps the adjacent layer by a full layer height.
+  // 1.05 caused z-fighting at the 5% seam — 2.0 buries the seam inside solid geometry.
+  // Visible result: subtle horizontal edge at each layer boundary, solid wall otherwise.
+  const beadH = layerHeight * 2.0;
 
   // Set instance transforms whenever segments change
   useEffect(() => {
