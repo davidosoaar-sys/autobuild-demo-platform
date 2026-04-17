@@ -452,10 +452,10 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
   }, [toolpath, layerHeight, nozzleDiameter]);
 
   const beadW = nozzleDiameter * 0.88;
-  // 2× layer height: each box overlaps the adjacent layer by a full layer height.
-  // 1.05 caused z-fighting at the 5% seam — 2.0 buries the seam inside solid geometry.
-  // Visible result: subtle horizontal edge at each layer boundary, solid wall otherwise.
-  const beadH = layerHeight * 2.0;
+  // 1.3× layer height: 30% overlap keeps it gap-free while leaving the top edge of
+  // each box protruding 0.15×lh above the next layer's base — the ridge that gives
+  // 3DCP its characteristic horizontal texture (visible in real concrete prints).
+  const beadH = layerHeight * 1.3;
 
   // Set instance transforms whenever segments change
   useEffect(() => {
@@ -502,7 +502,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c8bfb
       {/* key forces remount when segment count changes (new optimise result) */}
       <instancedMesh key={allSegs.length} ref={meshRef} args={[undefined, undefined, Math.max(allSegs.length, 1)]}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={pathColor} roughness={0.92} metalness={0.0} />
+        <meshStandardMaterial color={pathColor} roughness={0.96} metalness={0.0} />
       </instancedMesh>
 
       {cur && (
