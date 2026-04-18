@@ -250,7 +250,7 @@ export default function ProjectsPage() {
             <motion.div initial={{scale:0.95,y:8}} animate={{scale:1,y:0}} exit={{scale:0.95}}
               className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
               <div className="bg-black px-6 py-5">
-                <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={200} height={200} className="h-14 w-auto mb-3"/>
+                <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-24 w-auto mb-4"/>
                 <p className="text-white font-bold text-lg">Welcome to AutoBuild AI</p>
                 <p className="text-white/40 text-xs mt-1">3DCP monitoring and path optimisation platform</p>
               </div>
@@ -262,7 +262,7 @@ export default function ProjectsPage() {
                     value={nameInput}
                     onChange={e => setNameInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleOnboard()}
-                    placeholder="e.g. David"
+                    placeholder="e.g. John Doe"
                     className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-black transition-colors placeholder:text-black/20"
                   />
                 </div>

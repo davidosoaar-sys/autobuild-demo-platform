@@ -375,7 +375,16 @@ export default function PrePrintOptimizer() {
         structureType:  activeProject.structureType ?? '—',
         // new fields for report page
         printStartedAt:  new Date().toISOString(),
-        materialName:    result.cement?.display_name ?? parameters.cementMix,
+        materialName:    result.cement?.display_name
+          ?? (() => {
+              const CEMENT_NAMES: Record<string,string> = {
+                'sika-733-3d':      'Sikacrete®-733 3D',
+                'sika-733w-3d-us':  'Sikacrete®-733 W 3D (USA)',
+                'sika-733w-3d-gcc': 'Sikacrete®-733 W 3D (GCC)',
+                'standard':         'Standard Mix',
+              };
+              return CEMENT_NAMES[parameters.cementMix] ?? parameters.cementMix;
+            })(),
         batchNumber:     parameters.batchNumber || '—',
         gcodeLines:      result.gcode_lines,
         gcodeRef:        `autobuild_${result.result_id?.slice(0,8) ?? 'unknown'}.gcode`,
