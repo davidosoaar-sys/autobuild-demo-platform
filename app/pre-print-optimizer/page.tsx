@@ -361,7 +361,6 @@ export default function PrePrintOptimizer() {
       status:      'printing',
       totalLayers,
       printSpeed,
-      city,
       report: {
         // existing
         generatedAt:    new Date().toISOString(),
@@ -376,6 +375,7 @@ export default function PrePrintOptimizer() {
         structureType:  activeProject.structureType ?? '—',
         // new fields for report page
         printStartedAt:  new Date().toISOString(),
+        city:            city,
         materialName:    result.cement?.display_name
           ?? (() => {
               const CEMENT_NAMES: Record<string,string> = {

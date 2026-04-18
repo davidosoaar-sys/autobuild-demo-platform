@@ -710,7 +710,7 @@ export default function LiveMonitoring() {
   const [liveTemp,    setLiveTemp]    = useState<number | null>(null);
 
   // Pre-print city saved in project store, pre-print temp as fallback
-  const preCity = (activeProject as any)?.city ?? '';
+  const preCity = (activeProject as any)?.report?.city ?? '';
   const preTemp = (activeProject as any)?.report?.conditions?.temperature ?? null;
   const displayTemp = liveTemp ?? preTemp;
   const [showConfirm, setShowConfirm] = useState(false);
