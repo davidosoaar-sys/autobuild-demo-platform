@@ -36,7 +36,7 @@ export default function AppNav({ currentStep }: AppNavProps) {
           </button>
           <div className="h-6 w-px bg-gray-200" />
           <div className="-my-5">
-            <Image src="/logo.png" alt="AutoBuild AI" width={400} height={400} className="h-36 w-auto" />
+            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-36 w-auto" />
           </div>
           {activeProject && (
             <span className="text-sm font-medium text-gray-900 max-w-[200px] truncate">
