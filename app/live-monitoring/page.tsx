@@ -475,105 +475,209 @@ function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, on
   );
 }
 
-const DEFECT_CLASSES = ['Cracking', 'Delamination', 'Over-extrusion', 'Under-extrusion', 'Layer Shift', 'Void'];
-
 function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info' | 'warn' | 'error') => void }) {
-  const [image,   setImage]   = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [results, setResults] = useState<{ label: string; confidence: number; detected: boolean }[] | null>(null);
+  const [image,    setImage]    = useState<string | null>(null);
+  const [running,  setRunning]  = useState(false);
+  const [analysis, setAnalysis] = useState<BeadAnalysis | null>(null);
+  const [error,    setError]    = useState('');
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImage(URL.createObjectURL(file)); setResults(null); setRunning(true);
-    onAlert('Defect analysis running…', 'info');
+
+    const objectUrl = URL.createObjectURL(file);
+    setImage(objectUrl);
+    setAnalysis(null);
+    setError('');
+    setRunning(true);
+    onAlert('Claude Vision analysing image…', 'info');
+
     try {
-      const form = new FormData(); form.append('file', file);
-      const res = await fetch(`${API}/detect`, { method: 'POST', body: form });
-      if (res.ok) {
-        const data = await res.json();
-        setResults(data.detections ?? data.results ?? []);
-        const found = (data.detections ?? []).filter((d: any) => d.detected);
-        onAlert(found.length > 0 ? `Detected: ${found.map((d: any) => d.label).join(', ')}` : 'No defects detected', found.length > 0 ? 'error' : 'info');
-      } else {
-        const sim = DEFECT_CLASSES.map(label => ({ label, confidence: Math.random(), detected: Math.random() > 0.75 }));
-        setResults(sim);
-        const found = sim.filter(d => d.detected);
-        onAlert(found.length > 0 ? `Detected: ${found.map(d => d.label).join(', ')}` : 'No defects detected', found.length > 0 ? 'error' : 'info');
-      }
-    } catch {
-      const sim = DEFECT_CLASSES.map(label => ({ label, confidence: Math.random(), detected: Math.random() > 0.75 }));
-      setResults(sim);
+      // Convert to base64
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await fetch('/api/analyze-beads', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' }),
+      });
+
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      const data = await res.json();
+
+      const result: BeadAnalysis = {
+        verdict:         data.verdict         ?? 'unclear',
+        angle_deviation: data.angle_deviation ?? 0,
+        defect_type:     data.defect_type     ?? 'none',
+        severity:        data.severity        ?? 'none',
+        description:     data.description     ?? '',
+        bead_count:      data.bead_count      ?? 0,
+        confidence:      data.confidence      ?? 'low',
+        timestamp:       new Date().toLocaleTimeString(),
+        cameraId:        'upload',
+        cameraLabel:     'Uploaded image',
+      };
+
+      setAnalysis(result);
+
+      const level: 'info' | 'warn' | 'error' =
+        result.severity === 'high'   ? 'error' :
+        result.severity === 'medium' ? 'warn'  : 'info';
+      onAlert(`[Upload] ${result.verdict} — ${result.description}`, level);
+    } catch (e: any) {
+      setError('Analysis failed. Check your API key and try again.');
+      onAlert('Defect analysis failed', 'error');
+    } finally {
+      setRunning(false);
     }
-    setRunning(false);
+  };
+
+  const severityColor = (s: BeadSeverity) =>
+    s === 'high' ? 'text-red-600' : s === 'medium' || s === 'low' ? 'text-amber-600' : 'text-emerald-600';
+  const severityBg = (s: BeadSeverity) =>
+    s === 'high' ? 'bg-red-50 border-red-200' : s === 'medium' || s === 'low' ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200';
+  const verdictLabel: Record<BeadVerdict, string> = {
+    straight: 'Print quality good',
+    deviated: 'Bead deviation detected',
+    defect:   'Defect detected',
+    unclear:  'Unable to assess',
   };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Left — image upload */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Input Image</h3>
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Layer Image</h3>
+            <p className="text-[10px] text-black/25 mt-0.5">Upload a photo of your printed layer</p>
+          </div>
           <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 bg-black text-white text-[11px] font-semibold rounded-xl hover:bg-black/80 transition-all">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            Upload Image
+            Upload
             <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
           </label>
         </div>
         <div className="aspect-video bg-gray-50 flex items-center justify-center relative">
-          {image ? <img src={image} alt="input" className="w-full h-full object-contain" /> : (
-            <div className="text-center">
-              <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
-                <svg className="w-6 h-6 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
+          {image
+            ? <img src={image} alt="layer" className="w-full h-full object-contain" />
+            : (
+              <div className="text-center px-6">
+                <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <p className="text-xs font-medium text-black/30 mb-1">Upload a concrete layer photo</p>
+                <p className="text-[10px] text-black/20">Claude Vision will assess bead quality, angle deviation, and defects</p>
               </div>
-              <p className="text-xs text-black/30">Upload a layer image to analyse</p>
-            </div>
-          )}
+            )
+          }
           {running && (
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
               <div className="text-center">
-                <motion.div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full mx-auto mb-2"
+                <motion.div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full mx-auto mb-3"
                   animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
                 <p className="text-white text-xs font-semibold">Analysing with Claude Vision…</p>
+                <p className="text-white/40 text-[10px] mt-1">Reading bead layers and detecting defects</p>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Right — Claude Vision results */}
       <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Detection Results</h3>
-          <p className="text-[10px] text-black/30 mt-0.5">Claude Vision · 3DCP defect classification</p>
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Analysis Results</h3>
+          <p className="text-[10px] text-black/25 mt-0.5">Claude Vision · 3DCP quality assessment</p>
         </div>
         <div className="p-5">
-          {!results && !running && <div className="text-center py-12 text-black/25 text-xs">Upload an image to see results</div>}
-          {results && (
-            <div className="space-y-3">
-              {results.map((r, i) => (
-                <motion.div key={i} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
-                  className={`flex items-center justify-between p-3 rounded-xl border ${r.detected ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100'}`}>
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.detected ? 'bg-red-500' : 'bg-emerald-500'}`} />
-                    <span className={`text-xs font-semibold truncate ${r.detected ? 'text-red-700' : 'text-black'}`}>{r.label}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <div className="hidden sm:block w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${r.detected ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${r.confidence * 100}%` }} />
-                    </div>
-                    <span className={`text-[10px] font-mono font-bold ${r.detected ? 'text-red-600' : 'text-black/40'}`}>{(r.confidence * 100).toFixed(1)}%</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${r.detected ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{r.detected ? 'DETECTED' : 'CLEAR'}</span>
-                  </div>
-                </motion.div>
-              ))}
-              <div className={`mt-4 p-3 rounded-xl ${results.some(r => r.detected) ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'}`}>
-                <p className={`text-xs font-bold ${results.some(r => r.detected) ? 'text-red-700' : 'text-emerald-700'}`}>
-                  {results.some(r => r.detected) ? `${results.filter(r => r.detected).length} defect(s) detected — review recommended` : 'Layer quality OK — no defects detected'}
-                </p>
-              </div>
+          {!analysis && !running && !error && (
+            <div className="text-center py-12 text-black/25 text-xs">
+              Upload a layer image to see results
             </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
+              <p className="text-xs font-semibold text-red-700">{error}</p>
+            </div>
+          )}
+
+          {analysis && (
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+
+              {/* Overall verdict */}
+              <div className={`p-4 rounded-xl border ${severityBg(analysis.severity)}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className={`text-sm font-bold ${severityColor(analysis.severity)}`}>
+                      {verdictLabel[analysis.verdict]}
+                    </p>
+                    <p className="text-[11px] text-black/50 mt-1 leading-relaxed">{analysis.description}</p>
+                  </div>
+                  <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-lg flex-shrink-0 ${
+                    analysis.severity === 'high'   ? 'bg-red-100 text-red-700' :
+                    analysis.severity === 'medium' ? 'bg-amber-100 text-amber-700' :
+                    analysis.severity === 'low'    ? 'bg-amber-50 text-amber-600' :
+                    'bg-emerald-100 text-emerald-700'
+                  }`}>
+                    {analysis.severity === 'none' ? 'OK' : analysis.severity}
+                  </span>
+                </div>
+              </div>
+
+              {/* Metrics */}
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: 'Bead layers visible', value: analysis.bead_count > 0 ? String(analysis.bead_count) : 'Unknown' },
+                  { label: 'Angle deviation',      value: analysis.angle_deviation !== 0 ? `${analysis.angle_deviation > 0 ? '+' : ''}${analysis.angle_deviation.toFixed(1)}°` : 'None' },
+                  { label: 'Defect type',          value: analysis.defect_type === 'none' ? 'None detected' : analysis.defect_type.replace('-', ' ') },
+                  { label: 'Confidence',           value: analysis.confidence },
+                ].map((m, i) => (
+                  <div key={i} className="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
+                    <p className="text-[9px] text-black/35 uppercase tracking-wide mb-0.5">{m.label}</p>
+                    <p className="text-xs font-semibold text-black capitalize">{m.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Defect type detail */}
+              {analysis.defect_type !== 'none' && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <p className="text-[10px] font-bold text-red-700 uppercase tracking-wide mb-1">Defect Identified</p>
+                  <p className="text-xs text-red-600 capitalize">{analysis.defect_type.replace(/-/g, ' ')} — review this layer before continuing</p>
+                </div>
+              )}
+
+              {/* Verdict summary */}
+              <div className={`px-4 py-3 rounded-xl border ${analysis.verdict === 'straight' && analysis.defect_type === 'none' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                <p className={`text-xs font-bold ${analysis.verdict === 'straight' && analysis.defect_type === 'none' ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {analysis.verdict === 'straight' && analysis.defect_type === 'none'
+                    ? 'Layer quality OK — print can continue'
+                    : analysis.severity === 'high'
+                      ? 'Critical issue — stop print and inspect'
+                      : 'Issue detected — monitor closely'}
+                </p>
+                <p className="text-[10px] text-black/35 mt-0.5">{analysis.timestamp}</p>
+              </div>
+
+              {/* Re-analyse button */}
+              <label className="cursor-pointer w-full block">
+                <div className="w-full py-2 text-xs font-medium text-center border border-gray-200 rounded-xl text-black/40 hover:text-black hover:border-black transition-all">
+                  Upload different image
+                </div>
+                <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
+              </label>
+            </motion.div>
           )}
         </div>
       </div>
