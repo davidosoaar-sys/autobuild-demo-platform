@@ -537,10 +537,6 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
     }
   };
 
-  const severityColor = (s: BeadSeverity) =>
-    s === 'high' ? 'text-red-600' : s === 'medium' || s === 'low' ? 'text-amber-600' : 'text-emerald-600';
-  const severityBg = (s: BeadSeverity) =>
-    s === 'high' ? 'bg-red-50 border-red-200' : s === 'medium' || s === 'low' ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200';
   const verdictLabel: Record<BeadVerdict, string> = {
     straight: 'Print quality good',
     deviated: 'Bead deviation detected',
@@ -594,85 +590,80 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
       </div>
 
       {/* Right — Claude Vision results */}
-      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Analysis Results</h3>
-          <p className="text-[10px] text-black/25 mt-0.5">Claude Vision · 3DCP quality assessment</p>
+      <div className="bg-black rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-5 py-4 border-b border-white/8">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-white/40">Analysis Results</h3>
+          <p className="text-[10px] text-white/20 mt-0.5">Claude Vision · 3DCP quality assessment</p>
         </div>
         <div className="p-5">
           {!analysis && !running && !error && (
-            <div className="text-center py-12 text-black/25 text-xs">
+            <div className="text-center py-12 text-white/20 text-xs">
               Upload a layer image to see results
             </div>
           )}
 
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-              <p className="text-xs font-semibold text-red-700">{error}</p>
+            <div className="border border-white/15 rounded-xl p-4 text-center">
+              <p className="text-xs font-semibold text-white/60">{error}</p>
             </div>
           )}
 
           {analysis && (
             <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
 
-              {/* Overall verdict */}
-              <div className={`p-4 rounded-xl border ${severityBg(analysis.severity)}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className={`text-sm font-bold ${severityColor(analysis.severity)}`}>
-                      {verdictLabel[analysis.verdict]}
-                    </p>
-                    <p className="text-[11px] text-black/50 mt-1 leading-relaxed">{analysis.description}</p>
-                  </div>
-                  <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-lg flex-shrink-0 ${
-                    analysis.severity === 'high'   ? 'bg-red-100 text-red-700' :
-                    analysis.severity === 'medium' ? 'bg-amber-100 text-amber-700' :
-                    analysis.severity === 'low'    ? 'bg-amber-50 text-amber-600' :
-                    'bg-emerald-100 text-emerald-700'
-                  }`}>
-                    {analysis.severity === 'none' ? 'OK' : analysis.severity}
-                  </span>
-                </div>
-              </div>
-
-              {/* Metrics */}
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: 'Bead layers visible', value: analysis.bead_count > 0 ? String(analysis.bead_count) : 'Unknown' },
-                  { label: 'Angle deviation',      value: analysis.angle_deviation !== 0 ? `${analysis.angle_deviation > 0 ? '+' : ''}${analysis.angle_deviation.toFixed(1)}°` : 'None' },
-                  { label: 'Defect type',          value: analysis.defect_type === 'none' ? 'None detected' : analysis.defect_type.replace('-', ' ') },
-                  { label: 'Confidence',           value: analysis.confidence },
-                ].map((m, i) => (
-                  <div key={i} className="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
-                    <p className="text-[9px] text-black/35 uppercase tracking-wide mb-0.5">{m.label}</p>
-                    <p className="text-xs font-semibold text-black capitalize">{m.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Defect type detail */}
-              {analysis.defect_type !== 'none' && (
-                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-                  <p className="text-[10px] font-bold text-red-700 uppercase tracking-wide mb-1">Defect Identified</p>
-                  <p className="text-xs text-red-600 capitalize">{analysis.defect_type.replace(/-/g, ' ')} — review this layer before continuing</p>
-                </div>
-              )}
-
-              {/* Verdict summary */}
-              <div className={`px-4 py-3 rounded-xl border ${analysis.verdict === 'straight' && analysis.defect_type === 'none' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-                <p className={`text-xs font-bold ${analysis.verdict === 'straight' && analysis.defect_type === 'none' ? 'text-emerald-700' : 'text-red-700'}`}>
-                  {analysis.verdict === 'straight' && analysis.defect_type === 'none'
-                    ? 'Layer quality OK — print can continue'
-                    : analysis.severity === 'high'
-                      ? 'Critical issue — stop print and inspect'
-                      : 'Issue detected — monitor closely'}
+              {/* Verdict */}
+              <div>
+                <p className="text-[10px] text-white/30 uppercase tracking-widest mb-1">Verdict</p>
+                <p className="text-xl font-bold text-white capitalize">
+                  {analysis.verdict === 'straight' ? 'Print quality good' :
+                   analysis.verdict === 'deviated' ? 'Bead deviation detected' :
+                   analysis.verdict === 'defect'   ? 'Defect detected' : 'Unable to assess'}
                 </p>
-                <p className="text-[10px] text-black/35 mt-0.5">{analysis.timestamp}</p>
+                <p className="text-[11px] text-white/40 mt-1.5 leading-relaxed">{analysis.description}</p>
               </div>
 
-              {/* Re-analyse button */}
+              <div className="h-px bg-white/8"/>
+
+              {/* Defect */}
+              <div>
+                <p className="text-[10px] text-white/30 uppercase tracking-widest mb-2">Defect</p>
+                <p className="text-sm font-semibold text-white capitalize">
+                  {analysis.defect_type === 'none' ? 'None detected' : analysis.defect_type.replace(/-/g, ' ')}
+                </p>
+                {analysis.defect_type !== 'none' && (
+                  <p className="text-[10px] text-white/40 mt-1">Review this layer before continuing the print</p>
+                )}
+              </div>
+
+              <div className="h-px bg-white/8"/>
+
+              {/* Angle deviation */}
+              <div>
+                <p className="text-[10px] text-white/30 uppercase tracking-widest mb-2">Angle Deviation</p>
+                <p className="text-sm font-semibold text-white font-mono">
+                  {analysis.angle_deviation !== 0
+                    ? `${analysis.angle_deviation > 0 ? '+' : ''}${analysis.angle_deviation.toFixed(1)}°`
+                    : 'None'}
+                </p>
+              </div>
+
+              <div className="h-px bg-white/8"/>
+
+              {/* Recommendation */}
+              <div className="border border-white/10 rounded-xl px-4 py-3">
+                <p className="text-xs font-semibold text-white">
+                  {analysis.verdict === 'straight' && analysis.defect_type === 'none'
+                    ? 'Print can continue'
+                    : analysis.severity === 'high'
+                      ? 'Stop print — inspect immediately'
+                      : 'Monitor closely before next layer'}
+                </p>
+                <p className="text-[10px] text-white/30 mt-0.5 font-mono">{analysis.timestamp}</p>
+              </div>
+
+              {/* Re-upload */}
               <label className="cursor-pointer w-full block">
-                <div className="w-full py-2 text-xs font-medium text-center border border-gray-200 rounded-xl text-black/40 hover:text-black hover:border-black transition-all">
+                <div className="w-full py-2 text-xs font-medium text-center border border-white/10 rounded-xl text-white/30 hover:text-white hover:border-white/30 transition-all">
                   Upload different image
                 </div>
                 <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
