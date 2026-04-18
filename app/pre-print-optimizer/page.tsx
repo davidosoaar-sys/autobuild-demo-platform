@@ -361,6 +361,7 @@ export default function PrePrintOptimizer() {
       status:      'printing',
       totalLayers,
       printSpeed,
+      city,
       report: {
         // existing
         generatedAt:    new Date().toISOString(),

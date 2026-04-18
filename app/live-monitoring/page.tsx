@@ -706,6 +706,13 @@ export default function LiveMonitoring() {
   const tickRef    = useRef<NodeJS.Timeout | null>(null);
 
   const [activeTab,   setActiveTab]   = useState<Tab>('monitor');
+  const [clock,       setClock]       = useState('');
+  const [liveTemp,    setLiveTemp]    = useState<number | null>(null);
+
+  // Pre-print city saved in project store, pre-print temp as fallback
+  const preCity = (activeProject as any)?.city ?? '';
+  const preTemp = (activeProject as any)?.report?.conditions?.temperature ?? null;
+  const displayTemp = liveTemp ?? preTemp;
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsed,     setElapsed]     = useState(0);
   const [alertLog,    setAlertLog]    = useState<AlertEntry[]>([]);
@@ -729,6 +736,30 @@ export default function LiveMonitoring() {
     tickRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
   }, []);
+
+  useEffect(() => {
+    const tick = () => setClock(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Live weather polling every 2 minutes
+  useEffect(() => {
+    if (!preCity) return;
+    const fetchTemp = async () => {
+      try {
+        const res = await fetch(`${API}/weather/current?city=${encodeURIComponent(preCity)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.temperature != null) setLiveTemp(Math.round(data.temperature));
+        }
+      } catch { /* silent */ }
+    };
+    fetchTemp();
+    const iv = setInterval(fetchTemp, 2 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, [preCity]);
 
   const addAlert = useCallback((msg: string, level: 'info' | 'warn' | 'error' = 'info') => {
     const time = new Date().toLocaleTimeString();
@@ -809,6 +840,10 @@ export default function LiveMonitoring() {
               <span className="text-sm font-semibold">{controls.paused ? 'Paused' : 'Printing'}</span>
             </div>
             <span className="text-xs font-mono text-black/40 hidden sm:block">{fmtElapsed()}</span>
+            {clock && <span className="text-xs font-mono text-black/25 hidden sm:block">{clock}</span>}
+            {displayTemp != null && (
+              <span className="text-xs font-mono text-black/40 hidden sm:block">{displayTemp}°C</span>
+            )}
             {activeProject && <span className="text-xs text-black/40 hidden md:block truncate max-w-[160px]">{activeProject.printer.name || '—'}</span>}
             {beadLog.length > 0 && <span className="text-[10px] font-mono text-black/30 hidden sm:block">{beadLog.length} bead scan{beadLog.length !== 1 ? 's' : ''}</span>}
           </div>
@@ -998,26 +1033,22 @@ export default function LiveMonitoring() {
         </AnimatePresence>
       </div>
 
-      <AnimatePresence>
-        {showConfirm && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl p-6 sm:p-8 max-w-sm w-full shadow-2xl">
-              <h3 className="text-base font-bold text-black mb-2">End print session?</h3>
-              <p className="text-sm text-black/40 mb-6">This will generate your report and mark the project as complete.</p>
-              <div className="flex gap-3">
-                <button onClick={() => setShowConfirm(false)}
-                  className="flex-1 py-2.5 text-sm font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
-                <button onClick={endPrint}
-                  className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/80">
-                  End & Report
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-sm w-full shadow-2xl">
+            <h3 className="text-base font-bold text-black mb-2">End print session?</h3>
+            <p className="text-sm text-black/40 mb-6">This will generate your report and mark the project as complete.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowConfirm(false)}
+                className="flex-1 py-2.5 text-sm font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+              <button onClick={endPrint}
+                className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/80">
+                End & Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
