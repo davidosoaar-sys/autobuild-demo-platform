@@ -115,23 +115,43 @@ const STEPS = [
 
 function LoadingOverlay({ fileName, onCancel }: { fileName:string; onCancel:()=>void }) {
   const [pct, setPct] = useState(0);
+  const [stepIdx, setStepIdx] = useState(0);
+
   useEffect(() => {
-    const iv = setInterval(() => setPct(p => Math.min(p + Math.random() * 12, 95)), 1400);
+    const iv = setInterval(() => {
+      setPct(p => {
+        const next = Math.min(p + Math.random() * 8, 95);
+        setStepIdx(Math.min(Math.floor((next / 95) * STEPS.length), STEPS.length - 1));
+        return next;
+      });
+    }, 1600);
     return () => clearInterval(iv);
   }, []);
+
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,transition:{duration:0.3}}}
       className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center">
-      <div className="flex flex-col items-center w-full max-w-xs px-8">
-        <motion.div className="w-3 h-3 rounded-full bg-white mb-10"
-          animate={{opacity:[1,0.2,1]}} transition={{duration:1.4,repeat:Infinity}}/>
-        <p className="text-white text-lg font-semibold tracking-tight mb-1">Optimizing...</p>
-        <p className="text-white/30 text-[11px] font-mono mb-8 truncate max-w-full text-center">{fileName}</p>
-        <div className="w-full h-0.5 bg-white/10 rounded-full overflow-hidden mb-2">
-          <motion.div className="h-full bg-white rounded-full" animate={{width:`${pct}%`}} transition={{duration:0.9,ease:'easeOut'}}/>
+      <div className="flex flex-col items-center w-full max-w-sm px-10">
+
+        <p className="text-white text-xl font-semibold tracking-tight mb-1">Optimizing</p>
+        <p className="text-white/30 text-[11px] font-mono mb-10 truncate max-w-full text-center">{fileName}</p>
+
+        {/* Progress bar */}
+        <div className="w-full mb-3">
+          <div className="w-full h-0.5 bg-white/10 rounded-full overflow-hidden">
+            <motion.div className="h-full bg-white rounded-full"
+              animate={{width:`${pct}%`}} transition={{duration:1.2, ease:'easeOut'}}/>
+          </div>
+          <div className="flex justify-between mt-2">
+            <p className="text-white/30 text-[10px] font-mono">{STEPS[stepIdx]?.label}</p>
+            <p className="text-white/25 text-[10px] font-mono">{Math.round(pct)}%</p>
+          </div>
         </div>
-        <p className="text-white/25 text-[10px] font-mono self-end">{Math.round(pct)}%</p>
-        <button onClick={onCancel} className="mt-12 text-white/15 hover:text-white/40 text-[10px] transition-colors tracking-widest uppercase">Cancel</button>
+
+        <button onClick={onCancel}
+          className="mt-16 text-white/15 hover:text-white/40 text-[10px] transition-colors tracking-widest uppercase">
+          Cancel
+        </button>
       </div>
     </motion.div>
   );
@@ -355,7 +375,7 @@ export default function PrePrintOptimizer() {
         structureType:  activeProject.structureType ?? '—',
         // new fields for report page
         printStartedAt:  new Date().toISOString(),
-        materialName:    parameters.cementMix,
+        materialName:    result.cement?.display_name ?? parameters.cementMix,
         batchNumber:     parameters.batchNumber || '—',
         gcodeLines:      result.gcode_lines,
         gcodeRef:        `autobuild_${result.result_id?.slice(0,8) ?? 'unknown'}.gcode`,
