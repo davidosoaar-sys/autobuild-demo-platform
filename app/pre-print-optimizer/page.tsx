@@ -355,47 +355,50 @@ export default function PrePrintOptimizer() {
     URL.revokeObjectURL(url);
   };
 
-  const beginPrint = () => {
-    if (!activeProject || !result) return;
-    updateProject(activeProject.id, {
-      status:      'printing',
-      totalLayers,
-      printSpeed,
-      report: {
-        // existing
-        generatedAt:    new Date().toISOString(),
-        duration:       result.estimated_print_time ?? '—',
-        totalLayers:    result.geometry.num_layers,
-        layersPrinted:  0,
-        errorsDetected: 0,
-        errorRate:      '0%',
-        alerts:         [],
-        printerName:    activeProject.printer.name ?? '—',
-        printerModel:   activeProject.printer.type ?? '—',
-        structureType:  activeProject.structureType ?? '—',
-        // new fields for report page
-        printStartedAt:  new Date().toISOString(),
-        materialName:    result.cement?.display_name ?? parameters.cementMix,
-        batchNumber:     parameters.batchNumber || '—',
-        gcodeLines:      result.gcode_lines,
-        gcodeRef:        `autobuild_${result.result_id?.slice(0,8) ?? 'unknown'}.gcode`,
-        totalSegments:   result.optimization.total_segments,
-        layerHeight:     result.printer?.layer_height_mm ?? '—',
-        nozzle:          result.printer?.nozzle_mm ?? '—',
-        travelSaved:     result.optimization.time_saved_pct,
-        computedIn:      result.elapsed_seconds,
-        envRisk:         result.optimization.env_risk_score,
-        conditions: {
-          temperature: parameters.temperature,
-          humidity:    parameters.humidity,
-          windSpeed:   parameters.windSpeed,
-        },
-        events: [
-          { time: new Date().toISOString(), label: 'Print started',        type: 'info' },
-          { time: new Date().toISOString(), label: 'G-code sent to printer', type: 'info' },
-        ],
-      },
-    });
+  const beginPrint = async () => {
+    try {
+      if (activeProject && result) {
+        await updateProject(activeProject.id, {
+          status:      'printing',
+          totalLayers,
+          printSpeed,
+          report: {
+            generatedAt:    new Date().toISOString(),
+            duration:       result.estimated_print_time ?? '—',
+            totalLayers:    result.geometry.num_layers,
+            layersPrinted:  0,
+            errorsDetected: 0,
+            errorRate:      '0%',
+            alerts:         [],
+            printerName:    activeProject.printer.name ?? '—',
+            printerModel:   activeProject.printer.type ?? '—',
+            structureType:  activeProject.structureType ?? '—',
+            printStartedAt:  new Date().toISOString(),
+            materialName:    result.cement?.display_name ?? parameters.cementMix,
+            batchNumber:     parameters.batchNumber || '—',
+            gcodeLines:      result.gcode_lines,
+            gcodeRef:        `autobuild_${result.result_id?.slice(0,8) ?? 'unknown'}.gcode`,
+            totalSegments:   result.optimization.total_segments,
+            layerHeight:     result.printer?.layer_height_mm ?? '—',
+            nozzle:          result.printer?.nozzle_mm ?? '—',
+            travelSaved:     result.optimization.time_saved_pct,
+            computedIn:      result.elapsed_seconds,
+            envRisk:         result.optimization.env_risk_score,
+            conditions: {
+              temperature: parameters.temperature,
+              humidity:    parameters.humidity,
+              windSpeed:   parameters.windSpeed,
+            },
+            events: [
+              { time: new Date().toISOString(), label: 'Print started',          type: 'info' },
+              { time: new Date().toISOString(), label: 'G-code sent to printer', type: 'info' },
+            ],
+          },
+        });
+      }
+    } catch {
+      // navigation must proceed even if the Supabase update fails
+    }
     router.push('/live-monitoring');
   };
 
@@ -511,6 +514,7 @@ export default function PrePrintOptimizer() {
 
                       {/* Key stats — flat list */}
                       <div className="mb-3">
+                        <StatRow label="Material"       value={result.cement?.display_name ?? parameters.cementMix}           delay={0.02}/>
                         <StatRow label="Layers"         value={String(result.geometry.num_layers)}                            delay={0.04}/>
                         <StatRow label="Layer Height"   value={`${result.printer?.layer_height_mm ?? '—'} mm`}                delay={0.06}/>
                         <StatRow label="Nozzle"         value={`${result.printer?.nozzle_mm ?? '—'} mm`}                     delay={0.08}/>

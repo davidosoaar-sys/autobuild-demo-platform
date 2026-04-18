@@ -709,6 +709,7 @@ export default function LiveMonitoring() {
 
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsed,     setElapsed]     = useState(0);
+  const [clock,       setClock]       = useState(() => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   const [alertLog,    setAlertLog]    = useState<AlertEntry[]>([]);
   const [beadLog,     setBeadLog]     = useState<BeadAnalysis[]>([]);
   const [activeAlert, setActiveAlert] = useState<BeadAnalysis | null>(null);
@@ -729,6 +730,11 @@ export default function LiveMonitoring() {
   useEffect(() => {
     tickRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, []);
+
+  useEffect(() => {
+    const iv = setInterval(() => setClock(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })), 1000);
+    return () => clearInterval(iv);
   }, []);
 
 
@@ -812,6 +818,7 @@ export default function LiveMonitoring() {
               <span className="text-sm font-semibold">{controls.paused ? 'Paused' : 'Printing'}</span>
             </div>
             <span className="text-xs font-mono text-black/40 hidden sm:block">{fmtElapsed()}</span>
+            <span className="text-xs font-mono text-black/30 hidden sm:block">{clock}</span>
 
             {activeProject && <span className="text-xs text-black/40 hidden md:block truncate max-w-[160px]">{activeProject.printer.name || '—'}</span>}
             {beadLog.length > 0 && <span className="text-[10px] font-mono text-black/30 hidden sm:block">{beadLog.length} bead scan{beadLog.length !== 1 ? 's' : ''}</span>}
