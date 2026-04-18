@@ -355,13 +355,14 @@ export default function PrePrintOptimizer() {
     URL.revokeObjectURL(url);
   };
 
-  const beginPrint = () => {
+  const beginPrint = async () => {
     if (!activeProject || !result) return;
-    updateProject(activeProject.id, {
-      status:      'printing',
-      totalLayers,
-      printSpeed,
-      report: {
+    try {
+      await updateProject(activeProject.id, {
+        status:      'printing',
+        totalLayers,
+        printSpeed,
+        report: {
         // existing
         generatedAt:    new Date().toISOString(),
         duration:       result.estimated_print_time ?? '—',
@@ -406,6 +407,10 @@ export default function PrePrintOptimizer() {
         ],
       },
     });
+    } catch (e) {
+      console.error('[beginPrint] updateProject failed:', e);
+      // Navigate anyway — report data may be partially saved
+    }
     router.push('/live-monitoring');
   };
 
