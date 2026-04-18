@@ -17,16 +17,19 @@ export interface DBProject {
   status:         'setup' | 'pre-print' | 'printing' | 'complete';
   total_layers:   number;
   print_speed:    number;
+  report?:        Record<string, any> | null;
 }
 
 export interface DBPrinterConfig {
-  id:            string;
-  project_id:    string;
-  printer_name:  string;
-  printer_type:  string | null;
-  nozzle:        string | null;
-  max_speed:     string | null;
-  manual_config: Record<string, any> | null;
+  id:              string;
+  project_id:      string;
+  printer_name:    string;
+  printer_type:    string | null;
+  nozzle:          string | null;
+  max_speed:       string | null;
+  layer_height?:   number | null;
+  bead_compression?: number | null;
+  manual_config:   Record<string, any> | null;
 }
 
 export interface DBOptimizationResult {

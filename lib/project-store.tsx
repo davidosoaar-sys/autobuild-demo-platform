@@ -1,11 +1,10 @@
 'use client';
-
 import {
   createContext, useContext, useEffect, useState, useCallback, ReactNode,
 } from 'react';
 import { supabase, DBProject } from './supabase';
 
-// ── Project type ──────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface ReportAlert {
   time:    string;
@@ -24,6 +23,7 @@ export interface ProjectReport {
   printerName?:   string;
   printerModel?:  string;
   structureType?: string;
+  [key: string]:  any;
 }
 
 export interface ManualPrinterConfig {
@@ -66,13 +66,7 @@ export interface Project {
     beadCompression?: number;
     manualConfig?:    ManualPrinterConfig;
   };
-  report?: {
-    totalLayers:    number;
-    layersPrinted:  number;
-    errorsDetected: number;
-    duration:       string;
-    alerts:         { time: string; layer: number; message: string }[];
-  };
+  report?: Record<string, any>;
 }
 
 interface ProjectContextValue {
@@ -103,6 +97,7 @@ function dbToProject(row: DBProject, printer?: any): Project {
     totalLayers:   row.total_layers,
     printSpeed:    row.print_speed,
     printer:       printer ?? { name: '', type: '', nozzle: '', maxSpeed: '' },
+    report:        row.report ?? undefined,
   };
 }
 
@@ -120,7 +115,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         .from('projects')
         .select('*')
         .order('created_at', { ascending: false });
-
       if (error) throw error;
 
       const { data: printers } = await supabase
@@ -168,7 +162,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       })
       .select()
       .single();
-
     if (error) throw error;
 
     const project = dbToProject(row);
@@ -185,6 +178,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (updates.structureType !== undefined) dbUpdates.structure_type = updates.structureType;
     if (updates.name          !== undefined) dbUpdates.name           = updates.name;
     if (updates.description   !== undefined) dbUpdates.description    = updates.description;
+    if (updates.report        !== undefined) dbUpdates.report         = updates.report;
 
     if (Object.keys(dbUpdates).length > 0) {
       await supabase.from('projects').update(dbUpdates).eq('id', id);
@@ -216,7 +210,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, [activeId]);
 
   const setActive = useCallback((id: string) => setActiveId(id), []);
-
   const activeProject = projects.find(p => p.id === activeId) ?? null;
 
   return (
