@@ -770,12 +770,20 @@ export default function LiveMonitoring() {
     if (!activeProject) return;
     const s = sessionRef.current;
     const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60);
-    const report: ProjectReport = {
-      generatedAt:    new Date().toISOString(), duration: h > 0 ? `${h}h ${m}m` : `${m}m`,
-      totalLayers:    activeProject.totalLayers, layersPrinted: s.layersPrinted,
+    const existing = (activeProject as any).report ?? {};
+    const report = {
+      // preserve all pre-print data saved by beginPrint
+      ...existing,
+      // update with live session data
+      generatedAt:    new Date().toISOString(),
+      duration:       h > 0 ? `${h}h ${m}m` : `${m}m`,
+      totalLayers:    activeProject.totalLayers,
+      layersPrinted:  s.layersPrinted,
       errorsDetected: s.errorsDetected,
       errorRate:      activeProject.totalLayers > 0 ? `${((s.errorsDetected / activeProject.totalLayers) * 100).toFixed(1)}%` : '0%',
-      alerts:         s.alerts, printerName: activeProject.printer.name, structureType: activeProject.structureType,
+      alerts:         [...(existing.alerts ?? []), ...s.alerts],
+      printerName:    activeProject.printer.name,
+      structureType:  activeProject.structureType,
     };
     updateProject(activeProject.id, { status: 'complete', report });
     router.push('/report');
