@@ -861,20 +861,22 @@ export default function LiveMonitoring() {
               <span className="text-xs font-medium text-black/50">{controls.paused ? 'Paused' : 'Printing'}</span>
             </div>
 
-            {/* Elapsed — hero */}
-            <span className="text-2xl font-bold font-mono text-black tracking-tight leading-none">{fmtElapsed()}</span>
-
-            {/* Clock + weather pill */}
-            <div className="hidden sm:flex items-center gap-2">
-              <span className="text-sm font-mono text-black/40">{clock}</span>
+            {/* Elapsed + clock + weather — all same size */}
+            <div className="flex items-baseline gap-3">
+              <span className="text-2xl font-bold font-mono text-black tracking-tight leading-none">{fmtElapsed()}</span>
+              <span className="hidden sm:block w-px h-5 bg-black/10 self-center" />
+              <span className="hidden sm:block text-2xl font-bold font-mono text-black/35 tracking-tight leading-none">{clock}</span>
               {(liveWeather || (activeProject as any)?.report?.conditions?.temperature != null) && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-xs font-semibold font-mono text-black/70"
-                  title={liveWeather?.description ?? 'Site conditions from optimizer'}>
-                  {liveWeather
-                    ? <>{Math.round(liveWeather.temperature)}°C <span className="font-normal text-black/40">{liveWeather.city}</span></>
-                    : <>{(activeProject as any).report.conditions.temperature}°C <span className="font-normal text-black/40">site</span></>
-                  }
-                </span>
+                <>
+                  <span className="hidden sm:block w-px h-5 bg-black/10 self-center" />
+                  <span className="hidden sm:block text-2xl font-bold font-mono text-black/35 tracking-tight leading-none"
+                    title={liveWeather?.description ?? 'Site conditions from optimizer'}>
+                    {liveWeather
+                      ? `${Math.round(liveWeather.temperature)}°C`
+                      : `${(activeProject as any).report.conditions.temperature}°C`
+                    }
+                  </span>
+                </>
               )}
             </div>
 
