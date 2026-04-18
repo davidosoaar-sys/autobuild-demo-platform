@@ -250,7 +250,7 @@ export default function ProjectsPage() {
             <motion.div initial={{scale:0.95,y:8}} animate={{scale:1,y:0}} exit={{scale:0.95}}
               className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
               <div className="bg-black px-6 py-5">
-                <Image src="/logo.png" alt="AutoBuild AI" width={200} height={200} className="h-14 w-auto mb-3"/>
+                <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={200} height={200} className="h-14 w-auto mb-3"/>
                 <p className="text-white font-bold text-lg">Welcome to AutoBuild AI</p>
                 <p className="text-white/40 text-xs mt-1">3DCP monitoring and path optimisation platform</p>
               </div>
@@ -293,7 +293,7 @@ export default function ProjectsPage() {
       <header className="border-b border-gray-100 bg-white sticky top-0 z-10 overflow-visible">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-1 flex items-center justify-between">
           <div className="-my-4 sm:-my-6">
-            <Image src="/logo.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto"/>
+            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto"/>
           </div>
           <button onClick={()=>setShowCreate(true)}
             className="px-3 sm:px-4 py-2 bg-black text-white text-xs sm:text-sm font-medium rounded-xl hover:bg-black/90 transition-colors">

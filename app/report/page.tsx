@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useProjects } from '@/lib/project-store';
@@ -40,12 +41,54 @@ function Section({ title, children }: { title:string; children:React.ReactNode }
 export default function ReportPage() {
   const router = useRouter();
   const { activeProject } = useProjects();
+
+  // Show ToS on first visit
+  const [tosAccepted, setTosAccepted] = React.useState(() => {
+    if (typeof window === 'undefined') return true;
+    return localStorage.getItem('autobuild_tos_accepted') === 'true';
+  });
+
+  const acceptTos = () => {
+    localStorage.setItem('autobuild_tos_accepted', 'true');
+    setTosAccepted(true);
+  };
   const r = activeProject?.report as any ?? {};
 
   const score = r.totalLayers > 0
     ? Math.max(0, Math.round(((r.totalLayers - (r.errorsDetected ?? 0)) / r.totalLayers) * 100))
     : 100;
   const scoreLabel = score >= 90 ? 'Excellent' : score >= 75 ? 'Acceptable' : 'Needs Review';
+
+  if (!tosAccepted) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white border border-gray-100 rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
+          <div className="bg-black px-6 py-5">
+            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={200} height={200} className="h-16 w-auto mb-3"/>
+            <p className="text-white font-bold text-lg">Before you continue</p>
+            <p className="text-white/50 text-xs mt-1">Please review our terms before accessing your print report.</p>
+          </div>
+          <div className="px-6 py-5 space-y-3 text-xs text-black/50 leading-relaxed max-h-64 overflow-y-auto border-b border-gray-100">
+            <p><strong className="text-black">AI Analysis Limitations.</strong> AutoBuild AI uses Claude Vision to assess concrete bead quality. These outputs are decision-support tools only and are not a substitute for qualified engineering judgement.</p>
+            <p><strong className="text-black">No Warranty.</strong> Results are provided "as is." AutoBuild AI does not guarantee accuracy of defect detection, angle measurements, or path optimisation outputs.</p>
+            <p><strong className="text-black">Your Responsibility.</strong> You are solely responsible for all decisions made during the printing process based on platform outputs.</p>
+            <p><strong className="text-black">Data.</strong> Camera frames and images are processed via Anthropic's API and are not permanently stored by AutoBuild AI.</p>
+            <p className="text-black/30">By clicking "Accept & Continue" you agree to the full <button onClick={() => router.push('/tos')} className="underline hover:text-black">Terms of Service</button>.</p>
+          </div>
+          <div className="px-6 py-4 flex gap-3">
+            <button onClick={() => router.push('/projects')}
+              className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl text-black/40 hover:text-black hover:border-black transition-colors">
+              Cancel
+            </button>
+            <button onClick={acceptTos}
+              className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-colors">
+              Accept & Continue
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28" id="report-root">
@@ -71,7 +114,7 @@ export default function ReportPage() {
             </button>
             <div className="h-6 w-px bg-gray-200 hidden sm:block"/>
             <div className="-my-4 sm:-my-5">
-              <Image src="/logo.png" alt="AutoBuild AI" width={400} height={400} className="h-20 sm:h-28 w-auto"/>
+              <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-20 sm:h-28 w-auto"/>
             </div>
             <h1 className="text-base sm:text-lg font-semibold text-black">Print Report</h1>
           </div>
