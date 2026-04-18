@@ -4,54 +4,212 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useProjects } from '@/lib/project-store';
+import { useProjects, Project } from '@/lib/project-store';
 
-const STRUCTURE_TYPES = ['Wall', 'Foundation', 'Column', 'Slab', 'Custom'];
-const PRINTER_TYPES   = ['COBOD BOD2', 'Printerra P1', 'Custom Gantry', 'Delta 3DCP', 'Other'];
+function timeAgo(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ago`;
+  if (h > 0) return `${h}h ago`;
+  if (m > 0) return `${m}m ago`;
+  return 'Just now';
+}
+
+const STATUS: Record<Project['status'], { label: string; dotClass: string }> = {
+  setup:       { label: 'Setup',     dotClass: 'bg-black/20' },
+  'pre-print': { label: 'Pre-Print', dotClass: 'bg-black/50' },
+  printing:    { label: 'Printing',  dotClass: 'bg-white animate-pulse' },
+  complete:    { label: 'Complete',  dotClass: 'bg-black' },
+};
+
+const STRUCTURES = ['Standard Home','Load-bearing wall','Foundation slab','Column','Partition wall','Retaining wall','Custom'];
+
+function CreateModal({ onClose, onCreate }: {
+  onClose: () => void;
+  onCreate: (name: string, desc: string, structure: string, address: string) => void;
+}) {
+  const [name, setName]           = useState('');
+  const [desc, setDesc]           = useState('');
+  const [address, setAddress]     = useState('');
+  const [structure, setStructure] = useState(STRUCTURES[0]);
+  const canSubmit = name.trim().length > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-gray-100 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-sm font-semibold text-black">New Project</h2>
+            <p className="text-xs text-black/40 mt-0.5">Set up your print job</p>
+          </div>
+          <button onClick={onClose} className="text-black/20 hover:text-black transition-colors text-xl w-7 h-7 flex items-center justify-center">&times;</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+          <div>
+            <label className="block text-xs font-medium text-black mb-1.5">Project name</label>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Wall Section A"
+              className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black placeholder:text-black/20"/>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-black mb-1.5">Description <span className="text-black/30 font-normal">(optional)</span></label>
+            <textarea value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Brief notes about this print job" rows={2}
+              className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black placeholder:text-black/20 resize-none"/>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-black mb-1.5">Site address <span className="text-black/30 font-normal">(optional)</span></label>
+            <input value={address} onChange={e=>setAddress(e.target.value)} placeholder="e.g. 14 Riverside Drive, Lagos"
+              className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-black transition-colors text-black placeholder:text-black/20"/>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-black mb-2">Structure type</label>
+            <div className="grid grid-cols-2 gap-2">
+              {STRUCTURES.map(s=>(
+                <button key={s} onClick={()=>setStructure(s)}
+                  className={`px-3 py-2 text-xs rounded-xl border transition-colors text-left ${structure===s?'border-black bg-black text-white':'border-gray-200 text-black hover:border-black'}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={()=>canSubmit&&onCreate(name,desc,structure,address)} disabled={!canSubmit}
+            className="flex-1 py-2.5 text-sm bg-black text-white rounded-xl hover:bg-black/90 disabled:opacity-30 transition-colors font-medium">
+            Create Project
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectCard({ project, onOpen, onDelete, listView }: { project: Project; onOpen: ()=>void; onDelete: ()=>void; listView: boolean }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isPrinting = project.status === 'printing';
+  const st = STATUS[project.status];
+
+  if (listView) {
+    return (
+      <div className={`rounded-2xl overflow-hidden border transition-shadow hover:shadow-md ${isPrinting?'bg-black border-black':'bg-white border-gray-100'}`}>
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3.5">
+          <button onClick={onOpen} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${st.dotClass}`}/>
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold truncate ${isPrinting?'text-white':'text-black'}`}>{project.name}</p>
+              <p className={`text-[11px] truncate ${isPrinting?'text-white/40':'text-black/35'}`}>
+                {project.structureType} · {project.printer.name||'No printer'} · {timeAgo(project.createdAt)}
+              </p>
+            </div>
+          </button>
+          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+              isPrinting ? 'border-white/20 text-white/50' : 'border-gray-200 text-black/40'
+            }`}>{st.label}</span>
+            <button onClick={onOpen}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition-colors ${isPrinting?'bg-white text-black':'bg-black text-white hover:bg-black/80'}`}>
+              Open
+            </button>
+            {confirmDelete ? (
+              <>
+                <button onClick={onDelete} className="px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-red-500 text-white">Confirm</button>
+                <button onClick={()=>setConfirmDelete(false)} className={`px-2.5 py-1.5 text-xs rounded-xl border ${isPrinting?'border-white/20 text-white/40':'border-gray-200 text-black/30'}`}>×</button>
+              </>
+            ) : (
+              <button onClick={()=>setConfirmDelete(true)} className={`px-2.5 py-1.5 text-xs rounded-xl border transition-colors ${isPrinting?'border-white/20 text-white/30':'border-gray-200 text-black/30 hover:bg-gray-50'}`}>Delete</button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-2xl overflow-hidden border transition-shadow hover:shadow-lg ${isPrinting?'bg-black border-black':'bg-white border-gray-100'}`}>
+      <button onClick={onOpen} className="w-full text-left p-4 sm:p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${st.dotClass}`}/>
+            <span className={`text-[10px] font-semibold uppercase tracking-widest ${isPrinting?'text-white/50':'text-black/40'}`}>{st.label}</span>
+          </div>
+          <span className={`text-[10px] ${isPrinting?'text-white/25':'text-black/20'}`}>{timeAgo(project.createdAt)}</span>
+        </div>
+
+        <h3 className={`text-sm font-semibold mb-0.5 truncate ${isPrinting?'text-white':'text-black'}`}>{project.name}</h3>
+        {project.description && <p className={`text-xs mb-1 truncate ${isPrinting?'text-white/40':'text-black/40'}`}>{project.description}</p>}
+        {(project as any).address && <p className={`text-[11px] mb-3 truncate ${isPrinting?'text-white/30':'text-black/30'}`}>{(project as any).address}</p>}
+
+        <div className={`grid grid-cols-3 gap-2 pt-4 border-t ${isPrinting?'border-white/10':'border-gray-100'}`}>
+          {[
+            { label:'Structure', value: project.structureType },
+            { label:'Layers',    value: project.totalLayers > 0 ? String(project.totalLayers) : '—' },
+            { label:'Speed',     value: `${project.printSpeed} mm/s` },
+          ].map((s,i)=>(
+            <div key={i}>
+              <div className={`text-[9px] uppercase tracking-wider mb-0.5 ${isPrinting?'text-white/30':'text-black/30'}`}>{s.label}</div>
+              <div className={`text-xs font-medium truncate ${isPrinting?'text-white':'text-black'}`}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1.5 mt-4">
+          <div className={`w-1.5 h-1.5 rounded-full ${project.printer.name?(isPrinting?'bg-white/60':'bg-black'):(isPrinting?'bg-white/20':'bg-black/20')}`}/>
+          <span className={`text-[11px] truncate ${isPrinting?'text-white/40':'text-black/40'}`}>{project.printer.name||'No printer assigned'}</span>
+        </div>
+      </button>
+
+      <div className={`px-4 sm:px-5 pb-4 sm:pb-5 pt-3 flex gap-2 border-t ${isPrinting?'border-white/10':'border-gray-100'}`}>
+        <button onClick={onOpen}
+          className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors ${isPrinting?'bg-white text-black hover:bg-white/90':'bg-black text-white hover:bg-black/90'}`}>
+          Open
+        </button>
+        {confirmDelete ? (
+          <>
+            <button onClick={onDelete} className="px-3 py-2 text-xs font-semibold rounded-xl bg-red-500 text-white hover:bg-red-600">Confirm</button>
+            <button onClick={()=>setConfirmDelete(false)}
+              className={`px-3 py-2 text-xs rounded-xl border transition-colors ${isPrinting?'border-white/20 text-white/50':'border-gray-200 text-black/40'}`}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button onClick={()=>setConfirmDelete(true)}
+            className={`px-3 py-2 text-xs rounded-xl border transition-colors ${isPrinting?'border-white/20 text-white/30':'border-gray-200 text-black/30 hover:bg-gray-50'}`}>
+            Delete
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { projects, createProject, setActiveProject } = useProjects();
-
-  const [userName,    setUserName]    = useState('');
-  const [nameInput,   setNameInput]   = useState('');
-  const [showNameModal, setShowNameModal] = useState(false);
-  const [showNew,     setShowNew]     = useState(false);
-  const [newName,     setNewName]     = useState('');
-  const [structure,   setStructure]   = useState(STRUCTURE_TYPES[0]);
-  const [printerType, setPrinterType] = useState(PRINTER_TYPES[0]);
-  const [printerName, setPrinterName] = useState('');
+  const { projects, setActiveProject, createProject, deleteProject } = useProjects();
+  const [showCreate, setShowCreate] = useState(false);
+  const [listView,   setListView]   = useState(false);
+  const [userName,   setUserName]   = useState('');
+  const [showOnboard, setShowOnboard] = useState(false);
+  const [nameInput,  setNameInput]  = useState('');
+  const [tosChecked, setTosChecked] = useState(false);
+  const activelyPrinting = projects.find(p=>p.status==='printing');
 
   useEffect(() => {
-    const saved = localStorage.getItem('autobuild_user_name');
-    if (saved) setUserName(saved);
-    else setShowNameModal(true);
+    const name = localStorage.getItem('autobuild_user_name');
+    const tos  = localStorage.getItem('autobuild_tos_accepted');
+    if (!name || !tos) setShowOnboard(true);
+    else setUserName(name);
   }, []);
 
-  const saveName = () => {
-    const n = nameInput.trim();
-    if (!n) return;
-    localStorage.setItem('autobuild_user_name', n);
-    setUserName(n);
-    setShowNameModal(false);
-  };
-
-  const handleCreate = () => {
-    if (!newName.trim()) return;
-    const id = createProject({
-      name:          newName.trim(),
-      structureType: structure,
-      printer: { name: printerName || printerType, type: printerType },
-      status:        'setup',
-      totalLayers:   100,
-    });
-    setActiveProject(id);
-    router.push('/pre-print-optimizer');
-  };
-
-  const openProject = (id: string) => {
-    setActiveProject(id);
-    router.push('/pre-print-optimizer');
+  const handleOnboard = () => {
+    if (!nameInput.trim() || !tosChecked) return;
+    localStorage.setItem('autobuild_user_name',   nameInput.trim());
+    localStorage.setItem('autobuild_tos_accepted', 'true');
+    setUserName(nameInput.trim());
+    setShowOnboard(false);
   };
 
   const greeting = () => {
@@ -61,32 +219,69 @@ export default function ProjectsPage() {
     return 'Good evening';
   };
 
+  const handleCreate = async (name: string, desc: string, structure: string, address: string) => {
+    const p = await createProject({
+      name, description: desc, structureType: structure,
+      printer: { name:'', nozzle:'', maxSpeed:'' },
+      totalLayers: 0, printSpeed: 60,
+      ...(address ? { address } : {}),
+    } as any);
+    setActiveProject(p.id);
+    setShowCreate(false);
+    router.push('/printer-setup');
+  };
+
+  const handleOpen = (project: Project) => {
+    setActiveProject(project.id);
+    if (project.status==='setup')          router.push('/printer-setup');
+    else if (project.status==='pre-print') router.push('/pre-print-optimizer');
+    else if (project.status==='printing')  router.push('/live-monitoring');
+    else                                   router.push('/report');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Name modal */}
+
+      {/* ── Onboarding modal ── */}
       <AnimatePresence>
-        {showNameModal && (
+        {showOnboard && (
           <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
             <motion.div initial={{scale:0.95,y:8}} animate={{scale:1,y:0}} exit={{scale:0.95}}
               className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
               <div className="bg-black px-6 py-5">
                 <Image src="/logo.png" alt="AutoBuild AI" width={200} height={200} className="h-14 w-auto mb-3"/>
-                <p className="text-white font-bold text-lg leading-snug">Welcome to AutoBuild AI</p>
-                <p className="text-white/40 text-xs mt-1">What should we call you?</p>
+                <p className="text-white font-bold text-lg">Welcome to AutoBuild AI</p>
+                <p className="text-white/40 text-xs mt-1">3DCP monitoring and path optimisation platform</p>
               </div>
-              <div className="px-6 py-5">
-                <input
-                  autoFocus
-                  value={nameInput}
-                  onChange={e => setNameInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveName()}
-                  placeholder="Your name"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-black transition-colors mb-4"
-                />
-                <button onClick={saveName} disabled={!nameInput.trim()}
+              <div className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-black mb-1.5">Your name</label>
+                  <input
+                    autoFocus
+                    value={nameInput}
+                    onChange={e => setNameInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleOnboard()}
+                    placeholder="e.g. David"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-black transition-colors placeholder:text-black/20"
+                  />
+                </div>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input type="checkbox" checked={tosChecked} onChange={e => setTosChecked(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-black flex-shrink-0"/>
+                  <span className="text-xs text-black/50 leading-relaxed">
+                    I agree to the{' '}
+                    <button onClick={() => router.push('/tos')} className="underline text-black hover:text-black/60">
+                      Terms of Service
+                    </button>{' '}
+                    and acknowledge that AI analysis outputs are for decision-support only and not a substitute for qualified engineering judgement.
+                  </span>
+                </label>
+                <button
+                  onClick={handleOnboard}
+                  disabled={!nameInput.trim() || !tosChecked}
                   className="w-full py-3 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 disabled:opacity-30 transition-all">
-                  Get Started
+                  Enter AutoBuild AI
                 </button>
               </div>
             </motion.div>
@@ -94,135 +289,93 @@ export default function ProjectsPage() {
         )}
       </AnimatePresence>
 
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-1 flex items-center justify-between">
-          <Image src="/logo.png" alt="AutoBuild AI" width={400} height={400} className="h-20 sm:h-24 w-auto"/>
-          {userName && (
-            <button onClick={() => setShowNameModal(true)}
-              className="text-xs text-black/40 hover:text-black transition-colors">
-              {userName}
-            </button>
-          )}
-        </div>
-      </header>
-
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
-
-        {/* Welcome */}
-        {userName && (
-          <div className="mb-8">
-            <p className="text-2xl sm:text-3xl font-bold text-black tracking-tight">
-              {greeting()}, {userName}.
-            </p>
-            <p className="text-sm text-black/40 mt-1">
-              {projects.length === 0
-                ? 'Start your first print project below.'
-                : `You have ${projects.length} project${projects.length !== 1 ? 's' : ''}.`}
-            </p>
+      {/* ── Header ── */}
+      <header className="border-b border-gray-100 bg-white sticky top-0 z-10 overflow-visible">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-1 flex items-center justify-between">
+          <div className="-my-4 sm:-my-6">
+            <Image src="/logo.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto"/>
           </div>
-        )}
-
-        {/* New project button */}
-        <div className="flex items-center justify-between mb-5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-black/30">Projects</p>
-          <button onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-all">
-            <span className="text-base leading-none">+</span>
+          <button onClick={()=>setShowCreate(true)}
+            className="px-3 sm:px-4 py-2 bg-black text-white text-xs sm:text-sm font-medium rounded-xl hover:bg-black/90 transition-colors">
             New Project
           </button>
         </div>
+      </header>
 
-        {/* Project list */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+
+        {/* Welcome + controls row */}
+        <div className="flex items-end justify-between mb-5 sm:mb-6">
+          <div>
+            {userName
+              ? <h1 className="text-lg sm:text-xl font-bold text-black tracking-tight">{greeting()}, {userName}.</h1>
+              : <h1 className="text-lg sm:text-xl font-bold text-black tracking-tight">Projects</h1>
+            }
+            <p className="text-xs text-black/40 mt-0.5">{projects.length} total</p>
+          </div>
+
+          {/* Grid / List toggle */}
+          <div className="flex items-center gap-1 border border-gray-200 rounded-xl p-1">
+            <button onClick={() => setListView(false)}
+              className={`p-1.5 rounded-lg transition-all ${!listView ? 'bg-black text-white' : 'text-black/30 hover:text-black'}`}
+              title="Grid view">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+              </svg>
+            </button>
+            <button onClick={() => setListView(true)}
+              className={`p-1.5 rounded-lg transition-all ${listView ? 'bg-black text-white' : 'text-black/30 hover:text-black'}`}
+              title="List view">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Active print banner */}
+        {activelyPrinting && (
+          <div className="bg-black rounded-2xl px-4 sm:px-6 py-4 mb-5 sm:mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-white animate-pulse flex-shrink-0"/>
+              <div>
+                <p className="text-sm font-semibold text-white">{activelyPrinting.name} is currently printing</p>
+                <p className="text-xs text-white/40 mt-0.5">{activelyPrinting.printer.name}</p>
+              </div>
+            </div>
+            <button onClick={()=>handleOpen(activelyPrinting)}
+              className="w-full sm:w-auto px-4 py-2 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-colors">
+              View Live Feed
+            </button>
+          </div>
+        )}
+
+        {/* Projects */}
         {projects.length === 0 ? (
-          <div className="border-2 border-dashed border-gray-200 rounded-2xl py-16 text-center">
-            <p className="text-sm font-medium text-black/30 mb-1">No projects yet</p>
-            <p className="text-xs text-black/20">Create your first 3DCP project to get started</p>
+          <div className="flex flex-col items-center justify-center py-16 sm:py-24 bg-white rounded-2xl border border-gray-100">
+            <p className="text-sm font-medium text-black mb-1">No projects yet</p>
+            <p className="text-xs text-black/40 mb-4">Create your first print job to get started</p>
+            <button onClick={()=>setShowCreate(true)}
+              className="px-4 py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/90 transition-colors">
+              New Project
+            </button>
+          </div>
+        ) : listView ? (
+          <div className="space-y-2">
+            {projects.map(p=>(
+              <ProjectCard key={p.id} project={p} onOpen={()=>handleOpen(p)} onDelete={()=>deleteProject(p.id)} listView={true}/>
+            ))}
           </div>
         ) : (
-          <div className="space-y-3">
-            {projects.map((p, i) => (
-              <motion.button key={p.id} initial={{opacity:0,y:4}} animate={{opacity:1,y:0}}
-                transition={{delay:i*0.04}}
-                onClick={() => openProject(p.id)}
-                className="w-full bg-white border border-gray-100 rounded-2xl px-5 py-4 flex items-center justify-between hover:border-black transition-all group text-left shadow-sm">
-                <div>
-                  <p className="text-sm font-semibold text-black group-hover:text-black">{p.name}</p>
-                  <p className="text-[11px] text-black/35 mt-0.5">
-                    {p.structureType} · {p.printer.name}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border ${
-                    p.status === 'complete' ? 'border-black/10 bg-black/5 text-black' :
-                    p.status === 'printing' ? 'border-black/20 bg-black text-white' :
-                    'border-gray-200 text-black/30'
-                  }`}>
-                    {p.status === 'complete' ? 'Complete' :
-                     p.status === 'printing' ? 'Printing' : 'Setup'}
-                  </span>
-                  <svg className="w-4 h-4 text-black/20 group-hover:text-black transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
-                  </svg>
-                </div>
-              </motion.button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {projects.map(p=>(
+              <ProjectCard key={p.id} project={p} onOpen={()=>handleOpen(p)} onDelete={()=>deleteProject(p.id)} listView={false}/>
             ))}
           </div>
         )}
       </div>
 
-      {/* New project modal */}
-      <AnimatePresence>
-        {showNew && (
-          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-            <motion.div initial={{scale:0.95,y:8}} animate={{scale:1,y:0}} exit={{scale:0.95}}
-              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-              <h3 className="text-base font-bold text-black mb-5">New Project</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-1.5 block">Project Name</label>
-                  <input value={newName} onChange={e => setNewName(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                    placeholder="e.g. Wall Section A"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-black transition-colors"/>
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-1.5 block">Structure Type</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {STRUCTURE_TYPES.map(s => (
-                      <button key={s} onClick={() => setStructure(s)}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${structure === s ? 'bg-black text-white' : 'border border-gray-200 text-black/40 hover:text-black'}`}>
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-1.5 block">Printer</label>
-                  <select value={printerType} onChange={e => setPrinterType(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-black transition-colors bg-white mb-2">
-                    {PRINTER_TYPES.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                  <input value={printerName} onChange={e => setPrinterName(e.target.value)}
-                    placeholder="Custom printer name (optional)"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-black transition-colors"/>
-                </div>
-              </div>
-              <div className="flex gap-3 mt-6">
-                <button onClick={() => setShowNew(false)}
-                  className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl text-black/40 hover:text-black hover:border-black transition-colors">
-                  Cancel
-                </button>
-                <button onClick={handleCreate} disabled={!newName.trim()}
-                  className="flex-1 py-2.5 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/80 disabled:opacity-30 transition-all">
-                  Create
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {showCreate && <CreateModal onClose={()=>setShowCreate(false)} onCreate={handleCreate}/>}
     </div>
   );
 }
