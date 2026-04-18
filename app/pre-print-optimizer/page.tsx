@@ -355,14 +355,13 @@ export default function PrePrintOptimizer() {
     URL.revokeObjectURL(url);
   };
 
-  const beginPrint = async () => {
+  const beginPrint = () => {
     if (!activeProject || !result) return;
-    try {
-      await updateProject(activeProject.id, {
-        status:      'printing',
-        totalLayers,
-        printSpeed,
-        report: {
+    updateProject(activeProject.id, {
+      status:      'printing',
+      totalLayers,
+      printSpeed,
+      report: {
         // existing
         generatedAt:    new Date().toISOString(),
         duration:       result.estimated_print_time ?? '—',
@@ -376,17 +375,7 @@ export default function PrePrintOptimizer() {
         structureType:  activeProject.structureType ?? '—',
         // new fields for report page
         printStartedAt:  new Date().toISOString(),
-        city:            city,
-        materialName:    result.cement?.display_name
-          ?? (() => {
-              const CEMENT_NAMES: Record<string,string> = {
-                'sika-733-3d':      'Sikacrete®-733 3D',
-                'sika-733w-3d-us':  'Sikacrete®-733 W 3D (USA)',
-                'sika-733w-3d-gcc': 'Sikacrete®-733 W 3D (GCC)',
-                'standard':         'Standard Mix',
-              };
-              return CEMENT_NAMES[parameters.cementMix] ?? parameters.cementMix;
-            })(),
+        materialName:    result.cement?.display_name ?? parameters.cementMix,
         batchNumber:     parameters.batchNumber || '—',
         gcodeLines:      result.gcode_lines,
         gcodeRef:        `autobuild_${result.result_id?.slice(0,8) ?? 'unknown'}.gcode`,
@@ -407,10 +396,6 @@ export default function PrePrintOptimizer() {
         ],
       },
     });
-    } catch (e) {
-      console.error('[beginPrint] updateProject failed:', e);
-      // Navigate anyway — report data may be partially saved
-    }
     router.push('/live-monitoring');
   };
 
