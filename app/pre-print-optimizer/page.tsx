@@ -742,20 +742,17 @@ export default function PrePrintOptimizer() {
                     </button>
                   </div>
                 </div>
-                <AnimatePresence mode="wait">
-                  {showConfirm ? (
-                    <motion.div key="c" initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} exit={{opacity:0}} className="flex gap-2">
-                      <button onClick={beginPrint} className="flex-1 py-2.5 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-colors">Confirm</button>
-                      <button onClick={()=>setShowConfirm(false)} className="flex-1 py-2.5 border border-white/10 text-white/40 text-xs rounded-xl hover:text-white transition-colors">Cancel</button>
-                    </motion.div>
-                  ) : (
-                    <motion.button key="b" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-                      onClick={()=>setShowConfirm(true)}
-                      className="w-full py-2.5 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-colors">
-                      Begin Print
-                    </motion.button>
-                  )}
-                </AnimatePresence>
+                {showConfirm ? (
+                  <div className="flex gap-2">
+                    <button onClick={beginPrint} className="flex-1 py-2.5 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-colors">Confirm</button>
+                    <button onClick={()=>setShowConfirm(false)} className="flex-1 py-2.5 border border-white/10 text-white/40 text-xs rounded-xl hover:text-white transition-colors">Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={()=>setShowConfirm(true)}
+                    className="w-full py-2.5 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-colors">
+                    Begin Print
+                  </button>
+                )}
                 <p className="text-[9px] text-white/15 font-mono text-center pt-1">
                   {result.geometry.num_layers} layers · {result.estimated_print_time} · {resolvedSite.width}m × {resolvedSite.length}m
                 </p>
