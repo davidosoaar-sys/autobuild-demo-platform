@@ -710,6 +710,7 @@ export default function LiveMonitoring() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsed,     setElapsed]     = useState(0);
   const [clock,       setClock]       = useState(() => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  const [liveWeather, setLiveWeather] = useState<{ temperature: number; description: string; city: string } | null>(null);
   const [alertLog,    setAlertLog]    = useState<AlertEntry[]>([]);
   const [beadLog,     setBeadLog]     = useState<BeadAnalysis[]>([]);
   const [activeAlert, setActiveAlert] = useState<BeadAnalysis | null>(null);
@@ -736,6 +737,23 @@ export default function LiveMonitoring() {
     const iv = setInterval(() => setClock(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })), 1000);
     return () => clearInterval(iv);
   }, []);
+
+  useEffect(() => {
+    const city = (activeProject as any)?.report?.city;
+    if (!city || city === 'manual') return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API}/weather/current?city=${encodeURIComponent(city)}`);
+        if (res.ok) {
+          const d = await res.json();
+          setLiveWeather({ temperature: d.temperature, description: d.description, city: d.city });
+        }
+      } catch { /* silent — don't break UI if weather is unavailable */ }
+    };
+    poll();
+    const iv = setInterval(poll, 120_000);
+    return () => clearInterval(iv);
+  }, [activeProject?.report?.city]);
 
 
 
@@ -819,6 +837,11 @@ export default function LiveMonitoring() {
             </div>
             <span className="text-xs font-mono text-black/40 hidden sm:block">{fmtElapsed()}</span>
             <span className="text-xs font-mono text-black/30 hidden sm:block">{clock}</span>
+            {liveWeather && (
+              <span className="text-xs font-mono text-black/40 hidden sm:block" title={liveWeather.description}>
+                {Math.round(liveWeather.temperature)}°C · {liveWeather.city}
+              </span>
+            )}
 
             {activeProject && <span className="text-xs text-black/40 hidden md:block truncate max-w-[160px]">{activeProject.printer.name || '—'}</span>}
             {beadLog.length > 0 && <span className="text-[10px] font-mono text-black/30 hidden sm:block">{beadLog.length} bead scan{beadLog.length !== 1 ? 's' : ''}</span>}

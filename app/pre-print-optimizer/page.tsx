@@ -364,6 +364,7 @@ export default function PrePrintOptimizer() {
           printSpeed,
           report: {
             generatedAt:    new Date().toISOString(),
+            city:           city || null,
             duration:       result.estimated_print_time ?? '—',
             totalLayers:    result.geometry.num_layers,
             layersPrinted:  0,
