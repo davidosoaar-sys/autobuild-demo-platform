@@ -706,13 +706,7 @@ export default function LiveMonitoring() {
   const tickRef    = useRef<NodeJS.Timeout | null>(null);
 
   const [activeTab,   setActiveTab]   = useState<Tab>('monitor');
-  const [clock,       setClock]       = useState('');
-  const [liveTemp,    setLiveTemp]    = useState<number | null>(null);
 
-  // Pre-print city saved in project store, pre-print temp as fallback
-  const preCity = (activeProject as any)?.report?.city ?? '';
-  const preTemp = (activeProject as any)?.report?.conditions?.temperature ?? null;
-  const displayTemp = liveTemp ?? preTemp;
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsed,     setElapsed]     = useState(0);
   const [alertLog,    setAlertLog]    = useState<AlertEntry[]>([]);
@@ -737,29 +731,7 @@ export default function LiveMonitoring() {
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
   }, []);
 
-  useEffect(() => {
-    const tick = () => setClock(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    tick();
-    const iv = setInterval(tick, 1000);
-    return () => clearInterval(iv);
-  }, []);
 
-  // Live weather polling every 2 minutes
-  useEffect(() => {
-    if (!preCity) return;
-    const fetchTemp = async () => {
-      try {
-        const res = await fetch(`${API}/weather/current?city=${encodeURIComponent(preCity)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.temperature != null) setLiveTemp(Math.round(data.temperature));
-        }
-      } catch { /* silent */ }
-    };
-    fetchTemp();
-    const iv = setInterval(fetchTemp, 2 * 60 * 1000);
-    return () => clearInterval(iv);
-  }, [preCity]);
 
   const addAlert = useCallback((msg: string, level: 'info' | 'warn' | 'error' = 'info') => {
     const time = new Date().toLocaleTimeString();
@@ -840,10 +812,7 @@ export default function LiveMonitoring() {
               <span className="text-sm font-semibold">{controls.paused ? 'Paused' : 'Printing'}</span>
             </div>
             <span className="text-xs font-mono text-black/40 hidden sm:block">{fmtElapsed()}</span>
-            {clock && <span className="text-xs font-mono text-black/25 hidden sm:block">{clock}</span>}
-            {displayTemp != null && (
-              <span className="text-xs font-mono text-black/40 hidden sm:block">{displayTemp}°C</span>
-            )}
+
             {activeProject && <span className="text-xs text-black/40 hidden md:block truncate max-w-[160px]">{activeProject.printer.name || '—'}</span>}
             {beadLog.length > 0 && <span className="text-[10px] font-mono text-black/30 hidden sm:block">{beadLog.length} bead scan{beadLog.length !== 1 ? 's' : ''}</span>}
           </div>

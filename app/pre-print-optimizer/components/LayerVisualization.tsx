@@ -343,14 +343,20 @@ function ModelMeshInner({ geo, obj, opacity, scale, enableTransform, transformMo
   const clonedObj = useMemo(() => {
     if (!obj) return null;
     const c = obj.clone();
-    c.rotation.x = -Math.PI / 2;
+    // Apply rotation to each mesh geometry (Z-up → Y-up), not the group
     c.traverse(ch => {
       if ((ch as THREE.Mesh).isMesh) {
-        (ch as THREE.Mesh).material = new THREE.MeshStandardMaterial({
+        const mesh = ch as THREE.Mesh;
+        mesh.geometry = mesh.geometry.clone();
+        mesh.geometry.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+        mesh.material = new THREE.MeshStandardMaterial({
           color: '#ddd8d0', roughness: 0.82, metalness: 0.04, transparent: true, opacity,
         });
       }
     });
+    // Reground after geometry rotation
+    const box = new THREE.Box3().setFromObject(c);
+    c.position.y = -box.min.y;
     return c;
   }, [obj, opacity]);
 
