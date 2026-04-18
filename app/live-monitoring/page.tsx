@@ -717,16 +717,23 @@ export default function LiveMonitoring() {
   const [controls,    setControls]    = useState<PrinterControl>({ printSpeed: 60, extrusionRate: 100, pumpPressure: 4.2, paused: false });
   const [cameras,     setCameras]     = useState<Camera[]>([]);
 
-  const [sensors] = useState<SensorReading[]>([
-    { label: 'Ambient Temp',    value: '—', unit: '°C',    status: 'ok', trend: 'stable', history: [] },
-    { label: 'Humidity',        value: '—', unit: '%',     status: 'ok', trend: 'stable', history: [] },
-    { label: 'Wind Speed',      value: '—', unit: 'km/h',  status: 'ok', trend: 'stable', history: [] },
-    { label: 'Flow Rate',       value: '—', unit: 'L/min', status: 'ok', trend: 'stable', history: [] },
-    { label: 'Pump Pressure',   value: '—', unit: 'bar',   status: 'ok', trend: 'stable', history: [] },
-    { label: 'Concrete Temp',   value: '—', unit: '°C',    status: 'ok', trend: 'stable', history: [] },
-    { label: 'Pot Life Left',   value: '—', unit: 'min',   status: 'ok', trend: 'stable', history: [] },
-    { label: 'Mix Consistency', value: '—', unit: '%',     status: 'ok', trend: 'stable', history: [] },
-  ]);
+  const [sensors, setSensors] = useState<SensorReading[]>(() => {
+    const cond = (activeProject as any)?.report?.conditions;
+    const seed = (val: number | undefined, warn?: (v: number) => boolean): Pick<SensorReading, 'value' | 'status' | 'history'> =>
+      val != null
+        ? { value: String(val), status: warn?.(val) ? 'warn' : 'ok', history: [val] }
+        : { value: '—', status: 'ok', history: [] };
+    return [
+      { label: 'Ambient Temp',    unit: '°C',    trend: 'stable', ...seed(cond?.temperature, v => v > 30 || v < 5) },
+      { label: 'Humidity',        unit: '%',     trend: 'stable', ...seed(cond?.humidity,    v => v > 80 || v < 30) },
+      { label: 'Wind Speed',      unit: 'km/h',  trend: 'stable', ...seed(cond?.windSpeed,   v => v > 15) },
+      { label: 'Flow Rate',       unit: 'L/min', trend: 'stable', value: '—', status: 'ok', history: [] },
+      { label: 'Pump Pressure',   unit: 'bar',   trend: 'stable', value: '—', status: 'ok', history: [] },
+      { label: 'Concrete Temp',   unit: '°C',    trend: 'stable', value: '—', status: 'ok', history: [] },
+      { label: 'Pot Life Left',   unit: 'min',   trend: 'stable', value: '—', status: 'ok', history: [] },
+      { label: 'Mix Consistency', unit: '%',     trend: 'stable', value: '—', status: 'ok', history: [] },
+    ];
+  });
 
   useEffect(() => {
     tickRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
@@ -747,6 +754,21 @@ export default function LiveMonitoring() {
         if (res.ok) {
           const d = await res.json();
           setLiveWeather({ temperature: d.temperature, description: d.description, city: d.city });
+          setSensors(prev => prev.map(s => {
+            if (s.label === 'Ambient Temp') {
+              const v = Math.round(d.temperature);
+              return { ...s, value: String(v), status: v > 30 || v < 5 ? 'warn' : 'ok', history: [...s.history.slice(-19), v] };
+            }
+            if (s.label === 'Humidity') {
+              const v = Math.round(d.humidity);
+              return { ...s, value: String(v), status: v > 80 || v < 30 ? 'warn' : 'ok', history: [...s.history.slice(-19), v] };
+            }
+            if (s.label === 'Wind Speed') {
+              const v = Math.round(d.wind_speed);
+              return { ...s, value: String(v), status: v > 15 ? 'warn' : 'ok', history: [...s.history.slice(-19), v] };
+            }
+            return s;
+          }));
         }
       } catch { /* silent — don't break UI if weather is unavailable */ }
     };
@@ -828,24 +850,39 @@ export default function LiveMonitoring() {
       </AnimatePresence>
 
       <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sticky top-14 z-20">
-        <div className="flex flex-wrap items-center gap-2 justify-between">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 justify-between">
+
+          {/* Left — status + elapsed + meta */}
+          <div className="flex items-center gap-4">
+            {/* Status dot */}
             <div className="flex items-center gap-2">
               <motion.div className="w-2 h-2 rounded-full bg-emerald-500"
                 animate={{ opacity: controls.paused ? 1 : [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }} />
-              <span className="text-sm font-semibold">{controls.paused ? 'Paused' : 'Printing'}</span>
+              <span className="text-xs font-medium text-black/50">{controls.paused ? 'Paused' : 'Printing'}</span>
             </div>
-            <span className="text-xs font-mono text-black/40 hidden sm:block">{fmtElapsed()}</span>
-            <span className="text-xs font-mono text-black/30 hidden sm:block">{clock}</span>
-            {liveWeather && (
-              <span className="text-xs font-mono text-black/40 hidden sm:block" title={liveWeather.description}>
-                {Math.round(liveWeather.temperature)}°C · {liveWeather.city}
-              </span>
-            )}
 
-            {activeProject && <span className="text-xs text-black/40 hidden md:block truncate max-w-[160px]">{activeProject.printer.name || '—'}</span>}
-            {beadLog.length > 0 && <span className="text-[10px] font-mono text-black/30 hidden sm:block">{beadLog.length} bead scan{beadLog.length !== 1 ? 's' : ''}</span>}
+            {/* Elapsed — hero */}
+            <span className="text-2xl font-bold font-mono text-black tracking-tight leading-none">{fmtElapsed()}</span>
+
+            {/* Clock + weather pill */}
+            <div className="hidden sm:flex items-center gap-2">
+              <span className="text-sm font-mono text-black/40">{clock}</span>
+              {(liveWeather || (activeProject as any)?.report?.conditions?.temperature != null) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-xs font-semibold font-mono text-black/70"
+                  title={liveWeather?.description ?? 'Site conditions from optimizer'}>
+                  {liveWeather
+                    ? <>{Math.round(liveWeather.temperature)}°C <span className="font-normal text-black/40">{liveWeather.city}</span></>
+                    : <>{(activeProject as any).report.conditions.temperature}°C <span className="font-normal text-black/40">site</span></>
+                  }
+                </span>
+              )}
+            </div>
+
+            {/* Printer name */}
+            {activeProject && <span className="text-xs text-black/30 hidden md:block truncate max-w-[140px]">{activeProject.printer.name || '—'}</span>}
+            {beadLog.length > 0 && <span className="text-[10px] font-mono text-black/30 hidden lg:block">{beadLog.length} bead scan{beadLog.length !== 1 ? 's' : ''}</span>}
           </div>
+
           <div className="flex items-center gap-1.5 flex-wrap">
             {(['monitor', 'sensors', 'defects'] as Tab[]).map(t => (
               <button key={t} onClick={() => setActiveTab(t)}
