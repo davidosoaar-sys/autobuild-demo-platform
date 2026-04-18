@@ -396,35 +396,20 @@ function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, on
           )}
           {streaming && <span className="text-[9px] font-mono text-red-500 font-bold">LIVE</span>}
         </div>
-        <div className="flex items-center gap-1 flex-wrap">
-          {angles.map(a => (
-            <button key={a} onClick={() => onAngleChange(camera.id, a)}
-              className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg capitalize transition-all ${camera.angle === a ? 'bg-black text-white' : 'text-black/30 hover:text-black'}`}>
-              {a}
-            </button>
-          ))}
-          <button onClick={() => setShowPlumb(v => !v)}
-            className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${showPlumb ? 'bg-black text-white' : 'text-black/30 hover:text-black border border-gray-200'}`}>
-            Align
-          </button>
-          {showPlumb && (
-            <>
-              <button onClick={() => setAlignMode('vertical')}
-                className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode === 'vertical' ? 'bg-black text-white' : 'text-black/30 hover:text-black border border-gray-200'}`}>V</button>
-              <button onClick={() => setAlignMode('horizontal')}
-                className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${alignMode === 'horizontal' ? 'bg-black text-white' : 'text-black/30 hover:text-black border border-gray-200'}`}>H</button>
-            </>
-          )}
+        <div className="flex items-center gap-2">
           <button onClick={() => streaming && setShowBead(v => !v)} disabled={!streaming}
-            className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-lg transition-all ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold rounded-lg transition-all ${
               !streaming ? 'text-black/15 border border-gray-100 cursor-not-allowed'
-              : showBead ? 'bg-black text-white' : 'text-black/30 hover:text-black border border-gray-200'
+              : showBead ? 'bg-black text-white' : 'text-black/40 hover:text-black border border-gray-200'
             }`}
-            title={!streaming ? 'Start camera to enable bead analysis' : 'Toggle bead analysis'}>
-            Bead
+            title={!streaming ? 'Start camera to enable AI Monitor' : 'Toggle AI Monitor'}>
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+            AI Monitor
           </button>
           {showBead && analysing && (
-            <motion.div className="w-3 h-3 border border-black/40 border-t-black rounded-full"
+            <motion.div className="w-3 h-3 border border-black/40 border-t-black rounded-full flex-shrink-0"
               animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
           )}
         </div>
