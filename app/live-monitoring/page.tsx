@@ -1034,6 +1034,41 @@ export default function LiveMonitoring() {
                   </div>
                 </div>
 
+                {/* Alerts panel */}
+                <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Alerts</h3>
+                      {alertLog.filter(a => a.level !== 'info').length > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold leading-none">
+                          {alertLog.filter(a => a.level !== 'info').length}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[9px] font-mono text-black/25">{alertLog.length} event{alertLog.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="divide-y divide-gray-50 max-h-52 overflow-y-auto">
+                    {alertLog.length === 0 && (
+                      <p className="text-xs text-black/25 text-center py-6">No events yet</p>
+                    )}
+                    {alertLog.map((a, i) => (
+                      <div key={i} className={`flex items-start gap-2.5 px-4 py-2.5 ${
+                        a.level === 'error' ? 'bg-red-50' : a.level === 'warn' ? 'bg-amber-50' : ''
+                      }`}>
+                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1 ${
+                          a.level === 'error' ? 'bg-red-500' : a.level === 'warn' ? 'bg-amber-400' : 'bg-gray-300'
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-[11px] truncate ${
+                            a.level === 'error' ? 'text-red-700 font-medium' : a.level === 'warn' ? 'text-amber-700' : 'text-black/50'
+                          }`}>{a.msg}</p>
+                          <p className="text-[9px] font-mono text-black/25 mt-0.5">{a.time}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Live Sensors</h3>
