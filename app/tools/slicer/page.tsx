@@ -9,21 +9,24 @@ import dynamic from 'next/dynamic';
 
 const LayerVisualization = dynamic(
   () => import('@/app/pre-print-optimizer/components/LayerVisualization'),
-  { ssr: false, loading: () => (
-    <div className="flex items-center justify-center h-full min-h-[480px]">
-      <div className="text-center">
-        <motion.div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full mx-auto mb-3"
-          animate={{ rotate: 360 }} transition={{ duration: 0.9, repeat: Infinity, ease: 'linear' }} />
-        <p className="text-white/30 text-xs">Loading 3D viewer…</p>
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full min-h-[520px]">
+        <div className="text-center">
+          <motion.div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full mx-auto mb-3"
+            animate={{ rotate: 360 }} transition={{ duration: 0.9, repeat: Infinity, ease: 'linear' }} />
+          <p className="text-white/30 text-xs">Loading 3D viewer…</p>
+        </div>
       </div>
-    </div>
-  )},
+    ),
+  },
 );
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-interface CityResult  { name: string; country: string; state: string; display: string; }
-interface LiveWeather { temperature: number; humidity: number; wind_speed: number; description: string; pot_life_min: number; risk_score: number; }
+interface CityResult   { name: string; country: string; state: string; display: string; }
+interface LiveWeather  { temperature: number; humidity: number; wind_speed: number; description: string; pot_life_min: number; risk_score: number; }
 interface ForecastHour { hour: number; temperature: number; humidity: number; wind_speed: number; description: string; risk: number; }
 
 interface SlicerResult {
@@ -36,8 +39,21 @@ interface SlicerResult {
   gcode_lines: number;
 }
 
-function riskColor(r: number) { return r < 20 ? 'text-emerald-400' : r < 50 ? 'text-amber-400' : 'text-red-400'; }
+interface CustomMix {
+  potLife10c: number; potLife20c: number; potLife30c: number;
+  layerMin: number;   layerMax: number;
+  grainSize: number;  spreadFlow: number;
+  waterRatio: string; strength28d: string;
+}
 
+const DEFAULT_CUSTOM: CustomMix = {
+  potLife10c: 80, potLife20c: 60, potLife30c: 40,
+  layerMin: 6,   layerMax: 20,
+  grainSize: 3,  spreadFlow: 130,
+  waterRatio: '15–17%', strength28d: '—',
+};
+
+function riskColor(r: number) { return r < 20 ? 'text-emerald-400' : r < 50 ? 'text-amber-400' : 'text-red-400'; }
 function hourToLabel(h: number) {
   const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
   const ampm = hh >= 12 ? 'PM' : 'AM';
@@ -76,29 +92,26 @@ function CitySearch({ onSelect }: { onSelect: (cityStr: string, weather: LiveWea
   };
 
   const handleSelect = async (city: CityResult) => {
-    setOpen(false);
-    setQuery(city.display);
-    setSelected(city.name);
+    setOpen(false); setQuery(city.display); setSelected(city.name);
     setFetching(true); setError(''); setForecast([]);
     const cityStr = `${city.name},${city.country}`;
     try {
       const res = await fetch(`${API}/weather/current?city=${encodeURIComponent(cityStr)}`);
-      if (!res.ok) throw new Error('not found');
+      if (!res.ok) throw new Error();
       const data: LiveWeather = await res.json();
-      setWeather(data);
-      onSelect(cityStr, data);
+      setWeather(data); onSelect(cityStr, data);
       try {
         const fRes = await fetch(`${API}/weather/forecast?city=${encodeURIComponent(cityStr)}&start_hour=8&hours=8`);
         if (fRes.ok) { const fd = await fRes.json(); if (Array.isArray(fd)) setForecast(fd); }
       } catch { /* optional */ }
     } catch {
-      setError('Could not fetch weather — city will still be used in optimizer');
+      setError('Could not fetch weather — city will still be used in the optimizer');
       setWeather(null);
       onSelect(cityStr, { temperature: 20, humidity: 65, wind_speed: 8, description: '', pot_life_min: 60, risk_score: 0 });
     } finally { setFetching(false); }
   };
 
-  const inputCls = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/25 bg-white pr-8';
+  const iCls = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/25 bg-white pr-8';
 
   return (
     <div>
@@ -106,7 +119,7 @@ function CitySearch({ onSelect }: { onSelect: (cityStr: string, weather: LiveWea
         <input type="text" value={query} placeholder="Search any city worldwide…"
           onChange={e => handleInput(e.target.value)}
           onFocus={() => results.length > 0 && setOpen(true)}
-          className={inputCls} />
+          className={iCls} />
         {loading && (
           <svg className="absolute right-3 top-3 animate-spin w-4 h-4 text-black/20" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -158,18 +171,9 @@ function CitySearch({ onSelect }: { onSelect: (cityStr: string, weather: LiveWea
             ))}
           </div>
           <div className="flex items-center justify-between py-2 border-t border-white/8">
-            <div>
-              <p className="text-[9px] text-white/30 mb-0.5">Pot Life</p>
-              <p className="text-sm font-semibold text-white">{weather.pot_life_min} min</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[9px] text-white/30 mb-0.5">Env Risk</p>
-              <p className={`text-sm font-semibold ${riskColor(weather.risk_score)}`}>{weather.risk_score}/100</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[9px] text-white/30 mb-0.5">Conditions</p>
-              <p className="text-[11px] text-white/50 capitalize">{weather.description}</p>
-            </div>
+            <div><p className="text-[9px] text-white/30 mb-0.5">Pot Life</p><p className="text-sm font-semibold text-white">{weather.pot_life_min} min</p></div>
+            <div className="text-right"><p className="text-[9px] text-white/30 mb-0.5">Env Risk</p><p className={`text-sm font-semibold ${riskColor(weather.risk_score)}`}>{weather.risk_score}/100</p></div>
+            <div className="text-right"><p className="text-[9px] text-white/30 mb-0.5">Conditions</p><p className="text-[11px] text-white/50 capitalize">{weather.description}</p></div>
           </div>
           {forecast.length > 0 && (
             <div className="mt-3 pt-3 border-t border-white/8">
@@ -205,6 +209,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function NumInput({ value, onChange, min, max, step }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
+  return (
+    <input type="number" value={value} min={min} max={max} step={step ?? 1}
+      onChange={e => onChange(Number(e.target.value))} className={inputCls} />
+  );
+}
+
 export default function SlicerTool() {
   const router       = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -214,40 +225,42 @@ export default function SlicerTool() {
   const [error,      setError]      = useState('');
   const [cityStr,    setCityStr]    = useState('');
 
-  // Printer params
+  // Printer
   const [nozzle,       setNozzle]       = useState(25);
   const [compression,  setCompression]  = useState(0.6);
   const [velocity,     setVelocity]     = useState(100);
   const [hoseLength,   setHoseLength]   = useState(15);
   const [flowRate,     setFlowRate]     = useState(8);
   const [acceleration, setAcceleration] = useState(500);
-  const [cementId,     setCementId]     = useState('sika-733w-3d-us');
+
+  // Cement
+  const [cementId,   setCementId]   = useState('sika-733w-3d-us');
+  const [customMix,  setCustomMix]  = useState<CustomMix>(DEFAULT_CUSTOM);
 
   const layerHeightMm = Math.round(nozzle * compression) / 10;
+  const selectedMat   = MATERIALS.find(m => m.id === cementId);
+  const isCustom      = cementId === 'custom';
 
-  const handleFile = (f: File | null) => {
-    setFile(f);
-    setResult(null);
-    setError('');
-  };
+  const setCustomField = <K extends keyof CustomMix>(k: K, v: CustomMix[K]) =>
+    setCustomMix(prev => ({ ...prev, [k]: v }));
+
+  const handleFile = (f: File | null) => { setFile(f); setResult(null); setError(''); };
 
   const run = async () => {
     if (!file) return;
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
       const fd = new FormData();
-      fd.append('file',                   file);
-      fd.append('nozzle_diameter_mm',     String(nozzle));
-      fd.append('bead_compression',       String(compression));
-      fd.append('max_speed_mm_s',         String(velocity));
-      fd.append('base_speed_mm_s',        String(Math.round(velocity * 0.6)));
-      fd.append('hose_length_m',          String(hoseLength));
-      fd.append('max_mass_flow_l_min',    String(flowRate));
-      fd.append('acceleration_mm_s2',     String(acceleration));
-      fd.append('cement_mix_name',        cementId);
-      if (cityStr) fd.append('city',      cityStr);
-
+      fd.append('file',                 file);
+      fd.append('nozzle_diameter_mm',   String(nozzle));
+      fd.append('bead_compression',     String(compression));
+      fd.append('max_speed_mm_s',       String(velocity));
+      fd.append('base_speed_mm_s',      String(Math.round(velocity * 0.6)));
+      fd.append('hose_length_m',        String(hoseLength));
+      fd.append('max_mass_flow_l_min',  String(flowRate));
+      fd.append('acceleration_mm_s2',   String(acceleration));
+      fd.append('cement_mix_name',      cementId);
+      if (cityStr) fd.append('city',    cityStr);
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -256,20 +269,18 @@ export default function SlicerTool() {
       setResult(await res.json());
     } catch (e: any) {
       setError(e.message || 'Optimization failed');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  const download = (content: string, filename: string) => {
+  const dl = (content: string, filename: string) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
-    a.download = filename;
-    a.click();
+    a.download = filename; a.click();
   };
 
-  const selectedMat = MATERIALS.find(m => m.id === cementId);
-  const basename    = file?.name?.replace(/\.[^.]+$/, '') ?? 'print';
+  const basename = file?.name?.replace(/\.[^.]+$/, '') ?? 'print';
+
+  const matProps = isCustom ? customMix : selectedMat;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -292,7 +303,7 @@ export default function SlicerTool() {
         </div>
       </header>
 
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 items-start">
 
         {/* ── Left panel ── */}
         <div className="space-y-4">
@@ -332,53 +343,102 @@ export default function SlicerTool() {
             <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Printer</h2>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Nozzle (mm)">
-                <input type="number" value={nozzle} min={10} max={80}
-                  onChange={e => setNozzle(Number(e.target.value))} className={inputCls} />
+                <NumInput value={nozzle} onChange={setNozzle} min={10} max={80} />
               </Field>
               <Field label={`Compression → ${layerHeightMm} mm`}>
-                <input type="number" value={compression} min={0.4} max={0.9} step={0.05}
-                  onChange={e => setCompression(Number(e.target.value))} className={inputCls} />
+                <NumInput value={compression} onChange={setCompression} min={0.4} max={0.9} step={0.05} />
               </Field>
               <Field label="Max velocity (mm/s)">
-                <input type="number" value={velocity} min={10} max={300}
-                  onChange={e => setVelocity(Number(e.target.value))} className={inputCls} />
+                <NumInput value={velocity} onChange={setVelocity} min={10} max={300} />
               </Field>
               <Field label="Hose length (m)">
-                <input type="number" value={hoseLength} min={1} max={100}
-                  onChange={e => setHoseLength(Number(e.target.value))} className={inputCls} />
+                <NumInput value={hoseLength} onChange={setHoseLength} min={1} max={100} />
               </Field>
               <Field label="Max flow (L/min)">
-                <input type="number" value={flowRate} min={1} max={30} step={0.5}
-                  onChange={e => setFlowRate(Number(e.target.value))} className={inputCls} />
+                <NumInput value={flowRate} onChange={setFlowRate} min={1} max={30} step={0.5} />
               </Field>
               <Field label="Acceleration (mm/s²)">
-                <input type="number" value={acceleration} min={50} max={2000} step={50}
-                  onChange={e => setAcceleration(Number(e.target.value))} className={inputCls} />
+                <NumInput value={acceleration} onChange={setAcceleration} min={50} max={2000} step={50} />
               </Field>
             </div>
           </div>
 
-          {/* Cement */}
-          <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-3">
+          {/* Cement mix */}
+          <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
             <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Cement Mix</h2>
             <select value={cementId} onChange={e => setCementId(e.target.value)} className={selectCls}>
               {MATERIALS.map(m => (
                 <option key={m.id} value={m.id}>{m.name} — {m.region}</option>
               ))}
             </select>
-            {selectedMat && (
+
+            {/* Standard material info */}
+            {!isCustom && selectedMat && (
               <div className="grid grid-cols-2 gap-2">
                 {[
                   ['Pot life 20°C', `${selectedMat.potLife20c} min`],
                   ['Strength 28d',   selectedMat.strength28d],
                   ['Layer range',   `${selectedMat.layerMin}–${selectedMat.layerMax} mm`],
                   ['Water ratio',    selectedMat.waterRatio],
+                  ['Grain size',    `≤${selectedMat.grainSize} mm`],
+                  ['Spread flow',   `${selectedMat.spreadFlow} mm`],
                 ].map(([k, v]) => (
                   <div key={k} className="bg-gray-50 rounded-xl px-3 py-2">
                     <p className="text-[9px] text-black/30 uppercase tracking-wide">{k}</p>
                     <p className="text-xs font-semibold text-black">{v}</p>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Custom mortar editable params */}
+            {isCustom && (
+              <div className="space-y-4">
+                <p className="text-[10px] text-black/40">Enter your mortar properties</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Pot life 10°C (min)">
+                    <NumInput value={customMix.potLife10c} onChange={v => setCustomField('potLife10c', v)} min={10} max={240} />
+                  </Field>
+                  <Field label="Pot life 20°C (min)">
+                    <NumInput value={customMix.potLife20c} onChange={v => setCustomField('potLife20c', v)} min={10} max={240} />
+                  </Field>
+                  <Field label="Pot life 30°C (min)">
+                    <NumInput value={customMix.potLife30c} onChange={v => setCustomField('potLife30c', v)} min={5} max={120} />
+                  </Field>
+                  <Field label="Grain size (mm)">
+                    <NumInput value={customMix.grainSize} onChange={v => setCustomField('grainSize', v)} min={0.1} max={10} step={0.1} />
+                  </Field>
+                  <Field label="Layer min (mm)">
+                    <NumInput value={customMix.layerMin} onChange={v => setCustomField('layerMin', v)} min={1} max={50} />
+                  </Field>
+                  <Field label="Layer max (mm)">
+                    <NumInput value={customMix.layerMax} onChange={v => setCustomField('layerMax', v)} min={1} max={100} />
+                  </Field>
+                  <Field label="Spread flow (mm)">
+                    <NumInput value={customMix.spreadFlow} onChange={v => setCustomField('spreadFlow', v)} min={80} max={300} />
+                  </Field>
+                  <Field label="Strength 28d">
+                    <input value={customMix.strength28d} onChange={e => setCustomField('strength28d', e.target.value)}
+                      placeholder="e.g. 40 MPa" className={inputCls} />
+                  </Field>
+                </div>
+                <Field label="Water ratio">
+                  <input value={customMix.waterRatio} onChange={e => setCustomField('waterRatio', e.target.value)}
+                    placeholder="e.g. 14–16%" className={inputCls} />
+                </Field>
+                {/* Summary card */}
+                <div className="bg-black rounded-xl p-3 grid grid-cols-3 gap-2">
+                  {[
+                    ['10°C', `${customMix.potLife10c} min`],
+                    ['20°C', `${customMix.potLife20c} min`],
+                    ['30°C', `${customMix.potLife30c} min`],
+                  ].map(([t, v]) => (
+                    <div key={t} className="text-center">
+                      <p className="text-[9px] text-white/30 mb-0.5">{t}</p>
+                      <p className="text-xs font-bold text-white">{v}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -397,17 +457,15 @@ export default function SlicerTool() {
           </button>
 
           {error && (
-            <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-xs text-red-600 font-medium">
-              {error}
-            </div>
+            <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-xs text-red-600 font-medium">{error}</div>
           )}
         </div>
 
         {/* ── Right panel ── */}
         <div className="space-y-4">
 
-          {/* 3D viewer — shows model on upload, toolpath after optimize */}
-          <div className="bg-black rounded-2xl overflow-hidden shadow-sm" style={{ minHeight: 480 }}>
+          {/* 3D viewer — always visible, shows model on upload, toolpath after optimize */}
+          <div className="bg-black rounded-2xl overflow-hidden shadow-sm" style={{ minHeight: 520 }}>
             {file ? (
               <LayerVisualization
                 file={file}
@@ -417,42 +475,51 @@ export default function SlicerTool() {
                 nozzleDiameter={nozzle}
               />
             ) : (
-              <div className="flex items-center justify-center min-h-[480px]">
+              <div className="flex items-center justify-center min-h-[520px]">
                 <div className="text-center px-6">
                   <svg className="w-14 h-14 text-white/10 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                   </svg>
                   <p className="text-white/25 text-sm font-medium">Upload a model to preview</p>
-                  <p className="text-white/15 text-xs mt-1">Then run the optimizer to generate toolpath</p>
+                  <p className="text-white/15 text-xs mt-1">Then run the optimizer to generate the animated toolpath</p>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Results */}
+          {/* Results + downloads */}
           <AnimatePresence>
             {result && (
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Results</h2>
-                  <div className="flex gap-2">
-                    <button onClick={() => download(result.gcode_full, `${basename}.gcode`)}
+                  <div className="flex gap-2 flex-wrap justify-end">
+                    <button onClick={() => dl(result.gcode_full, `${basename}.gcode`)}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-[11px] font-semibold rounded-xl hover:bg-black/80 transition-all">
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
                       .gcode
                     </button>
-                    <button onClick={() => download([
+                    <button onClick={() => dl(result.gcode_full, `${basename}_gcode.txt`)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-[11px] font-semibold rounded-xl hover:bg-black/80 transition-all">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      G-code .txt
+                    </button>
+                    <button onClick={() => dl([
                       'AutoBuild AI — Slicer Report', `File: ${file?.name}`, '',
-                      `Print time: ${result.estimated_print_time}`,
-                      `Layers: ${result.geometry.total_layers}`,
+                      `Print time:   ${result.estimated_print_time}`,
+                      `Layers:       ${result.geometry.total_layers}`,
                       `Layer height: ${result.printer.layer_height_mm} mm`,
-                      `Nozzle: ${result.printer.nozzle_mm} mm`,
-                      `Speed: ${result.printer.effective_speed} mm/s`,
+                      `Nozzle:       ${result.printer.nozzle_mm} mm`,
+                      `Speed:        ${result.printer.effective_speed} mm/s`,
                       `G-code lines: ${result.gcode_lines}`, '',
-                      `Weather: ${result.weather.city}`,
+                      `Material:     ${isCustom ? 'Custom Mortar' : (selectedMat?.name ?? cementId)}`,
+                      isCustom ? `Pot life 20°C: ${customMix.potLife20c} min` : `Pot life 20°C: ${selectedMat?.potLife20c} min`,
+                      '', `Weather: ${result.weather.city}`,
                       `  Temp: ${result.weather.avg.temperature}°C`,
                       `  Humidity: ${result.weather.avg.humidity}%`,
                       `  Wind: ${result.weather.avg.wind_speed} km/h`,
@@ -472,7 +539,7 @@ export default function SlicerTool() {
                     { label: 'Layer Height', value: `${result.printer.layer_height_mm} mm` },
                     { label: 'G-code Lines', value: result.gcode_lines.toLocaleString() },
                     { label: 'Avg Speed',    value: `${result.printer.effective_speed} mm/s` },
-                    { label: 'Material',     value: selectedMat?.name ?? cementId },
+                    { label: 'Material',     value: isCustom ? 'Custom Mortar' : (selectedMat?.name ?? cementId) },
                     { label: 'Weather',      value: result.weather.city !== 'manual' ? result.weather.city : 'Default' },
                     { label: 'Avg Temp',     value: `${result.weather.avg.temperature}°C` },
                   ].map(({ label, value }) => (

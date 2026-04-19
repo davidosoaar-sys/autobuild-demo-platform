@@ -1125,4 +1125,4 @@ export default function LiveMonitoring() {
 }
 
 export type { Camera, BeadAnalysis, BeadVerdict, BeadSeverity, BeadDefectType };
-export { CameraView, BeadEventLog, AlertBanner };
+export { CameraView, BeadEventLog, AlertBanner, DefectDetectionPanel };
