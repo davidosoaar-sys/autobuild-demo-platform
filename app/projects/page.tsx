@@ -192,25 +192,12 @@ export default function ProjectsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [listView,   setListView]   = useState(false);
   const [userName,   setUserName]   = useState('');
-  const [showOnboard, setShowOnboard] = useState(false);
-  const [nameInput,  setNameInput]  = useState('');
-  const [tosChecked, setTosChecked] = useState(false);
   const activelyPrinting = projects.find(p=>p.status==='printing');
 
   useEffect(() => {
     const name = localStorage.getItem('autobuild_user_name');
-    const tos  = localStorage.getItem('autobuild_tos_accepted');
-    if (!name || !tos) setShowOnboard(true);
-    else setUserName(name);
+    if (name) setUserName(name);
   }, []);
-
-  const handleOnboard = () => {
-    if (!nameInput.trim() || !tosChecked) return;
-    localStorage.setItem('autobuild_user_name',   nameInput.trim());
-    localStorage.setItem('autobuild_tos_accepted', 'true');
-    setUserName(nameInput.trim());
-    setShowOnboard(false);
-  };
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -242,59 +229,12 @@ export default function ProjectsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* ── Onboarding modal ── */}
-      <AnimatePresence>
-        {showOnboard && (
-          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <motion.div initial={{scale:0.95,y:8}} animate={{scale:1,y:0}} exit={{scale:0.95}}
-              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
-              <div className="bg-black px-6 py-5">
-                <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-24 w-auto mb-4"/>
-                <p className="text-white font-bold text-lg">Welcome to AutoBuild AI</p>
-                <p className="text-white/40 text-xs mt-1">3DCP monitoring and path optimisation platform</p>
-              </div>
-              <div className="px-6 py-5 space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-black mb-1.5">Your name</label>
-                  <input
-                    autoFocus
-                    value={nameInput}
-                    onChange={e => setNameInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleOnboard()}
-                    placeholder="e.g. John Doe"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-black transition-colors placeholder:text-black/20"
-                  />
-                </div>
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input type="checkbox" checked={tosChecked} onChange={e => setTosChecked(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-black flex-shrink-0"/>
-                  <span className="text-xs text-black/50 leading-relaxed">
-                    I agree to the{' '}
-                    <button onClick={() => router.push('/tos')} className="underline text-black hover:text-black/60">
-                      Terms of Service
-                    </button>{' '}
-                    and acknowledge that AI analysis outputs are for decision-support only and not a substitute for qualified engineering judgement.
-                  </span>
-                </label>
-                <button
-                  onClick={handleOnboard}
-                  disabled={!nameInput.trim() || !tosChecked}
-                  className="w-full py-3 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 disabled:opacity-30 transition-all">
-                  Enter AutoBuild AI
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* ── Header ── */}
       <header className="border-b border-gray-100 bg-white sticky top-0 z-10 overflow-visible">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-1 flex items-center justify-between">
-          <div className="-my-4 sm:-my-6">
+          <button onClick={() => router.push('/')} className="-my-4 sm:-my-6">
             <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto"/>
-          </div>
+          </button>
           <button onClick={()=>setShowCreate(true)}
             className="px-3 sm:px-4 py-2 bg-black text-white text-xs sm:text-sm font-medium rounded-xl hover:bg-black/90 transition-colors">
             New Project

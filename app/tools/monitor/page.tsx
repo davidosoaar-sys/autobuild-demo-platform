@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CameraView, BeadEventLog, AlertBanner,
@@ -14,6 +15,7 @@ interface AlertEntry {
 }
 
 export default function StandaloneMonitor() {
+  const router   = useRouter();
   const startRef = useRef(Date.now());
   const [elapsed,     setElapsed]     = useState(0);
   const [cameras,     setCameras]     = useState<Camera[]>([]);
@@ -58,7 +60,7 @@ export default function StandaloneMonitor() {
       <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-base font-bold text-black tracking-tight">AutoBuild AI</span>
+            <button onClick={() => router.push('/')} className="text-base font-bold text-black tracking-tight hover:text-black/60 transition-colors">AutoBuild AI</button>
             <span className="w-px h-4 bg-gray-200" />
             <span className="text-sm font-medium text-black/40">Live Monitor</span>
           </div>

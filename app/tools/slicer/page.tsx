@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MATERIALS } from '@/app/pre-print-optimizer/components/ParameterInputs';
 import dynamic from 'next/dynamic';
@@ -38,6 +39,7 @@ const inputCls = 'w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl 
 const selectCls = 'w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors';
 
 export default function SlicerTool() {
+  const router       = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file,       setFile]       = useState<File | null>(null);
   const [loading,    setLoading]    = useState(false);
@@ -144,7 +146,7 @@ export default function SlicerTool() {
       <header className="border-b border-gray-200 bg-white sticky top-0 z-10">
         <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-base font-bold text-black">AutoBuild AI</span>
+            <button onClick={() => router.push('/')} className="text-base font-bold text-black hover:text-black/60 transition-colors">AutoBuild AI</button>
             <span className="w-px h-4 bg-gray-200" />
             <span className="text-sm font-medium text-black/40">RL Slicer</span>
           </div>

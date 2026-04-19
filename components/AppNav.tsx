@@ -26,18 +26,18 @@ export default function AppNav({ currentStep }: AppNavProps) {
         {/* Left — logo + breadcrumb */}
         <div className="flex items-center space-x-4">
           <button
-            onClick={() => router.push('/projects')}
+            onClick={() => router.push('/')}
             className="text-sm text-gray-500 hover:text-gray-900 transition-colors flex items-center space-x-2"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-            <span>Projects</span>
+            <span>Home</span>
           </button>
           <div className="h-6 w-px bg-gray-200" />
-          <div className="-my-5">
+          <button onClick={() => router.push('/')} className="-my-5">
             <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-36 w-auto" />
-          </div>
+          </button>
           {activeProject && (
             <span className="text-sm font-medium text-gray-900 max-w-[200px] truncate">
               {activeProject.name}
