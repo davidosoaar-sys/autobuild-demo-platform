@@ -308,7 +308,7 @@ export default function SlicerTool() {
               toolpath={result.toolpath as any}
               numLayers={result.geometry.total_layers}
               layerHeight={result.printer.layer_height_mm / 1000}
-              nozzleDiameter={nozzle}
+              nozzleDiameter={nozzle / 1000}
               fullscreen
               onBack={() => setResult(null)}
             />
