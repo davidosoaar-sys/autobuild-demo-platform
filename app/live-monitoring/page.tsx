@@ -709,7 +709,9 @@ export default function LiveMonitoring() {
 
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsed,     setElapsed]     = useState(0);
-  const [clock,       setClock]       = useState(() => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  const [cityTime,    setCityTime]    = useState<string | null>(null);
+  const [cityOffset,  setCityOffset]  = useState<number | null>(null);
+  const [cityLabel,   setCityLabel]   = useState<string | null>(null);
   const [liveWeather, setLiveWeather] = useState<{ temperature: number; description: string; city: string } | null>(null);
   const [alertLog,    setAlertLog]    = useState<AlertEntry[]>([]);
   const [beadLog,     setBeadLog]     = useState<BeadAnalysis[]>([]);
@@ -741,9 +743,36 @@ export default function LiveMonitoring() {
   }, []);
 
   useEffect(() => {
-    const iv = setInterval(() => setClock(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })), 1000);
+    const city = (activeProject as any)?.report?.city;
+    if (!city || city === 'manual') return;
+    fetch(`${API}/weather/current?city=${encodeURIComponent(city)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.timezone != null) {
+          setCityOffset(d.timezone);
+          setCityLabel(d.city || city);
+        }
+      })
+      .catch(() => {});
+  }, [(activeProject as any)?.report?.city]);
+
+  useEffect(() => {
+    if (cityOffset == null) return;
+    const tick = () => {
+      const now = new Date();
+      const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+      const cityMs = utcMs + cityOffset * 1000;
+      const d = new Date(cityMs);
+      const h = d.getUTCHours(), m = d.getUTCMinutes();
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12  = h % 12 || 12;
+      const mm   = String(m).padStart(2, '0');
+      setCityTime(`${h12}:${mm} ${ampm}${cityLabel ? ` — ${cityLabel}` : ''}`);
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
     return () => clearInterval(iv);
-  }, []);
+  }, [cityOffset, cityLabel]);
 
   useEffect(() => {
     const city = (activeProject as any)?.report?.city;
@@ -864,8 +893,12 @@ export default function LiveMonitoring() {
             {/* Elapsed + clock + weather — all same size */}
             <div className="flex items-baseline gap-3">
               <span className="text-2xl font-bold font-mono text-black tracking-tight leading-none">{fmtElapsed()}</span>
-              <span className="hidden sm:block w-px h-5 bg-black/10 self-center" />
-              <span className="hidden sm:block text-2xl font-bold font-mono text-black/35 tracking-tight leading-none">{clock}</span>
+              {cityTime && (
+                <>
+                  <span className="hidden sm:block w-px h-5 bg-black/10 self-center" />
+                  <span className="hidden sm:block text-2xl font-bold font-mono text-black/35 tracking-tight leading-none">{cityTime}</span>
+                </>
+              )}
               {(liveWeather || (activeProject as any)?.report?.conditions?.temperature != null) && (
                 <>
                   <span className="hidden sm:block w-px h-5 bg-black/10 self-center" />
@@ -1090,3 +1123,6 @@ export default function LiveMonitoring() {
     </div>
   );
 }
+
+export type { Camera, BeadAnalysis, BeadVerdict, BeadSeverity, BeadDefectType };
+export { CameraView, BeadEventLog, AlertBanner };

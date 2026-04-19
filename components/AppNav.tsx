@@ -45,38 +45,51 @@ export default function AppNav({ currentStep }: AppNavProps) {
           )}
         </div>
 
-        {/* Right — step indicator */}
-        <div className="flex items-center gap-1.5">
-          {STEPS.map((s, i) => {
-            const isActive = s.key === currentStep;
-            const isDone   = i < currentIdx;
-            const isLocked = i > currentIdx;
-            return (
-              <div key={s.key} className="flex items-center gap-1.5">
-                <button
-                  onClick={() => !isLocked && router.push(s.route)}
-                  disabled={isLocked}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors ${
-                    isActive  ? 'bg-gray-900 text-white' :
-                    isDone    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' :
-                    'bg-gray-50 text-gray-300 cursor-not-allowed'
-                  }`}
-                >
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] border leading-none flex-shrink-0 ${
-                    isActive ? 'border-white/40' :
-                    isDone   ? 'border-gray-400' :
-                    'border-gray-200'
-                  }`}>
-                    {isDone ? '✓' : i + 1}
-                  </span>
-                  {s.label}
-                </button>
-                {i < STEPS.length - 1 && (
-                  <span className="text-gray-200 text-xs">›</span>
-                )}
-              </div>
-            );
-          })}
+        {/* Right — step indicator + tools */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            {STEPS.map((s, i) => {
+              const isActive = s.key === currentStep;
+              const isDone   = i < currentIdx;
+              const isLocked = i > currentIdx;
+              return (
+                <div key={s.key} className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => !isLocked && router.push(s.route)}
+                    disabled={isLocked}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors ${
+                      isActive  ? 'bg-gray-900 text-white' :
+                      isDone    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' :
+                      'bg-gray-50 text-gray-300 cursor-not-allowed'
+                    }`}
+                  >
+                    <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] border leading-none flex-shrink-0 ${
+                      isActive ? 'border-white/40' :
+                      isDone   ? 'border-gray-400' :
+                      'border-gray-200'
+                    }`}>
+                      {isDone ? '✓' : i + 1}
+                    </span>
+                    {s.label}
+                  </button>
+                  {i < STEPS.length - 1 && (
+                    <span className="text-gray-200 text-xs">›</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="h-4 w-px bg-gray-200" />
+          <div className="flex items-center gap-1">
+            <button onClick={() => router.push('/tools/slicer')}
+              className="px-3 py-1.5 rounded-full text-[11px] font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors">
+              Slicer
+            </button>
+            <button onClick={() => router.push('/tools/monitor')}
+              className="px-3 py-1.5 rounded-full text-[11px] font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors">
+              Monitor
+            </button>
+          </div>
         </div>
       </div>
     </header>

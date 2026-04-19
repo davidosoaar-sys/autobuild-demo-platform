@@ -10,38 +10,27 @@ type SetupMode = 'choose' | 'connect' | 'manual' | 'pi';
 
 interface ManualConfig {
   printerName: string; nozzleDiameter: number; nozzleShape: 'round'|'square'|'rectangular'|'teeth';
-  beadCompression: number; printSpaceX: number; printSpaceY: number; printSpaceZ: number;
-  pumpType: 'rotor-stator'|'piston'; hoseLength: number; hoseInternalDiam: number;
+  beadCompression: number;
+  hoseLength: number; hoseInternalDiam: number;
   maxFlowRate: number; minFlowRate: number; maxVelocity: number; acceleration: number;
-  jerkDeviation: number; aggregatePrinterSize: number; initialSetTime: number; slumpValue: number;
 }
 
 const DEFAULT_CONFIG: ManualConfig = {
   printerName:'Custom Printer', nozzleDiameter:25, nozzleShape:'round', beadCompression:0.6,
-  printSpaceX:6000, printSpaceY:4000, printSpaceZ:3000, pumpType:'rotor-stator',
   hoseLength:15, hoseInternalDiam:50, maxFlowRate:8, minFlowRate:1,
-  maxVelocity:100, acceleration:500, jerkDeviation:8, aggregatePrinterSize:4,
-  initialSetTime:45, slumpValue:5,
+  maxVelocity:100, acceleration:500,
 };
 
 const FIELD_DEFS: Record<string,{title:string;why:string;unit:string}> = {
-  nozzleDiameter:      {title:'Nozzle Diameter',unit:'mm',why:'Sets the width of each concrete bead. Smaller = higher resolution, slower. Larger = faster, less detail.'},
-  nozzleShape:         {title:'Nozzle Shape',unit:'—',why:'Round is self-centring. Square gives flat-top layers. Rectangular suits high aspect-ratio beads. Teeth improves mechanical keying between layers.'},
-  beadCompression:     {title:'Bead Compression',unit:'ratio',why:'Layer height = nozzle diameter × this value. 0.5 = conservative. 0.6 = industry standard. 0.8 = aggressive. Pi auto-calibrates from test extrusion.'},
-  printSpaceX:         {title:'Print Space X',unit:'mm',why:'Maximum travel distance in X. Optimizer validates toolpath fits within machine envelope.'},
-  printSpaceY:         {title:'Print Space Y',unit:'mm',why:'Maximum travel distance in Y.'},
-  printSpaceZ:         {title:'Print Space Z',unit:'mm',why:'Maximum build height. Toolpaths exceeding this are flagged.'},
-  pumpType:            {title:'Pump Type',unit:'—',why:'Rotor-stator: high pressure, continuous flow. Piston: precise volumetric control for high-viscosity mixes.'},
-  hoseLength:          {title:'Hose Length',unit:'m',why:'Used to calculate hydraulic lag — delay between pump command and concrete exiting nozzle.'},
-  hoseInternalDiam:    {title:'Hose Internal Diameter',unit:'mm',why:'Combined with hose length gives volume in transit. Used for lag time and pressure drop.'},
-  maxFlowRate:         {title:'Max Flow Rate',unit:'L/min',why:'Physical maximum pump can deliver. Sets maximum achievable print speed.'},
-  minFlowRate:         {title:'Min Flow Rate',unit:'L/min',why:'Minimum stable flow. Sets floor on print speed during slow sections.'},
-  maxVelocity:         {title:'Max Velocity',unit:'mm/s',why:'Maximum print head travel speed. RL agent never exceeds this.'},
-  acceleration:        {title:'Acceleration',unit:'mm/s²',why:'How quickly the print head changes speed. Low = smooth, consistent beads. High = faster but may vary bead width at corners.'},
-  jerkDeviation:       {title:'Junction Deviation',unit:'mm/s',why:'Speed through corners. Low = smooth quality. High = aggressive cornering. Tune to frame stiffness.'},
-  aggregatePrinterSize:{title:'Max Aggregate Size',unit:'mm',why:'Largest aggregate the printer can pass. Rule: max aggregate < 35% nozzle diameter.'},
-  initialSetTime:      {title:'Initial Set Time',unit:'min',why:'Workability window at 20°C. RL uses this with temperature to tune print speed.'},
-  slumpValue:          {title:'Slump / Workability',unit:'/10',why:'Higher = more flowable, easier to pump but may sag. Lower = stiffer, self-supporting, harder to pump.'},
+  nozzleDiameter:   {title:'Nozzle Diameter',unit:'mm',why:'Sets the width of each concrete bead. Smaller = higher resolution, slower. Larger = faster, less detail.'},
+  nozzleShape:      {title:'Nozzle Shape',unit:'—',why:'Round is self-centring. Square gives flat-top layers. Rectangular suits high aspect-ratio beads. Teeth improves mechanical keying between layers.'},
+  beadCompression:  {title:'Bead Compression',unit:'ratio',why:'Layer height = nozzle diameter × this value. 0.5 = conservative. 0.6 = industry standard. 0.8 = aggressive. Pi auto-calibrates from test extrusion.'},
+  hoseLength:       {title:'Hose Length',unit:'m',why:'Used to calculate hydraulic lag — delay between pump command and concrete exiting nozzle.'},
+  hoseInternalDiam: {title:'Hose Internal Diameter',unit:'mm',why:'Combined with hose length gives volume in transit. Used for lag time and pressure drop.'},
+  maxFlowRate:      {title:'Max Flow Rate',unit:'L/min',why:'Physical maximum pump can deliver. Sets maximum achievable print speed.'},
+  minFlowRate:      {title:'Min Flow Rate',unit:'L/min',why:'Minimum stable flow. Sets floor on print speed during slow sections.'},
+  maxVelocity:      {title:'Max Velocity',unit:'mm/s',why:'Maximum print head travel speed. RL agent never exceeds this.'},
+  acceleration:     {title:'Acceleration',unit:'mm/s²',why:'How quickly the print head changes speed. Low = smooth, consistent beads. High = faster but may vary bead width at corners.'},
 };
 
 const PRINTERS = [
@@ -332,23 +321,10 @@ function ManualConfigForm({onSave,onBack}:{onSave:(cfg:ManualConfig)=>void;onBac
           </div>
         </div>
 
-        {/* 2. Print Space */}
+        {/* 2. Delivery */}
         <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
-          <div className="mb-5"><h3 className="text-xs font-bold text-black uppercase tracking-widest">2. Print Space</h3><p className="text-[11px] text-black/40 mt-0.5">Machine envelope — maximum build volume</p></div>
-          <div className="grid grid-cols-3 gap-3 sm:gap-5">
-            <Field fieldKey="printSpaceX" label="X" unit="mm" value={cfg.printSpaceX} onChange={set('printSpaceX')} min={100} max={30000} step={100} onFocus={setFocusKey}/>
-            <Field fieldKey="printSpaceY" label="Y" unit="mm" value={cfg.printSpaceY} onChange={set('printSpaceY')} min={100} max={30000} step={100} onFocus={setFocusKey}/>
-            <Field fieldKey="printSpaceZ" label="Z" unit="mm" value={cfg.printSpaceZ} onChange={set('printSpaceZ')} min={100} max={20000} step={100} onFocus={setFocusKey}/>
-          </div>
-          <p className="text-[10px] text-black/30 mt-3 font-mono">Volume: {((cfg.printSpaceX/1000)*(cfg.printSpaceY/1000)*(cfg.printSpaceZ/1000)).toFixed(1)} m³</p>
-        </div>
-
-        {/* 3. Pump */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
-          <div className="mb-5"><h3 className="text-xs font-bold text-black uppercase tracking-widest">3. Pump & Delivery</h3></div>
+          <div className="mb-5"><h3 className="text-xs font-bold text-black uppercase tracking-widest">2. Delivery</h3><p className="text-[11px] text-black/40 mt-0.5">Hose geometry and flow rate limits</p></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Select fieldKey="pumpType" label="Pump Type" value={cfg.pumpType} onChange={set('pumpType')} onFocus={setFocusKey}
-              options={[{value:'rotor-stator',label:'Rotor-Stator — high pressure'},{value:'piston',label:'Piston — precise, high viscosity'}]}/>
             <Field fieldKey="hoseLength" label="Hose Length" unit="m" value={cfg.hoseLength} onChange={set('hoseLength')} min={1} max={100} step={0.5} onFocus={setFocusKey}/>
             <div>
               <Field fieldKey="hoseInternalDiam" label="Hose Internal Diameter" unit="mm" value={cfg.hoseInternalDiam} onChange={set('hoseInternalDiam')} min={20} max={100} step={1} onFocus={setFocusKey}/>
@@ -359,42 +335,27 @@ function ManualConfigForm({onSave,onBack}:{onSave:(cfg:ManualConfig)=>void;onBac
           </div>
         </div>
 
-        {/* 4. Kinematics */}
+        {/* 3. Kinematics */}
         <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
-          <div className="mb-5"><h3 className="text-xs font-bold text-black uppercase tracking-widest">4. Machine Kinematics</h3></div>
+          <div className="mb-5"><h3 className="text-xs font-bold text-black uppercase tracking-widest">3. Machine Kinematics</h3></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <Field fieldKey="maxVelocity" label="Max Velocity" unit="mm/s" value={cfg.maxVelocity} onChange={set('maxVelocity')} min={10} max={300} step={5} onFocus={setFocusKey}/>
             <Field fieldKey="acceleration" label="Acceleration" unit="mm/s²" value={cfg.acceleration} onChange={set('acceleration')} min={50} max={3000} step={50} onFocus={setFocusKey}/>
-            <div className="sm:col-span-2">
-              <SliderField fieldKey="jerkDeviation" label="Junction Deviation" value={cfg.jerkDeviation} onChange={set('jerkDeviation')}
-                min={1} max={20} step={0.5} unit=" mm/s" onFocus={setFocusKey}
-                formatValue={v=>v<=5?`${v} mm/s — Smooth`:v<=12?`${v} mm/s — Balanced`:`${v} mm/s — Aggressive`}/>
-            </div>
-          </div>
-        </div>
-
-        {/* 5. Aggregate */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
-          <div className="mb-5"><h3 className="text-xs font-bold text-black uppercase tracking-widest">5. Aggregate & Material</h3></div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <Field fieldKey="aggregatePrinterSize" label="Max Aggregate Size" unit="mm" value={cfg.aggregatePrinterSize} onChange={set('aggregatePrinterSize')} min={0} max={20} step={0.5} onFocus={setFocusKey}/>
-              {cfg.aggregatePrinterSize>cfg.nozzleDiameter*0.35&&<p className="text-[10px] text-amber-600 mt-1">Exceeds recommended max ({(cfg.nozzleDiameter*0.35).toFixed(1)}mm) — clog risk</p>}
-            </div>
-            <Field fieldKey="initialSetTime" label="Initial Set Time" unit="min at 20°C" value={cfg.initialSetTime} onChange={set('initialSetTime')} min={5} max={120} step={1} onFocus={setFocusKey}/>
-            <div className="sm:col-span-2">
-              <SliderField fieldKey="slumpValue" label="Slump / Workability" value={cfg.slumpValue} onChange={set('slumpValue')}
-                min={1} max={10} step={0.5} onFocus={setFocusKey}
-                formatValue={v=>v<=3?`${v}/10 — Stiff`:v<=6?`${v}/10 — Balanced`:`${v}/10 — Wet, may sag`}/>
-            </div>
           </div>
         </div>
 
         {/* Summary */}
         <div className="bg-black rounded-2xl p-5 mb-6">
           <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-4">Configuration Summary</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-white/10 rounded-xl overflow-hidden">
-            {[{label:'Nozzle',value:`${cfg.nozzleDiameter}mm ${cfg.nozzleShape}`},{label:'Layer Height',value:`${computedLayerH}mm`},{label:'Print Space',value:`${(cfg.printSpaceX/1000).toFixed(1)}×${(cfg.printSpaceY/1000).toFixed(1)}×${(cfg.printSpaceZ/1000).toFixed(1)}m`},{label:'Max Vel',value:`${cfg.maxVelocity} mm/s`},{label:'Flow Range',value:`${cfg.minFlowRate}–${cfg.maxFlowRate} L/min`},{label:'Pump',value:cfg.pumpType},{label:'Set Window',value:`${cfg.initialSetTime} min`},{label:'Aggregate',value:`≤ ${cfg.aggregatePrinterSize}mm`}].map((s,i)=>(
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-white/10 rounded-xl overflow-hidden">
+            {[
+              {label:'Nozzle',      value:`${cfg.nozzleDiameter}mm ${cfg.nozzleShape}`},
+              {label:'Layer Height',value:`${computedLayerH}mm`},
+              {label:'Max Velocity',value:`${cfg.maxVelocity} mm/s`},
+              {label:'Flow Range',  value:`${cfg.minFlowRate}–${cfg.maxFlowRate} L/min`},
+              {label:'Acceleration',value:`${cfg.acceleration} mm/s²`},
+              {label:'Hose',        value:`${cfg.hoseLength}m × ${cfg.hoseInternalDiam}mm`},
+            ].map((s,i)=>(
               <div key={i} className="bg-black px-3 sm:px-4 py-3">
                 <p className="text-[9px] text-white/30 uppercase tracking-wider mb-1">{s.label}</p>
                 <p className="text-xs sm:text-sm font-bold text-white font-mono truncate">{s.value}</p>
@@ -476,7 +437,7 @@ export default function PrinterSetupPage() {
                   <p className="text-black/50 text-xs font-bold mb-1">Option A</p>
                   <p className="text-black text-base font-semibold mb-2">Manual Config</p>
                   <p className="text-black/40 text-xs leading-relaxed">Enter nozzle, pump, kinematics and aggregate specs for any custom printer.</p>
-                  <div className="mt-4 text-black/30 text-xs font-medium group-hover:text-black transition-colors">5 sections →</div>
+                  <div className="mt-4 text-black/30 text-xs font-medium group-hover:text-black transition-colors">3 sections →</div>
                 </button>
               </div>
             </motion.div>

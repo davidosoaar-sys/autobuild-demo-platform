@@ -99,15 +99,28 @@ async def scan_endpoint(
 @app.get("/weather/current")
 def get_current_weather(city: str):
     try:
-        snap = fetch_current_weather(city)
+        resp = requests.get(
+            f"{OW_BASE}/weather",
+            params={"q": city, "appid": OW_KEY, "units": "metric"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        temp       = data["main"]["temp"]
+        humidity   = data["main"]["humidity"]
+        wind_speed = data["wind"]["speed"] * 3.6  # m/s → km/h
+        description = data["weather"][0]["description"]
+        timezone    = data.get("timezone", 0)       # seconds from UTC
+        city_name   = data.get("name", city)
         return {
-            "city":         city,
-            "temperature":  snap.temperature,
-            "humidity":     snap.humidity,
-            "wind_speed":   snap.wind_speed,
-            "description":  snap.description,
-            "pot_life_min": round(pot_life_at_temp(snap.temperature), 1),
-            "risk_score":   composite_risk_score(snap.temperature, snap.humidity, snap.wind_speed),
+            "city":         city_name,
+            "temperature":  temp,
+            "humidity":     humidity,
+            "wind_speed":   wind_speed,
+            "description":  description,
+            "timezone":     timezone,
+            "pot_life_min": round(pot_life_at_temp(temp), 1),
+            "risk_score":   composite_risk_score(temp, humidity, wind_speed),
             "source":       "openweathermap",
         }
     except requests.HTTPError as e:
