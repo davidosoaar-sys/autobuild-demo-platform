@@ -1,30 +1,200 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MATERIALS } from '@/app/pre-print-optimizer/components/ParameterInputs';
 import dynamic from 'next/dynamic';
 
 const LayerVisualization = dynamic(
   () => import('@/app/pre-print-optimizer/components/LayerVisualization'),
-  { ssr: false },
+  { ssr: false, loading: () => (
+    <div className="flex items-center justify-center h-full min-h-[480px]">
+      <div className="text-center">
+        <motion.div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full mx-auto mb-3"
+          animate={{ rotate: 360 }} transition={{ duration: 0.9, repeat: Infinity, ease: 'linear' }} />
+        <p className="text-white/30 text-xs">Loading 3D viewer…</p>
+      </div>
+    </div>
+  )},
 );
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+interface CityResult  { name: string; country: string; state: string; display: string; }
+interface LiveWeather { temperature: number; humidity: number; wind_speed: number; description: string; pot_life_min: number; risk_score: number; }
+interface ForecastHour { hour: number; temperature: number; humidity: number; wind_speed: number; description: string; risk: number; }
+
 interface SlicerResult {
-  result_id: string;
   estimated_print_time: string;
-  geometry: { total_layers: number; bounding_box?: { x_mm: number; y_mm: number; z_mm: number } };
+  geometry: { total_layers: number };
   printer: { layer_height_mm: number; nozzle_mm: number; effective_speed: number };
   weather: { city: string; avg: { temperature: number; humidity: number; wind_speed: number } };
-  optimization: { avg_risk_score?: number };
   toolpath: unknown[];
   gcode_full: string;
   gcode_lines: number;
-  cement?: { display_name?: string };
 }
+
+function riskColor(r: number) { return r < 20 ? 'text-emerald-400' : r < 50 ? 'text-amber-400' : 'text-red-400'; }
+
+function hourToLabel(h: number) {
+  const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
+  const ampm = hh >= 12 ? 'PM' : 'AM';
+  const disp = hh > 12 ? hh - 12 : hh === 0 ? 12 : hh;
+  return `${disp}:${String(mm).padStart(2, '0')} ${ampm}`;
+}
+
+function CitySearch({ onSelect }: { onSelect: (cityStr: string, weather: LiveWeather) => void }) {
+  const [query,    setQuery]    = useState('');
+  const [results,  setResults]  = useState<CityResult[]>([]);
+  const [loading,  setLoading]  = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [open,     setOpen]     = useState(false);
+  const [selected, setSelected] = useState('');
+  const [weather,  setWeather]  = useState<LiveWeather | null>(null);
+  const [forecast, setForecast] = useState<ForecastHour[]>([]);
+  const [error,    setError]    = useState('');
+  const debounce = useRef<NodeJS.Timeout | null>(null);
+
+  const search = useCallback(async (q: string) => {
+    if (q.length < 2) { setResults([]); setOpen(false); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/weather/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      setResults(Array.isArray(data) ? data : []);
+      setOpen(true);
+    } catch { setResults([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  const handleInput = (val: string) => {
+    setQuery(val); setError('');
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => search(val), 400);
+  };
+
+  const handleSelect = async (city: CityResult) => {
+    setOpen(false);
+    setQuery(city.display);
+    setSelected(city.name);
+    setFetching(true); setError(''); setForecast([]);
+    const cityStr = `${city.name},${city.country}`;
+    try {
+      const res = await fetch(`${API}/weather/current?city=${encodeURIComponent(cityStr)}`);
+      if (!res.ok) throw new Error('not found');
+      const data: LiveWeather = await res.json();
+      setWeather(data);
+      onSelect(cityStr, data);
+      try {
+        const fRes = await fetch(`${API}/weather/forecast?city=${encodeURIComponent(cityStr)}&start_hour=8&hours=8`);
+        if (fRes.ok) { const fd = await fRes.json(); if (Array.isArray(fd)) setForecast(fd); }
+      } catch { /* optional */ }
+    } catch {
+      setError('Could not fetch weather — city will still be used in optimizer');
+      setWeather(null);
+      onSelect(cityStr, { temperature: 20, humidity: 65, wind_speed: 8, description: '', pot_life_min: 60, risk_score: 0 });
+    } finally { setFetching(false); }
+  };
+
+  const inputCls = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/25 bg-white pr-8';
+
+  return (
+    <div>
+      <div className="relative">
+        <input type="text" value={query} placeholder="Search any city worldwide…"
+          onChange={e => handleInput(e.target.value)}
+          onFocus={() => results.length > 0 && setOpen(true)}
+          className={inputCls} />
+        {loading && (
+          <svg className="absolute right-3 top-3 animate-spin w-4 h-4 text-black/20" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        )}
+        {open && results.length > 0 && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+            {results.map((r, i) => (
+              <button key={i} onClick={() => handleSelect(r)}
+                className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
+                <span className="font-medium text-black">{r.name}</span>
+                <span className="text-black/35 ml-1.5 text-xs">{r.state}{r.state ? ', ' : ''}{r.country}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {fetching && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-black/35">
+          <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          Fetching live weather…
+        </div>
+      )}
+      {error && <p className="mt-1.5 text-[11px] text-amber-600">{error}</p>}
+
+      {weather && !fetching && (
+        <div className="mt-3 bg-black rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest">{selected}</p>
+            <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />Live
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {[
+              { label: 'Temp',     value: `${weather.temperature}°C` },
+              { label: 'Humidity', value: `${weather.humidity}%` },
+              { label: 'Wind',     value: `${weather.wind_speed.toFixed(1)} km/h` },
+            ].map((s, i) => (
+              <div key={i} className="bg-white/6 rounded-xl px-2.5 py-2">
+                <p className="text-[9px] text-white/30 mb-0.5">{s.label}</p>
+                <p className="text-sm font-semibold text-white">{s.value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between py-2 border-t border-white/8">
+            <div>
+              <p className="text-[9px] text-white/30 mb-0.5">Pot Life</p>
+              <p className="text-sm font-semibold text-white">{weather.pot_life_min} min</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[9px] text-white/30 mb-0.5">Env Risk</p>
+              <p className={`text-sm font-semibold ${riskColor(weather.risk_score)}`}>{weather.risk_score}/100</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[9px] text-white/30 mb-0.5">Conditions</p>
+              <p className="text-[11px] text-white/50 capitalize">{weather.description}</p>
+            </div>
+          </div>
+          {forecast.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/8">
+              <p className="text-[9px] text-white/25 uppercase tracking-widest mb-2">Hourly forecast</p>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {forecast.map((f, i) => (
+                  <div key={i} className={`flex-shrink-0 rounded-xl px-2.5 py-2 text-center min-w-[52px] border ${
+                    f.risk > 50 ? 'bg-red-500/15 border-red-500/20' : f.risk > 20 ? 'bg-amber-400/10 border-amber-400/15' : 'bg-white/5 border-white/5'
+                  }`}>
+                    <p className="text-[8px] text-white/30 mb-0.5">{hourToLabel(f.hour)}</p>
+                    <p className="text-[12px] font-semibold text-white">{f.temperature}°</p>
+                    <p className={`text-[8px] font-medium mt-0.5 ${riskColor(f.risk)}`}>{f.risk > 50 ? 'High' : f.risk > 20 ? 'Med' : 'OK'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const inputCls  = 'w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:border-black transition-colors text-black';
+const selectCls = 'w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors text-black';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -35,9 +205,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-const inputCls = 'w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:border-black transition-colors';
-const selectCls = 'w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors';
-
 export default function SlicerTool() {
   const router       = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,6 +212,7 @@ export default function SlicerTool() {
   const [loading,    setLoading]    = useState(false);
   const [result,     setResult]     = useState<SlicerResult | null>(null);
   const [error,      setError]      = useState('');
+  const [cityStr,    setCityStr]    = useState('');
 
   // Printer params
   const [nozzle,       setNozzle]       = useState(25);
@@ -53,24 +221,14 @@ export default function SlicerTool() {
   const [hoseLength,   setHoseLength]   = useState(15);
   const [flowRate,     setFlowRate]     = useState(8);
   const [acceleration, setAcceleration] = useState(500);
+  const [cementId,     setCementId]     = useState('sika-733w-3d-us');
 
-  // Cement + city
-  const [cementId, setCementId] = useState('sika-733w-3d-us');
-  const [city,     setCity]     = useState('');
+  const layerHeightMm = Math.round(nozzle * compression) / 10;
 
-  const layerHeight = Math.round(nozzle * compression) / 10;
-
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] ?? null;
+  const handleFile = (f: File | null) => {
     setFile(f);
     setResult(null);
     setError('');
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const f = e.dataTransfer.files[0];
-    if (f) { setFile(f); setResult(null); setError(''); }
   };
 
   const run = async () => {
@@ -79,24 +237,23 @@ export default function SlicerTool() {
     setError('');
     try {
       const fd = new FormData();
-      fd.append('file', file);
-      fd.append('nozzle_diameter_mm',    String(nozzle));
-      fd.append('bead_compression',      String(compression));
-      fd.append('max_speed_mm_s',        String(velocity));
-      fd.append('base_speed_mm_s',       String(Math.round(velocity * 0.6)));
-      fd.append('hose_length_m',         String(hoseLength));
-      fd.append('max_mass_flow_l_min',   String(flowRate));
-      fd.append('acceleration_mm_s2',    String(acceleration));
-      fd.append('cement_mix_name',       cementId);
-      if (city.trim()) fd.append('city', city.trim());
+      fd.append('file',                   file);
+      fd.append('nozzle_diameter_mm',     String(nozzle));
+      fd.append('bead_compression',       String(compression));
+      fd.append('max_speed_mm_s',         String(velocity));
+      fd.append('base_speed_mm_s',        String(Math.round(velocity * 0.6)));
+      fd.append('hose_length_m',          String(hoseLength));
+      fd.append('max_mass_flow_l_min',    String(flowRate));
+      fd.append('acceleration_mm_s2',     String(acceleration));
+      fd.append('cement_mix_name',        cementId);
+      if (cityStr) fd.append('city',      cityStr);
 
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Server error ${res.status}`);
+        throw new Error((err as any).detail || `Server error ${res.status}`);
       }
-      const data: SlicerResult = await res.json();
-      setResult(data);
+      setResult(await res.json());
     } catch (e: any) {
       setError(e.message || 'Optimization failed');
     } finally {
@@ -104,62 +261,38 @@ export default function SlicerTool() {
     }
   };
 
-  const downloadGcode = () => {
-    if (!result) return;
-    const blob = new Blob([result.gcode_full], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = `${file?.name?.replace(/\.[^.]+$/, '') ?? 'print'}.gcode`;
-    a.click(); URL.revokeObjectURL(url);
-  };
-
-  const downloadTxt = () => {
-    if (!result) return;
-    const lines = [
-      `AutoBuild AI — Slicer Report`,
-      `File: ${file?.name}`,
-      ``,
-      `Print time: ${result.estimated_print_time}`,
-      `Layers: ${result.geometry.total_layers}`,
-      `Layer height: ${result.printer.layer_height_mm} mm`,
-      `Nozzle: ${result.printer.nozzle_mm} mm`,
-      `Effective speed: ${result.printer.effective_speed} mm/s`,
-      `G-code lines: ${result.gcode_lines}`,
-      ``,
-      `Weather: ${result.weather.city}`,
-      `  Temperature: ${result.weather.avg.temperature}°C`,
-      `  Humidity: ${result.weather.avg.humidity}%`,
-      `  Wind: ${result.weather.avg.wind_speed} km/h`,
-    ].join('\n');
-    const blob = new Blob([lines], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = `${file?.name?.replace(/\.[^.]+$/, '') ?? 'print'}_report.txt`;
-    a.click(); URL.revokeObjectURL(url);
+  const download = (content: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
+    a.download = filename;
+    a.click();
   };
 
   const selectedMat = MATERIALS.find(m => m.id === cementId);
+  const basename    = file?.name?.replace(/\.[^.]+$/, '') ?? 'print';
 
   return (
     <div className="min-h-screen bg-gray-50">
+
       {/* Header */}
-      <header className="border-b border-gray-200 bg-white sticky top-0 z-10">
-        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
+      <header className="border-b border-gray-100 bg-white sticky top-0 z-10 overflow-visible">
+        <div className="max-w-[1400px] mx-auto px-6 py-1 flex items-center justify-between">
+          <button onClick={() => router.push('/')} className="-my-4">
+            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-24 w-auto" />
+          </button>
           <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/')} className="text-base font-bold text-black hover:text-black/60 transition-colors">AutoBuild AI</button>
-            <span className="w-px h-4 bg-gray-200" />
             <span className="text-sm font-medium text-black/40">RL Slicer</span>
+            {file && !loading && (
+              <button onClick={run}
+                className="px-5 py-2 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 transition-all">
+                Run Optimizer
+              </button>
+            )}
           </div>
-          {file && !loading && (
-            <button onClick={run}
-              className="px-5 py-2 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 transition-all">
-              Run Optimizer
-            </button>
-          )}
         </div>
       </header>
 
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
 
         {/* ── Left panel ── */}
         <div className="space-y-4">
@@ -168,7 +301,7 @@ export default function SlicerTool() {
           <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
             <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-4">Model</h2>
             <div
-              onDrop={handleDrop}
+              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
               onDragOver={e => e.preventDefault()}
               onClick={() => fileInputRef.current?.click()}
               className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
@@ -190,30 +323,37 @@ export default function SlicerTool() {
                 </>
               )}
             </div>
-            <input ref={fileInputRef} type="file" accept=".stl,.obj,.stp,.step" className="hidden" onChange={handleFile} />
+            <input ref={fileInputRef} type="file" accept=".stl,.obj,.stp,.step" className="hidden"
+              onChange={e => handleFile(e.target.files?.[0] ?? null)} />
           </div>
 
-          {/* Printer params */}
+          {/* Printer */}
           <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
             <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Printer</h2>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Nozzle (mm)">
-                <input type="number" value={nozzle} min={10} max={80} onChange={e => setNozzle(Number(e.target.value))} className={inputCls} />
+                <input type="number" value={nozzle} min={10} max={80}
+                  onChange={e => setNozzle(Number(e.target.value))} className={inputCls} />
               </Field>
-              <Field label={`Compression → ${layerHeight} mm`}>
-                <input type="number" value={compression} min={0.4} max={0.9} step={0.05} onChange={e => setCompression(Number(e.target.value))} className={inputCls} />
+              <Field label={`Compression → ${layerHeightMm} mm`}>
+                <input type="number" value={compression} min={0.4} max={0.9} step={0.05}
+                  onChange={e => setCompression(Number(e.target.value))} className={inputCls} />
               </Field>
               <Field label="Max velocity (mm/s)">
-                <input type="number" value={velocity} min={10} max={300} onChange={e => setVelocity(Number(e.target.value))} className={inputCls} />
+                <input type="number" value={velocity} min={10} max={300}
+                  onChange={e => setVelocity(Number(e.target.value))} className={inputCls} />
               </Field>
               <Field label="Hose length (m)">
-                <input type="number" value={hoseLength} min={1} max={100} onChange={e => setHoseLength(Number(e.target.value))} className={inputCls} />
+                <input type="number" value={hoseLength} min={1} max={100}
+                  onChange={e => setHoseLength(Number(e.target.value))} className={inputCls} />
               </Field>
               <Field label="Max flow (L/min)">
-                <input type="number" value={flowRate} min={1} max={30} step={0.5} onChange={e => setFlowRate(Number(e.target.value))} className={inputCls} />
+                <input type="number" value={flowRate} min={1} max={30} step={0.5}
+                  onChange={e => setFlowRate(Number(e.target.value))} className={inputCls} />
               </Field>
               <Field label="Acceleration (mm/s²)">
-                <input type="number" value={acceleration} min={50} max={2000} step={50} onChange={e => setAcceleration(Number(e.target.value))} className={inputCls} />
+                <input type="number" value={acceleration} min={50} max={2000} step={50}
+                  onChange={e => setAcceleration(Number(e.target.value))} className={inputCls} />
               </Field>
             </div>
           </div>
@@ -227,12 +367,12 @@ export default function SlicerTool() {
               ))}
             </select>
             {selectedMat && (
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="grid grid-cols-2 gap-2">
                 {[
                   ['Pot life 20°C', `${selectedMat.potLife20c} min`],
-                  ['Strength 28d',  selectedMat.strength28d],
+                  ['Strength 28d',   selectedMat.strength28d],
                   ['Layer range',   `${selectedMat.layerMin}–${selectedMat.layerMax} mm`],
-                  ['Water ratio',   selectedMat.waterRatio],
+                  ['Water ratio',    selectedMat.waterRatio],
                 ].map(([k, v]) => (
                   <div key={k} className="bg-gray-50 rounded-xl px-3 py-2">
                     <p className="text-[9px] text-black/30 uppercase tracking-wide">{k}</p>
@@ -245,15 +385,12 @@ export default function SlicerTool() {
 
           {/* Weather */}
           <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Weather (optional)</h2>
-            <Field label="City">
-              <input type="text" value={city} placeholder="e.g. London, Dubai, New York"
-                onChange={e => setCity(e.target.value)} className={inputCls} />
-            </Field>
-            <p className="text-[10px] text-black/25 mt-2">Leave blank to use default conditions</p>
+            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Weather</h2>
+            <CitySearch onSelect={(cs) => setCityStr(cs)} />
+            {!cityStr && <p className="text-[10px] text-black/25 mt-2">Optional — leave blank for default conditions</p>}
           </div>
 
-          {/* Run button (mobile) */}
+          {/* Run (mobile) */}
           <button onClick={run} disabled={!file || loading}
             className="w-full py-3 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all lg:hidden">
             {loading ? 'Optimising…' : 'Run Optimizer'}
@@ -269,23 +406,24 @@ export default function SlicerTool() {
         {/* ── Right panel ── */}
         <div className="space-y-4">
 
-          {/* 3D viewer */}
-          <div className="bg-black rounded-2xl overflow-hidden shadow-sm" style={{ minHeight: 420 }}>
-            {result ? (
+          {/* 3D viewer — shows model on upload, toolpath after optimize */}
+          <div className="bg-black rounded-2xl overflow-hidden shadow-sm" style={{ minHeight: 480 }}>
+            {file ? (
               <LayerVisualization
                 file={file}
-                toolpath={result.toolpath as any}
-                numLayers={result.geometry.total_layers}
-                layerHeight={result.printer.layer_height_mm / 1000}
-                nozzleDiameter={result.printer.nozzle_mm}
+                toolpath={(result?.toolpath ?? []) as any}
+                numLayers={result?.geometry.total_layers ?? 0}
+                layerHeight={(result?.printer.layer_height_mm ?? layerHeightMm) / 1000}
+                nozzleDiameter={nozzle}
               />
             ) : (
-              <div className="flex items-center justify-center h-full min-h-[420px]">
-                <div className="text-center">
-                  <svg className="w-12 h-12 text-white/10 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="flex items-center justify-center min-h-[480px]">
+                <div className="text-center px-6">
+                  <svg className="w-14 h-14 text-white/10 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                   </svg>
-                  <p className="text-white/20 text-sm">Upload a model and run the optimizer</p>
+                  <p className="text-white/25 text-sm font-medium">Upload a model to preview</p>
+                  <p className="text-white/15 text-xs mt-1">Then run the optimizer to generate toolpath</p>
                 </div>
               </div>
             )}
@@ -299,14 +437,26 @@ export default function SlicerTool() {
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Results</h2>
                   <div className="flex gap-2">
-                    <button onClick={downloadGcode}
+                    <button onClick={() => download(result.gcode_full, `${basename}.gcode`)}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-[11px] font-semibold rounded-xl hover:bg-black/80 transition-all">
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
                       .gcode
                     </button>
-                    <button onClick={downloadTxt}
+                    <button onClick={() => download([
+                      'AutoBuild AI — Slicer Report', `File: ${file?.name}`, '',
+                      `Print time: ${result.estimated_print_time}`,
+                      `Layers: ${result.geometry.total_layers}`,
+                      `Layer height: ${result.printer.layer_height_mm} mm`,
+                      `Nozzle: ${result.printer.nozzle_mm} mm`,
+                      `Speed: ${result.printer.effective_speed} mm/s`,
+                      `G-code lines: ${result.gcode_lines}`, '',
+                      `Weather: ${result.weather.city}`,
+                      `  Temp: ${result.weather.avg.temperature}°C`,
+                      `  Humidity: ${result.weather.avg.humidity}%`,
+                      `  Wind: ${result.weather.avg.wind_speed} km/h`,
+                    ].join('\n'), `${basename}_report.txt`)}
                       className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-black text-[11px] font-semibold rounded-xl hover:bg-gray-50 transition-all">
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -315,16 +465,16 @@ export default function SlicerTool() {
                     </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
-                    { label: 'Print Time',    value: result.estimated_print_time },
-                    { label: 'Layers',        value: String(result.geometry.total_layers) },
-                    { label: 'Layer Height',  value: `${result.printer.layer_height_mm} mm` },
-                    { label: 'G-code Lines',  value: result.gcode_lines.toLocaleString() },
-                    { label: 'Avg Speed',     value: `${result.printer.effective_speed} mm/s` },
-                    { label: 'Material',      value: selectedMat?.name ?? cementId },
-                    { label: 'Weather',       value: result.weather.city !== 'manual' ? result.weather.city : 'Default' },
-                    { label: 'Avg Temp',      value: `${result.weather.avg.temperature}°C` },
+                    { label: 'Print Time',   value: result.estimated_print_time },
+                    { label: 'Layers',       value: String(result.geometry.total_layers) },
+                    { label: 'Layer Height', value: `${result.printer.layer_height_mm} mm` },
+                    { label: 'G-code Lines', value: result.gcode_lines.toLocaleString() },
+                    { label: 'Avg Speed',    value: `${result.printer.effective_speed} mm/s` },
+                    { label: 'Material',     value: selectedMat?.name ?? cementId },
+                    { label: 'Weather',      value: result.weather.city !== 'manual' ? result.weather.city : 'Default' },
+                    { label: 'Avg Temp',     value: `${result.weather.avg.temperature}°C` },
                   ].map(({ label, value }) => (
                     <div key={label} className="bg-gray-50 rounded-xl px-3 py-2.5">
                       <p className="text-[9px] text-black/30 uppercase tracking-wide mb-0.5">{label}</p>
@@ -347,7 +497,7 @@ export default function SlicerTool() {
               animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
             <div className="text-center">
               <p className="text-base font-semibold text-black">Running RL Optimizer</p>
-              <p className="text-sm text-black/40 mt-1">Slicing model and computing toolpath…</p>
+              <p className="text-sm text-black/40 mt-1">Slicing model and computing adaptive toolpath…</p>
             </div>
           </motion.div>
         )}

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CameraView, BeadEventLog, AlertBanner,
@@ -57,11 +58,13 @@ export default function StandaloneMonitor() {
   return (
     <div className="min-h-screen bg-gray-50 pb-6">
       {/* Header */}
-      <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+      <header className="border-b border-gray-100 bg-white sticky top-0 z-10 overflow-visible">
+        <div className="max-w-7xl mx-auto px-6 py-1 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/')} className="text-base font-bold text-black tracking-tight hover:text-black/60 transition-colors">AutoBuild AI</button>
-            <span className="w-px h-4 bg-gray-200" />
+            <button onClick={() => router.push('/')} className="-my-4">
+              <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-24 w-auto" />
+            </button>
+            <span className="w-px h-5 bg-gray-200" />
             <span className="text-sm font-medium text-black/40">Live Monitor</span>
           </div>
           <span className="text-2xl font-bold font-mono text-black tracking-tight">{fmtElapsed()}</span>
