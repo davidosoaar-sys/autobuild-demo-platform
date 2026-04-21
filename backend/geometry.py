@@ -20,8 +20,8 @@ FAST_PATH_THRESHOLD is computed dynamically from nozzle_width:
 import io
 import numpy as np
 import trimesh
-from shapely.geometry import LineString, MultiLineString
-from shapely.ops import linemerge, polygonize, unary_union
+from shapely.geometry import LineString
+from shapely.ops import unary_union
 from typing import List, Optional, Tuple
 
 from sika733 import (
@@ -253,7 +253,7 @@ def _slice_layer(
     mesh:                trimesh.Trimesh,
     z:                   float,
     nozzle_width:        float,
-    fast_path_threshold: int = 2000,
+    fast_path_threshold: int = 2000,   # passed in from parse_and_slice, based on nozzle
 ) -> Layer:
     try:
         lines = trimesh.intersections.mesh_plane(
@@ -267,52 +267,60 @@ def _slice_layer(
     if lines is None or len(lines) == 0:
         return []
 
-    min_len   = nozzle_width * 0.1
-    raw_pairs: List[Segment] = []
+    min_len       = nozzle_width * 0.1
+    shapely_segs: List[LineString] = []
     for seg in lines:
         x0, y0 = float(seg[0][0]), float(seg[0][1])
         x1, y1 = float(seg[1][0]), float(seg[1][1])
         if np.hypot(x1 - x0, y1 - y0) > min_len:
-            raw_pairs.append(((x0, y0), (x1, y1)))
+            shapely_segs.append(LineString([(x0, y0), (x1, y1)]))
 
-    if not raw_pairs:
+    if not shapely_segs:
         return []
 
-    # trimesh.mesh_plane returns raw triangle-plane intersections that follow
-    # mesh triangulation diagonals — on flat walls this produces criss-cross
-    # artefacts because the STL quad faces are split into diagonal triangles.
-    # polygonize extracts only topologically-closed rings from those segments,
-    # which are the correct horizontal wall cross-section outlines.
+    # Fast path — raw segments, no buffer. Visual gaps handled by beadW on frontend.
+    # Threshold 0 means all non-empty layers always take fast path, skipping the
+    # expensive Shapely buffer+union that was the primary optimize bottleneck.
+    if len(shapely_segs) > 0:
+        return _nn_chain([
+            ((float(s.coords[0][0]), float(s.coords[0][1])),
+             (float(s.coords[1][0]), float(s.coords[1][1])))
+            for s in shapely_segs
+        ])
+
     try:
-        merged   = linemerge(MultiLineString(raw_pairs))
-        polygons = list(polygonize(merged))
-
-        if not polygons:
-            # Some STL exporters leave tiny floating-point gaps at shared vertices.
-            # A minimal snap buffer closes them so polygonize can find the rings.
-            snap     = nozzle_width * 0.02
-            snapped  = unary_union([
-                LineString([p0, p1]).buffer(snap, cap_style=2, join_style=2, resolution=1)
-                for p0, p1 in raw_pairs
-            ])
-            rings    = [snapped] if snapped.geom_type == 'Polygon' else list(getattr(snapped, 'geoms', []))
-            polygons = [r for r in rings if r.geom_type == 'Polygon']
-
-        if polygons:
-            polygons.sort(key=lambda p: p.area, reverse=True)
-            out: List[Segment] = []
-            for poly in polygons:
-                out.extend(_walk_ring(poly.exterior.coords))
-                for hole in poly.interiors:
-                    out.extend(_walk_ring(hole.coords))
-            if out:
-                return _nn_chain(out)
+        bead_union = unary_union([
+            s.buffer(nozzle_width / 2, cap_style=2, join_style=2, resolution=1)
+            for s in shapely_segs
+        ])
     except Exception:
-        pass
+        return _nn_chain([(
+            (float(s.coords[0][0]), float(s.coords[0][1])),
+            (float(s.coords[1][0]), float(s.coords[1][1])),
+        ) for s in shapely_segs])
 
-    # Fallback: chain raw triangle-intersection segments directly.
-    # Used for non-manifold or open-shell meshes where polygonize finds no rings.
-    return _nn_chain(raw_pairs)
+    regions  = list(bead_union.geoms) if hasattr(bead_union, 'geoms') else [bead_union]
+    min_area = np.pi * (nozzle_width / 2) ** 2
+    regions  = [r for r in regions if r.geom_type == 'Polygon' and r.area > min_area]
+
+    if not regions:
+        return _nn_chain([(
+            (float(s.coords[0][0]), float(s.coords[0][1])),
+            (float(s.coords[1][0]), float(s.coords[1][1])),
+        ) for s in shapely_segs])
+
+    regions.sort(key=lambda r: r.area, reverse=True)
+
+    raw_segments: List[Segment] = []
+    for region in regions:
+        raw_segments.extend(_walk_ring(region.exterior.coords))
+        for interior in region.interiors:
+            raw_segments.extend(_walk_ring(interior.coords))
+
+    if not raw_segments:
+        return []
+
+    return _nn_chain(raw_segments)
 
 
 def _walk_ring(coords) -> List[Segment]:
