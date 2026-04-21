@@ -219,11 +219,12 @@ function NumInput({ value, onChange, min, max, step }: { value: number; onChange
 export default function SlicerTool() {
   const router       = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [file,       setFile]       = useState<File | null>(null);
-  const [loading,    setLoading]    = useState(false);
-  const [result,     setResult]     = useState<SlicerResult | null>(null);
-  const [error,      setError]      = useState('');
-  const [cityStr,    setCityStr]    = useState('');
+  const [file,        setFile]        = useState<File | null>(null);
+  const [loading,     setLoading]     = useState(false);
+  const [result,      setResult]      = useState<SlicerResult | null>(null);
+  const [showResults, setShowResults] = useState(false);
+  const [error,       setError]       = useState('');
+  const [cityStr,     setCityStr]     = useState('');
 
   // Printer
   const [nozzle,       setNozzle]       = useState(25);
@@ -244,7 +245,7 @@ export default function SlicerTool() {
   const setCustomField = <K extends keyof CustomMix>(k: K, v: CustomMix[K]) =>
     setCustomMix(prev => ({ ...prev, [k]: v }));
 
-  const handleFile = (f: File | null) => { setFile(f); setResult(null); setError(''); };
+  const handleFile = (f: File | null) => { setFile(f); setResult(null); setShowResults(false); setError(''); };
 
   const run = async () => {
     if (!file) return;
@@ -266,7 +267,7 @@ export default function SlicerTool() {
         const err = await res.json().catch(() => ({}));
         throw new Error((err as any).detail || `Server error ${res.status}`);
       }
-      setResult(await res.json());
+      setResult(await res.json()); setShowResults(true);
     } catch (e: any) {
       setError(e.message || 'Optimization failed');
     } finally { setLoading(false); }
@@ -300,7 +301,7 @@ export default function SlicerTool() {
     <>
       {/* ── Fullscreen results overlay ── */}
       <AnimatePresence>
-        {result && !loading && (
+        {result && showResults && !loading && (
           <motion.div className="fixed inset-0 overflow-hidden z-50"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <LayerVisualization
@@ -310,7 +311,7 @@ export default function SlicerTool() {
               layerHeight={result.printer.layer_height_mm / 1000}
               nozzleDiameter={nozzle / 1000}
               fullscreen
-              onBack={() => setResult(null)}
+              onBack={() => setShowResults(false)}
             />
 
             {/* Glass sidebar */}
@@ -323,7 +324,7 @@ export default function SlicerTool() {
                   <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40">Slicer Results</p>
                   <p className="text-xs font-medium text-white mt-0.5 truncate max-w-[200px]">{file?.name}</p>
                 </div>
-                <button onClick={() => setResult(null)}
+                <button onClick={() => setShowResults(false)}
                   className="text-white/40 hover:text-white text-xl leading-none transition-colors flex-shrink-0 ml-2">×</button>
               </div>
 
@@ -381,7 +382,7 @@ export default function SlicerTool() {
                 </div>
 
                 {/* Back to setup */}
-                <button onClick={() => setResult(null)}
+                <button onClick={() => setShowResults(false)}
                   className="w-full py-2 text-[11px] font-medium text-white/30 hover:text-white/60 transition-colors text-center">
                   ← Back to setup
                 </button>
@@ -402,10 +403,16 @@ export default function SlicerTool() {
             </button>
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-black/40">RL Slicer</span>
+              {result && !loading && (
+                <button onClick={() => setShowResults(true)}
+                  className="px-5 py-2 border border-black text-black text-sm font-semibold rounded-xl hover:bg-black hover:text-white transition-all">
+                  View Results
+                </button>
+              )}
               {file && !loading && (
                 <button onClick={run}
                   className="px-5 py-2 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 transition-all">
-                  Run Optimizer
+                  {result ? 'Re-run' : 'Run Optimizer'}
                 </button>
               )}
             </div>
@@ -561,7 +568,7 @@ export default function SlicerTool() {
             {/* Run (mobile) */}
             <button onClick={run} disabled={!file || loading}
               className="w-full py-3 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all lg:hidden">
-              {loading ? 'Optimising…' : 'Run Optimizer'}
+              {loading ? 'Optimising…' : result ? 'Re-run' : 'Run Optimizer'}
             </button>
 
             {error && (
@@ -596,11 +603,17 @@ export default function SlicerTool() {
             </div>
 
             {/* Hint when result is ready */}
-            {result && !loading && (
+            {result && !loading && !showResults && (
               <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                className="bg-black rounded-2xl px-5 py-4 text-center shadow-sm">
-                <p className="text-sm font-semibold text-white">Optimization complete</p>
-                <p className="text-xs text-white/40 mt-0.5">The fullscreen results view is open — view the layer animation and download files there.</p>
+                className="bg-black rounded-2xl px-5 py-4 shadow-sm flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-white">Optimization complete</p>
+                  <p className="text-xs text-white/40 mt-0.5">{result.estimated_print_time} · {result.geometry.total_layers} layers</p>
+                </div>
+                <button onClick={() => setShowResults(true)}
+                  className="flex-shrink-0 px-4 py-2 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-all">
+                  View Results →
+                </button>
               </motion.div>
             )}
           </div>
