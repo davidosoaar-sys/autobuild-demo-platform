@@ -60,6 +60,32 @@ const nowTimeStr = () => { const d = new Date(); return `${String(d.getHours()).
 const toDecimalHour = (t: string) => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
 const fmtTime = (t: string) => { const [h, m] = t.split(':').map(Number); const ampm = h >= 12 ? 'PM' : 'AM'; return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${ampm}`; };
 
+function interpolateHourly(raw: ForecastHour[], fromHour: number, count: number): ForecastHour[] {
+  const result: ForecastHour[] = [];
+  for (let i = 0; i < count; i++) {
+    const h = fromHour + i;
+    let before: ForecastHour | undefined;
+    let after:  ForecastHour | undefined;
+    for (const f of raw) {
+      if (f.hour <= h) before = f;
+      else if (!after) { after = f; break; }
+    }
+    if (!before && !after) break;
+    if (!before)                     { result.push({ ...after!,  hour: h }); continue; }
+    if (!after || before.hour === h) { result.push({ ...before,  hour: h }); continue; }
+    const t = (h - before.hour) / (after.hour - before.hour);
+    result.push({
+      hour:        h,
+      temperature: Math.round((before.temperature + (after.temperature - before.temperature) * t) * 10) / 10,
+      humidity:    Math.round( before.humidity    + (after.humidity    - before.humidity)    * t),
+      wind_speed:  Math.round((before.wind_speed  + (after.wind_speed  - before.wind_speed)  * t) * 10) / 10,
+      description: t < 0.5 ? before.description : after.description,
+      risk:        Math.round( before.risk        + (after.risk        - before.risk)        * t),
+    });
+  }
+  return result;
+}
+
 function riskColor(r: number) { return r < 20 ? 'text-emerald-400' : r < 50 ? 'text-amber-400' : 'text-red-400'; }
 function hourToLabel(h: number) {
   const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
@@ -123,20 +149,21 @@ function CitySearch({
 
   const doFetch = useCallback(async (cityStr: string, hour: number) => {
     setFetching(true); setError(''); setWeather(null); setForecast([]);
+    const fetchFrom = Math.floor(hour / 3) * 3;
     try {
-      const fRes = await fetch(`${API}/weather/forecast?city=${encodeURIComponent(cityStr)}&start_hour=${hour}&hours=8`);
+      const fRes = await fetch(`${API}/weather/forecast?city=${encodeURIComponent(cityStr)}&start_hour=${fetchFrom}&hours=12`);
       if (!fRes.ok) throw new Error();
       const fd = await fRes.json();
       if (!Array.isArray(fd) || fd.length === 0) throw new Error();
       setForecast(fd);
-      const p = fd[0];
+      const planned = interpolateHourly(fd, hour, 1)[0] ?? fd[0];
       const w: LiveWeather = {
-        temperature: p.temperature, humidity: p.humidity, wind_speed: p.wind_speed,
-        description: p.description, pot_life_min: 60, risk_score: p.risk,
+        temperature: planned.temperature, humidity: planned.humidity, wind_speed: planned.wind_speed,
+        description: planned.description, pot_life_min: 60, risk_score: planned.risk,
       };
       setWeather(w);
       onSelectRef.current(cityStr, w);
-      onFCRef.current?.({ temperature: p.temperature, humidity: p.humidity, wind_speed: p.wind_speed });
+      onFCRef.current?.({ temperature: planned.temperature, humidity: planned.humidity, wind_speed: planned.wind_speed });
     } catch {
       setError('Could not fetch forecast for this date');
       onFCRef.current?.(null);
@@ -251,7 +278,7 @@ function CitySearch({
             <div className="mt-3 pt-3 border-t border-white/8">
               <p className="text-[9px] text-white/25 uppercase tracking-widest mb-2">8-hour outlook</p>
               <div className="flex gap-1.5 overflow-x-auto pb-1">
-                {forecast.map((f, i) => (
+                {interpolateHourly(forecast, toDecimalHour(startTime), 8).map((f, i) => (
                   <div key={i} className={`flex-shrink-0 rounded-xl px-2.5 py-2 text-center min-w-[52px] border ${
                     f.risk > 50 ? 'bg-red-500/15 border-red-500/20' : f.risk > 20 ? 'bg-amber-400/10 border-amber-400/15' : 'bg-white/5 border-white/5'
                   }`}>
