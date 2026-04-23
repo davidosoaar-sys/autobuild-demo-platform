@@ -31,6 +31,8 @@ interface ForecastHour { hour: number; temperature: number; humidity: number; wi
 
 interface SlicerResult {
   estimated_print_time: string;
+  estimated_print_time_s?: number;
+  cement?: { open_time_min: number };
   geometry: { total_layers: number };
   printer: { layer_height_mm: number; nozzle_mm: number; effective_speed: number };
   weather: { city: string; avg: { temperature: number; humidity: number; wind_speed: number } };
@@ -52,6 +54,11 @@ const DEFAULT_CUSTOM: CustomMix = {
   grainSize: 3,  spreadFlow: 130,
   waterRatio: '15–17%', strength28d: '—',
 };
+
+const todayStr  = () => new Date().toISOString().split('T')[0];
+const nowTimeStr = () => { const d = new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+const toDecimalHour = (t: string) => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
+const fmtTime = (t: string) => { const [h, m] = t.split(':').map(Number); const ampm = h >= 12 ? 'PM' : 'AM'; return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${ampm}`; };
 
 function riskColor(r: number) { return r < 20 ? 'text-emerald-400' : r < 50 ? 'text-amber-400' : 'text-red-400'; }
 function hourToLabel(h: number) {
@@ -225,6 +232,8 @@ export default function SlicerTool() {
   const [showResults, setShowResults] = useState(false);
   const [error,       setError]       = useState('');
   const [cityStr,     setCityStr]     = useState('');
+  const [printDate,   setPrintDate]   = useState<string>(todayStr);
+  const [startTime,   setStartTime]   = useState<string>(nowTimeStr);
 
   // Printer
   const [nozzle,       setNozzle]       = useState(25);
@@ -262,6 +271,8 @@ export default function SlicerTool() {
       fd.append('acceleration_mm_s2',   String(acceleration));
       fd.append('cement_mix_name',      cementId);
       if (cityStr) fd.append('city',    cityStr);
+      fd.append('print_date',           printDate);
+      fd.append('print_start_hour',     String(toDecimalHour(startTime)));
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -291,6 +302,9 @@ export default function SlicerTool() {
     `G-code lines: ${result.gcode_lines}`, '',
     `Material:     ${isCustom ? 'Custom Mortar' : (selectedMat?.name ?? cementId)}`,
     isCustom ? `Pot life 20°C: ${customMix.potLife20c} min` : `Pot life 20°C: ${selectedMat?.potLife20c} min`,
+    '', `Print strategy:`,
+    `  Date:  ${printDate}`,
+    `  Start: ${fmtTime(startTime)}`,
     '', `Weather: ${result.weather.city}`,
     `  Temp: ${result.weather.avg.temperature}°C`,
     `  Humidity: ${result.weather.avg.humidity}%`,
@@ -348,6 +362,52 @@ export default function SlicerTool() {
                     ['Avg Temp',     `${result.weather.avg.temperature}°C`],
                     ['Humidity',     `${result.weather.avg.humidity}%`],
                     ['Wind',         `${result.weather.avg.wind_speed} km/h`],
+                  ].map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between py-2 border-b border-white/6">
+                      <span className="text-[10px] text-white/40">{label}</span>
+                      <span className="text-xs font-semibold text-white">{value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pot life warning */}
+                {(() => {
+                  const estMin  = result.estimated_print_time_s ? result.estimated_print_time_s / 60 : null;
+                  const openMin = result.cement?.open_time_min
+                    ?? (isCustom ? customMix.potLife20c : selectedMat?.potLife20c ?? null);
+                  if (estMin === null || openMin === null) return null;
+                  const over = estMin > openMin;
+                  return (
+                    <div className="bg-black rounded-2xl px-4 py-3.5 space-y-1">
+                      <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40">Pot Life Check</p>
+                      <p className="text-xs font-semibold text-white">
+                        {over
+                          ? `Print time (${Math.round(estMin)} min) exceeds open time (${openMin} min) — plan a batch break`
+                          : `Within open time — ${Math.round(openMin - estMin)} min margin remaining`}
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Print Strategy */}
+                <div className="space-y-0">
+                  <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40 mb-2">Print Strategy</p>
+                  {[
+                    ['Date',       printDate],
+                    ['Start',      fmtTime(startTime)],
+                    ['Open time',  (() => {
+                      const openMin = result.cement?.open_time_min
+                        ?? (isCustom ? customMix.potLife20c : selectedMat?.potLife20c ?? null);
+                      const estMin  = result.estimated_print_time_s ? Math.round(result.estimated_print_time_s / 60) : null;
+                      if (openMin === null) return '—';
+                      return estMin !== null ? `${openMin} min open · ${estMin} min est` : `${openMin} min`;
+                    })()],
+                    ['Conditions', (() => {
+                      const t = result.weather.avg.temperature;
+                      const h = result.weather.avg.humidity;
+                      const w = result.weather.avg.wind_speed;
+                      return `${t}°C · ${h}% RH · ${w.toFixed(1)} km/h`;
+                    })()],
                   ].map(([label, value]) => (
                     <div key={label} className="flex items-center justify-between py-2 border-b border-white/6">
                       <span className="text-[10px] text-white/40">{label}</span>
@@ -559,10 +619,20 @@ export default function SlicerTool() {
             </div>
 
             {/* Weather */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Weather</h2>
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Weather</h2>
               <CitySearch onSelect={(cs) => setCityStr(cs)} />
-              {!cityStr && <p className="text-[10px] text-black/25 mt-2">Optional — leave blank for default conditions</p>}
+              {!cityStr && <p className="text-[10px] text-black/25 -mt-2">Optional — leave blank for default conditions</p>}
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Print Date">
+                  <input type="date" value={printDate} onChange={e => setPrintDate(e.target.value)}
+                    className={inputCls} />
+                </Field>
+                <Field label="Start Time">
+                  <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+                    className={inputCls} />
+                </Field>
+              </div>
             </div>
 
             {/* Run (mobile) */}

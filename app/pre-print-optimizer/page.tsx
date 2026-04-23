@@ -104,55 +104,20 @@ function buildFactors(result: OptimizeResult, params: Parameters): Factor[] {
 
 // ── Loading overlay ───────────────────────────────────────────────────────────
 
-const STEPS = [
-  { label:'Parsing 3D geometry',        detail:'Reading STL/OBJ mesh · computing bounds' },
-  { label:'Slicing into layers',         detail:'Generating printable segments per layer' },
-  { label:'Initialising RL agent',       detail:'Loading trained PPO policy' },
-  { label:'Running agent on each layer', detail:'Selecting optimal segment order' },
-  { label:'Adapting to conditions',      detail:'Temperature · humidity · wind' },
-  { label:'Generating G-code',          detail:'Converting toolpath to printer commands' },
-];
-
 function LoadingOverlay({ fileName, onCancel }: { fileName:string; onCancel:()=>void }) {
-  const [pct, setPct] = useState(0);
-  const [stepIdx, setStepIdx] = useState(0);
-
-  useEffect(() => {
-    const iv = setInterval(() => {
-      setPct(p => {
-        const next = Math.min(p + Math.random() * 8, 95);
-        setStepIdx(Math.min(Math.floor((next / 95) * STEPS.length), STEPS.length - 1));
-        return next;
-      });
-    }, 1600);
-    return () => clearInterval(iv);
-  }, []);
-
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,transition:{duration:0.3}}}
-      className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center">
-      <div className="flex flex-col items-center w-full max-w-sm px-10">
-
-        <p className="text-white text-xl font-semibold tracking-tight mb-1">Optimizing</p>
-        <p className="text-white/30 text-[11px] font-mono mb-10 truncate max-w-full text-center">{fileName}</p>
-
-        {/* Progress bar */}
-        <div className="w-full mb-3">
-          <div className="w-full h-0.5 bg-white/10 rounded-full overflow-hidden">
-            <motion.div className="h-full bg-white rounded-full"
-              animate={{width:`${pct}%`}} transition={{duration:1.2, ease:'easeOut'}}/>
-          </div>
-          <div className="flex justify-between mt-2">
-            <p className="text-white/30 text-[10px] font-mono">{STEPS[stepIdx]?.label}</p>
-            <p className="text-white/25 text-[10px] font-mono">{Math.round(pct)}%</p>
-          </div>
-        </div>
-
-        <button onClick={onCancel}
-          className="mt-16 text-white/15 hover:text-white/40 text-[10px] transition-colors tracking-widest uppercase">
-          Cancel
-        </button>
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+      className="fixed inset-0 z-50 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center gap-6">
+      <motion.div className="w-12 h-12 border-2 border-black border-t-transparent rounded-full"
+        animate={{rotate:360}} transition={{duration:0.8, repeat:Infinity, ease:'linear'}} />
+      <div className="text-center">
+        <p className="text-base font-semibold text-black">Running RL Optimizer</p>
+        <p className="text-sm text-black/40 mt-1 truncate max-w-xs">{fileName}</p>
       </div>
+      <button onClick={onCancel}
+        className="text-black/20 hover:text-black/50 text-[10px] tracking-widest uppercase transition-colors">
+        Cancel
+      </button>
     </motion.div>
   );
 }
@@ -260,7 +225,6 @@ export default function PrePrintOptimizer() {
   const [totalLayers,   setTotalLayers]   = useState(activeProject?.totalLayers || 100);
   const [printSpeed,    setPrintSpeed]    = useState(activeProject?.printSpeed  || 60);
   const [showConfirm,   setShowConfirm]   = useState(false);
-  const [stepIdx,       setStepIdx]       = useState(0);
 
   useEffect(() => {
     setScanResult(null);
@@ -271,8 +235,7 @@ export default function PrePrintOptimizer() {
 
   const handleOptimize = async () => {
     if (!file) return;
-    setPhase('optimizing'); setErrorMsg(''); setStepIdx(0);
-    const ticker = setInterval(() => setStepIdx(i => Math.min(i+1, STEPS.length-1)), 950);
+    setPhase('optimizing'); setErrorMsg('');
     try {
       const mc        = activeProject?.printer?.manualConfig as ManualPrinterConfig | undefined;
       const nozzleMm  = (mc?.nozzleDiameter   != null ? mc.nozzleDiameter   : parseFloat(activeProject?.printer?.nozzle    ?? '25')  || 25)  as number;
@@ -336,8 +299,6 @@ export default function PrePrintOptimizer() {
     } catch (e: any) {
       setErrorMsg(e.message || 'Optimisation failed');
       setPhase('error');
-    } finally {
-      clearInterval(ticker);
     }
   };
 
@@ -425,7 +386,7 @@ export default function PrePrintOptimizer() {
 
       <AnimatePresence>
         {phase==='optimizing' && (
-          <LoadingOverlay fileName={file?.name??''} onCancel={()=>{setPhase('idle');setStepIdx(0);}}/>
+          <LoadingOverlay fileName={file?.name??''} onCancel={()=>setPhase('idle')}/>
         )}
       </AnimatePresence>
 
