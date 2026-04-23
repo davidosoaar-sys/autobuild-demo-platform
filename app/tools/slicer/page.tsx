@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -68,17 +68,35 @@ function hourToLabel(h: number) {
   return `${disp}:${String(mm).padStart(2, '0')} ${ampm}`;
 }
 
-function CitySearch({ onSelect }: { onSelect: (cityStr: string, weather: LiveWeather) => void }) {
-  const [query,    setQuery]    = useState('');
-  const [results,  setResults]  = useState<CityResult[]>([]);
-  const [loading,  setLoading]  = useState(false);
-  const [fetching, setFetching] = useState(false);
-  const [open,     setOpen]     = useState(false);
-  const [selected, setSelected] = useState('');
-  const [weather,  setWeather]  = useState<LiveWeather | null>(null);
-  const [forecast, setForecast] = useState<ForecastHour[]>([]);
-  const [error,    setError]    = useState('');
-  const debounce = useRef<NodeJS.Timeout | null>(null);
+function CitySearch({
+  onSelect, printDate, startTime, onForecastChange,
+}: {
+  onSelect: (cityStr: string, weather: LiveWeather) => void;
+  printDate: string;
+  startTime: string;
+  onForecastChange?: (data: { temperature: number; humidity: number; wind_speed: number } | null) => void;
+}) {
+  const [query,               setQuery]               = useState('');
+  const [results,             setResults]             = useState<CityResult[]>([]);
+  const [loading,             setLoading]             = useState(false);
+  const [fetching,            setFetching]            = useState(false);
+  const [open,                setOpen]                = useState(false);
+  const [selected,            setSelected]            = useState('');
+  const [weather,             setWeather]             = useState<LiveWeather | null>(null);
+  const [forecast,            setForecast]            = useState<ForecastHour[]>([]);
+  const [forecastUnavailable, setForecastUnavailable] = useState(false);
+  const [error,               setError]               = useState('');
+  const debounce    = useRef<NodeJS.Timeout | null>(null);
+  const cityStrRef  = useRef('');
+  const onSelectRef = useRef(onSelect);
+  const onFCRef     = useRef(onForecastChange);
+  useEffect(() => { onSelectRef.current = onSelect; onFCRef.current = onForecastChange; });
+
+  const isOutOfRange = (dateStr: string) => {
+    const today  = new Date(); today.setHours(0, 0, 0, 0);
+    const target = new Date(dateStr + 'T00:00:00');
+    return (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24) > 5;
+  };
 
   const search = useCallback(async (q: string) => {
     if (q.length < 2) { setResults([]); setOpen(false); return; }
@@ -86,37 +104,79 @@ function CitySearch({ onSelect }: { onSelect: (cityStr: string, weather: LiveWea
     try {
       const res = await fetch(`${API}/weather/search?q=${encodeURIComponent(q)}`);
       const data = await res.json();
-      setResults(Array.isArray(data) ? data : []);
-      setOpen(true);
+      setResults(Array.isArray(data) ? data : []); setOpen(true);
     } catch { setResults([]); }
     finally { setLoading(false); }
   }, []);
 
   const handleInput = (val: string) => {
     setQuery(val); setError('');
+    if (val.length === 0) {
+      cityStrRef.current = '';
+      setSelected(''); setWeather(null); setForecast([]); setForecastUnavailable(false);
+      onSelectRef.current('', { temperature: 20, humidity: 65, wind_speed: 8, description: '', pot_life_min: 60, risk_score: 0 });
+      onFCRef.current?.(null);
+    }
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => search(val), 400);
   };
 
+  const doFetch = useCallback(async (cityStr: string, hour: number) => {
+    setFetching(true); setError(''); setWeather(null); setForecast([]);
+    try {
+      const fRes = await fetch(`${API}/weather/forecast?city=${encodeURIComponent(cityStr)}&start_hour=${hour}&hours=8`);
+      if (!fRes.ok) throw new Error();
+      const fd = await fRes.json();
+      if (!Array.isArray(fd) || fd.length === 0) throw new Error();
+      setForecast(fd);
+      const p = fd[0];
+      const w: LiveWeather = {
+        temperature: p.temperature, humidity: p.humidity, wind_speed: p.wind_speed,
+        description: p.description, pot_life_min: 60, risk_score: p.risk,
+      };
+      setWeather(w);
+      onSelectRef.current(cityStr, w);
+      onFCRef.current?.({ temperature: p.temperature, humidity: p.humidity, wind_speed: p.wind_speed });
+    } catch {
+      setError('Could not fetch forecast for this date');
+      onFCRef.current?.(null);
+    } finally { setFetching(false); }
+  }, []);
+
+  // Re-fetch when printDate or startTime changes (if city already selected)
+  useEffect(() => {
+    if (!cityStrRef.current) return;
+    if (isOutOfRange(printDate)) {
+      setForecastUnavailable(true); setWeather(null); setForecast([]);
+      onFCRef.current?.(null); return;
+    }
+    setForecastUnavailable(false);
+    doFetch(cityStrRef.current, toDecimalHour(startTime));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printDate, startTime]);
+
   const handleSelect = async (city: CityResult) => {
     setOpen(false); setQuery(city.display); setSelected(city.name);
-    setFetching(true); setError(''); setForecast([]);
-    const cityStr = `${city.name},${city.country}`;
-    try {
-      const res = await fetch(`${API}/weather/current?city=${encodeURIComponent(cityStr)}`);
-      if (!res.ok) throw new Error();
-      const data: LiveWeather = await res.json();
-      setWeather(data); onSelect(cityStr, data);
-      try {
-        const fRes = await fetch(`${API}/weather/forecast?city=${encodeURIComponent(cityStr)}&start_hour=8&hours=8`);
-        if (fRes.ok) { const fd = await fRes.json(); if (Array.isArray(fd)) setForecast(fd); }
-      } catch { /* optional */ }
-    } catch {
-      setError('Could not fetch weather — city will still be used in the optimizer');
-      setWeather(null);
-      onSelect(cityStr, { temperature: 20, humidity: 65, wind_speed: 8, description: '', pot_life_min: 60, risk_score: 0 });
-    } finally { setFetching(false); }
+    setForecastUnavailable(false); setForecast([]);
+    const cs = `${city.name},${city.country}`;
+    cityStrRef.current = cs;
+    if (isOutOfRange(printDate)) {
+      setForecastUnavailable(true);
+      onSelectRef.current(cs, { temperature: 20, humidity: 65, wind_speed: 8, description: '', pot_life_min: 60, risk_score: 0 });
+      onFCRef.current?.(null);
+      return;
+    }
+    await doFetch(cs, toDecimalHour(startTime));
   };
+
+  const forecastLabel = (() => {
+    try {
+      const d       = new Date(printDate + 'T00:00:00');
+      const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
+      const date    = d.toLocaleDateString('en-US', { day: 'numeric', month: 'long' });
+      return `${weekday} ${date} at ${fmtTime(startTime)}`;
+    } catch { return fmtTime(startTime); }
+  })();
 
   const iCls = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/25 bg-white pr-8';
 
@@ -152,20 +212,30 @@ function CitySearch({ onSelect }: { onSelect: (cityStr: string, weather: LiveWea
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          Fetching live weather…
+          Fetching forecast…
         </div>
       )}
-      {error && <p className="mt-1.5 text-[11px] text-amber-600">{error}</p>}
+      {error && <p className="mt-1.5 text-[11px] text-black/35">{error}</p>}
 
-      {weather && !fetching && (
+      {/* Forecast unavailable — beyond 5-day window */}
+      {selected && forecastUnavailable && !fetching && (
         <div className="mt-3 bg-black rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">{selected}</p>
+          <p className="text-xs text-white/40 leading-relaxed">
+            Forecast unavailable for this date — please enter conditions manually below
+          </p>
+        </div>
+      )}
+
+      {/* Forecast card */}
+      {weather && !fetching && !forecastUnavailable && (
+        <div className="mt-3 bg-black rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-1">
             <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest">{selected}</p>
-            <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />Live
-            </span>
+            <span className="text-[9px] text-white/30">Forecast</span>
           </div>
-          <div className="grid grid-cols-3 gap-2 mb-3">
+          <p className="text-[10px] text-white/50 mb-3">{forecastLabel}</p>
+          <div className="grid grid-cols-3 gap-2">
             {[
               { label: 'Temp',     value: `${weather.temperature}°C` },
               { label: 'Humidity', value: `${weather.humidity}%` },
@@ -177,14 +247,9 @@ function CitySearch({ onSelect }: { onSelect: (cityStr: string, weather: LiveWea
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-between py-2 border-t border-white/8">
-            <div><p className="text-[9px] text-white/30 mb-0.5">Pot Life</p><p className="text-sm font-semibold text-white">{weather.pot_life_min} min</p></div>
-            <div className="text-right"><p className="text-[9px] text-white/30 mb-0.5">Env Risk</p><p className={`text-sm font-semibold ${riskColor(weather.risk_score)}`}>{weather.risk_score}/100</p></div>
-            <div className="text-right"><p className="text-[9px] text-white/30 mb-0.5">Conditions</p><p className="text-[11px] text-white/50 capitalize">{weather.description}</p></div>
-          </div>
           {forecast.length > 0 && (
             <div className="mt-3 pt-3 border-t border-white/8">
-              <p className="text-[9px] text-white/25 uppercase tracking-widest mb-2">Hourly forecast</p>
+              <p className="text-[9px] text-white/25 uppercase tracking-widest mb-2">8-hour outlook</p>
               <div className="flex gap-1.5 overflow-x-auto pb-1">
                 {forecast.map((f, i) => (
                   <div key={i} className={`flex-shrink-0 rounded-xl px-2.5 py-2 text-center min-w-[52px] border ${
@@ -231,9 +296,13 @@ export default function SlicerTool() {
   const [result,      setResult]      = useState<SlicerResult | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [error,       setError]       = useState('');
-  const [cityStr,     setCityStr]     = useState('');
-  const [printDate,   setPrintDate]   = useState<string>(todayStr);
-  const [startTime,   setStartTime]   = useState<string>(nowTimeStr);
+  const [cityStr,        setCityStr]        = useState('');
+  const [printDate,      setPrintDate]      = useState<string>(todayStr);
+  const [startTime,      setStartTime]      = useState<string>(nowTimeStr);
+  const [forecastWeather, setForecastWeather] = useState<{ temperature: number; humidity: number; wind_speed: number } | null>(null);
+  const [manualTemp,     setManualTemp]     = useState(20);
+  const [manualHumidity, setManualHumidity] = useState(65);
+  const [manualWind,     setManualWind]     = useState(8);
 
   // Printer
   const [nozzle,       setNozzle]       = useState(25);
@@ -273,6 +342,9 @@ export default function SlicerTool() {
       if (cityStr) fd.append('city',    cityStr);
       fd.append('print_date',           printDate);
       fd.append('print_start_hour',     String(toDecimalHour(startTime)));
+      fd.append('temperature',          String(forecastWeather?.temperature ?? manualTemp));
+      fd.append('humidity',             String(forecastWeather?.humidity    ?? manualHumidity));
+      fd.append('wind_speed',           String(forecastWeather?.wind_speed  ?? manualWind));
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -621,8 +693,8 @@ export default function SlicerTool() {
             {/* Weather */}
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Weather</h2>
-              <CitySearch onSelect={(cs) => setCityStr(cs)} />
-              {!cityStr && <p className="text-[10px] text-black/25 -mt-2">Optional — leave blank for default conditions</p>}
+
+              {/* Date + time always visible */}
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Print Date">
                   <input type="date" value={printDate} onChange={e => setPrintDate(e.target.value)}
@@ -633,6 +705,35 @@ export default function SlicerTool() {
                     className={inputCls} />
                 </Field>
               </div>
+
+              {/* City search — passes date+time for forecast */}
+              <CitySearch
+                onSelect={(cs) => setCityStr(cs)}
+                printDate={printDate}
+                startTime={startTime}
+                onForecastChange={setForecastWeather}
+              />
+              {!cityStr && <p className="text-[10px] text-black/25 -mt-2">Optional — leave blank to enter conditions manually</p>}
+
+              {/* Manual conditions — shown when no city or forecast unavailable */}
+              {(!cityStr || !forecastWeather) && (
+                <div className="space-y-3 pt-1">
+                  <p className="text-[10px] text-black/30">
+                    {cityStr ? 'Forecast unavailable — enter conditions manually' : 'No city selected — enter conditions manually'}
+                  </p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <Field label="Temp (°C)">
+                      <NumInput value={manualTemp} onChange={setManualTemp} min={5} max={45} step={0.5} />
+                    </Field>
+                    <Field label="Humidity (%)">
+                      <NumInput value={manualHumidity} onChange={setManualHumidity} min={20} max={100} />
+                    </Field>
+                    <Field label="Wind (km/h)">
+                      <NumInput value={manualWind} onChange={setManualWind} min={0} max={60} step={0.5} />
+                    </Field>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Run (mobile) */}
