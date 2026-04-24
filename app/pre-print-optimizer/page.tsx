@@ -223,6 +223,7 @@ export default function PrePrintOptimizer() {
   const [scanResult,    setScanResult]    = useState<ScanResult | null>(null);
   const [result,        setResult]        = useState<OptimizeResult | null>(null);
   const [errorMsg,      setErrorMsg]      = useState('');
+  const [sliceSaved,    setSliceSaved]    = useState(false);
   const [totalLayers,   setTotalLayers]   = useState(activeProject?.totalLayers || 100);
   const [printSpeed,    setPrintSpeed]    = useState(activeProject?.printSpeed  || 60);
   const [showConfirm,   setShowConfirm]   = useState(false);
@@ -295,26 +296,9 @@ export default function PrePrintOptimizer() {
       setResult(data);
       if (data.geometry.num_layers > 0) setTotalLayers(data.geometry.num_layers);
       setPhase('done');
+      setSliceSaved(false);
       setActiveTab('results');
       setSidebarPanel(scanResult && scanResult.counts.total > 0 ? 'scan' : 'results');
-      try {
-        await supabase.from('saved_slices').insert({
-          file_name:    file.name,
-          print_date:   null,
-          start_hour:   weatherStart,
-          city:         city || null,
-          material:     parameters.cementMix,
-          layers:       data.geometry?.num_layers ?? null,
-          print_time:   data.estimated_print_time ?? null,
-          print_time_s: data.estimated_print_time_s ?? null,
-          temperature:  parameters.temperature,
-          humidity:     parameters.humidity,
-          wind_speed:   parameters.windSpeed,
-          nozzle_mm:    nozzleMm,
-          travel_saved_pct: data.optimization?.time_saved_pct ?? null,
-          result_json:  data,
-        });
-      } catch { /* silent */ }
     } catch (e: any) {
       setErrorMsg(e.message || 'Optimisation failed');
       setPhase('error');
@@ -333,6 +317,32 @@ export default function PrePrintOptimizer() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const saveSlice = async () => {
+    if (!result || !file) return;
+    const mc       = activeProject?.printer?.manualConfig as any;
+    const nozzleMm = mc?.nozzleDiameter ?? parseFloat(activeProject?.printer?.nozzle ?? '25') || 25;
+    try {
+      await supabase.from('saved_slices').insert({
+        source:           'pre-print',
+        file_name:        file.name,
+        print_date:       null,
+        start_hour:       weatherStart,
+        city:             city || null,
+        material:         parameters.cementMix,
+        layers:           result.geometry?.num_layers ?? null,
+        print_time:       result.estimated_print_time ?? null,
+        print_time_s:     result.estimated_print_time_s ?? null,
+        temperature:      parameters.temperature,
+        humidity:         parameters.humidity,
+        wind_speed:       parameters.windSpeed,
+        nozzle_mm:        nozzleMm,
+        travel_saved_pct: result.optimization?.time_saved_pct ?? null,
+        result_json:      result,
+      });
+      setSliceSaved(true);
+    } catch { /* silent */ }
   };
 
   const beginPrint = async () => {
@@ -712,6 +722,29 @@ export default function PrePrintOptimizer() {
 
               {/* Actions */}
               <div className="px-4 pb-4 pt-3 border-t border-white/8 flex-shrink-0 space-y-2">
+                <button onClick={saveSlice} disabled={sliceSaved}
+                  className={`w-full py-2.5 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 ${
+                    sliceSaved
+                      ? 'bg-emerald-500/20 text-emerald-300 cursor-default'
+                      : 'bg-white/10 text-white hover:bg-white/20 border border-white/15'
+                  }`}>
+                  {sliceSaved ? (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
+                      </svg>
+                      Saved to My Slices
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2H7a2 2 0 01-2-2V5z"/>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-6h6v6"/>
+                      </svg>
+                      Save to My Slices
+                    </>
+                  )}
+                </button>
                 <div className="relative group">
                   <button className="w-full py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
                     Download G-code ↓

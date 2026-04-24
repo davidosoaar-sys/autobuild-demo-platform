@@ -324,6 +324,7 @@ export default function SlicerTool() {
   const [result,      setResult]      = useState<SlicerResult | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [error,       setError]       = useState('');
+  const [sliceSaved,  setSliceSaved]  = useState(false);
   const [cityStr,        setCityStr]        = useState('');
   const [printDate,      setPrintDate]      = useState<string>(todayStr);
   const [startTime,      setStartTime]      = useState<string>(nowTimeStr);
@@ -379,27 +380,33 @@ export default function SlicerTool() {
         throw new Error((err as any).detail || `Server error ${res.status}`);
       }
       const sliceData = await res.json();
-      setResult(sliceData); setShowResults(true);
-      try {
-        await supabase.from('saved_slices').insert({
-          file_name:      file.name,
-          print_date:     printDate,
-          start_hour:     toDecimalHour(startTime),
-          city:           cityStr || null,
-          material:       cementId,
-          layers:         sliceData.geometry?.total_layers ?? null,
-          print_time:     sliceData.estimated_print_time ?? null,
-          print_time_s:   sliceData.estimated_print_time_s ?? null,
-          temperature:    sliceData.weather?.avg?.temperature ?? forecastWeather?.temperature ?? manualTemp,
-          humidity:       sliceData.weather?.avg?.humidity    ?? forecastWeather?.humidity    ?? manualHumidity,
-          wind_speed:     sliceData.weather?.avg?.wind_speed  ?? forecastWeather?.wind_speed  ?? manualWind,
-          nozzle_mm:      nozzle,
-          result_json:    sliceData,
-        });
-      } catch { /* silent */ }
+      setResult(sliceData); setShowResults(true); setSliceSaved(false);
     } catch (e: any) {
       setError(e.message || 'Optimization failed');
     } finally { setLoading(false); }
+  };
+
+  const saveSlice = async () => {
+    if (!result || !file) return;
+    try {
+      await supabase.from('saved_slices').insert({
+        source:       'slicer',
+        file_name:    file.name,
+        print_date:   printDate,
+        start_hour:   toDecimalHour(startTime),
+        city:         cityStr || null,
+        material:     cementId,
+        layers:       result.geometry?.total_layers ?? null,
+        print_time:   result.estimated_print_time ?? null,
+        print_time_s: result.estimated_print_time_s ?? null,
+        temperature:  result.weather?.avg?.temperature ?? forecastWeather?.temperature ?? manualTemp,
+        humidity:     result.weather?.avg?.humidity    ?? forecastWeather?.humidity    ?? manualHumidity,
+        wind_speed:   result.weather?.avg?.wind_speed  ?? forecastWeather?.wind_speed  ?? manualWind,
+        nozzle_mm:    nozzle,
+        result_json:  result,
+      });
+      setSliceSaved(true);
+    } catch { /* silent */ }
   };
 
   const dl = (content: string, filename: string) => {
@@ -533,6 +540,31 @@ export default function SlicerTool() {
                     </div>
                   ))}
                 </div>
+
+                {/* Save */}
+                <button onClick={saveSlice} disabled={sliceSaved}
+                  className={`w-full py-2.5 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 ${
+                    sliceSaved
+                      ? 'bg-emerald-500/20 text-emerald-300 cursor-default'
+                      : 'bg-white/10 text-white hover:bg-white/20 border border-white/15'
+                  }`}>
+                  {sliceSaved ? (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
+                      </svg>
+                      Saved to My Slices
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2H7a2 2 0 01-2-2V5z"/>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-6h6v6"/>
+                      </svg>
+                      Save to My Slices
+                    </>
+                  )}
+                </button>
 
                 {/* Downloads */}
                 <div className="space-y-2 pt-1">
