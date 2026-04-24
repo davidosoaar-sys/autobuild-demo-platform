@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useProjects, ProjectReport, ReportAlert } from '@/lib/project-store';
+import { supabase } from '@/lib/supabase';
 import AppNav from '@/components/AppNav';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -202,13 +203,14 @@ function AlertBanner({ analysis, onDismiss }: { analysis: BeadAnalysis; onDismis
   );
 }
 
-function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, onBeadLog }: {
+function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, onBeadLog, projectId }: {
   camera: Camera;
   onAngleChange: (id: string, angle: Camera['angle']) => void;
   onRename: (id: string, label: string) => void;
   onRemove: (id: string) => void;
   onBeadAlert: (analysis: BeadAnalysis) => void;
   onBeadLog: (analysis: BeadAnalysis) => void;
+  projectId?: string | null;
 }) {
   const videoRef     = useRef<HTMLVideoElement>(null);
   const canvasRef    = useRef<HTMLCanvasElement>(null);
@@ -270,12 +272,27 @@ function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, on
       setBeadResult(analysis);
       onBeadLog(analysis);
       if (analysis.severity === 'high') onBeadAlert(analysis);
+      if (typeof window !== 'undefined' && localStorage.getItem('autobuild_data_training_opted_in') === 'true') {
+        supabase.from('training_frames').insert({
+          project_id:      projectId ?? null,
+          camera_id:       analysis.cameraId,
+          camera_label:    analysis.cameraLabel,
+          verdict:         analysis.verdict,
+          angle_deviation: analysis.angle_deviation,
+          defect_type:     analysis.defect_type,
+          severity:        analysis.severity,
+          bead_count:      analysis.bead_count,
+          confidence:      analysis.confidence,
+          description:     analysis.description,
+          captured_at:     new Date().toISOString(),
+        }).then(() => { /* fire-and-forget */ });
+      }
     } catch (e) {
       console.error('[bead-analysis]', e);
     } finally {
       setAnalysing(false);
     }
-  }, [streaming, showBead, captureFrame, camera.id, camera.label, onBeadLog, onBeadAlert]);
+  }, [streaming, showBead, captureFrame, camera.id, camera.label, onBeadLog, onBeadAlert, projectId]);
 
   useEffect(() => {
     if (streaming && showBead) {
@@ -954,7 +971,8 @@ export default function LiveMonitoring() {
                   {cameras.map(cam => (
                     <div key={cam.id} className="relative group">
                       <CameraView camera={cam} onAngleChange={updateAngle} onRename={renameCamera}
-                        onRemove={removeCamera} onBeadAlert={handleBeadAlert} onBeadLog={handleBeadLog} />
+                        onRemove={removeCamera} onBeadAlert={handleBeadAlert} onBeadLog={handleBeadLog}
+                        projectId={activeProject?.id ?? null} />
                       <button onClick={() => removeCamera(cam.id)}
                         className="absolute top-10 right-2 w-5 h-5 bg-black/70 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center hover:bg-red-600 z-20">
                         ×

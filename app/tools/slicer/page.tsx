@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MATERIALS } from '@/app/pre-print-optimizer/components/ParameterInputs';
+import { supabase } from '@/lib/supabase';
 import dynamic from 'next/dynamic';
 
 const LayerVisualization = dynamic(
@@ -377,7 +378,25 @@ export default function SlicerTool() {
         const err = await res.json().catch(() => ({}));
         throw new Error((err as any).detail || `Server error ${res.status}`);
       }
-      setResult(await res.json()); setShowResults(true);
+      const sliceData = await res.json();
+      setResult(sliceData); setShowResults(true);
+      try {
+        await supabase.from('saved_slices').insert({
+          file_name:      file.name,
+          print_date:     printDate,
+          start_hour:     toDecimalHour(startTime),
+          city:           cityStr || null,
+          material:       cementId,
+          layers:         sliceData.geometry?.total_layers ?? null,
+          print_time:     sliceData.estimated_print_time ?? null,
+          print_time_s:   sliceData.estimated_print_time_s ?? null,
+          temperature:    sliceData.weather?.avg?.temperature ?? forecastWeather?.temperature ?? manualTemp,
+          humidity:       sliceData.weather?.avg?.humidity    ?? forecastWeather?.humidity    ?? manualHumidity,
+          wind_speed:     sliceData.weather?.avg?.wind_speed  ?? forecastWeather?.wind_speed  ?? manualWind,
+          nozzle_mm:      nozzle,
+          result_json:    sliceData,
+        });
+      } catch { /* silent */ }
     } catch (e: any) {
       setError(e.message || 'Optimization failed');
     } finally { setLoading(false); }
@@ -539,6 +558,15 @@ export default function SlicerTool() {
                     Report .txt
                   </button>
                 </div>
+
+                {/* My Slices link */}
+                <button onClick={() => router.push('/tools/slices')}
+                  className="w-full py-2 text-[11px] font-medium text-white/40 hover:text-white/70 transition-colors text-center flex items-center justify-center gap-1.5">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0l-4-4m4 4l-4 4"/>
+                  </svg>
+                  View all saved slices
+                </button>
 
                 {/* Back to setup */}
                 <button onClick={() => setShowResults(false)}

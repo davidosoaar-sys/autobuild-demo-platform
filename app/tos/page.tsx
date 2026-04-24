@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 
@@ -15,6 +16,30 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function TosPage() {
   const router = useRouter();
   const effective = 'April 18, 2026';
+
+  const [tosChecked,      setTosChecked]      = useState(false);
+  const [privacyChecked,  setPrivacyChecked]  = useState(false);
+  const [dataChecked,     setDataChecked]     = useState(false);
+  const [saved,           setSaved]           = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setTosChecked(     localStorage.getItem('autobuild_tos_accepted')           === 'true');
+      setPrivacyChecked( localStorage.getItem('autobuild_privacy_accepted')       === 'true');
+      setDataChecked(    localStorage.getItem('autobuild_data_training_opted_in') === 'true');
+    }
+  }, []);
+
+  const canAccept = tosChecked && privacyChecked;
+
+  const handleAccept = () => {
+    if (!canAccept) return;
+    localStorage.setItem('autobuild_tos_accepted',           'true');
+    localStorage.setItem('autobuild_privacy_accepted',       privacyChecked ? 'true' : 'false');
+    localStorage.setItem('autobuild_data_training_opted_in', dataChecked    ? 'true' : 'false');
+    setSaved(true);
+    setTimeout(() => router.back(), 800);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -84,7 +109,71 @@ export default function TosPage() {
           <p>For questions about these terms or the AutoBuild AI platform, please reach out via the contact information provided in your project onboarding documentation.</p>
         </Section>
 
-        <div className="border-t border-gray-100 pt-6 mt-4">
+        <Section title="9. Third-Party AI Services">
+          <p>AutoBuild AI integrates with third-party AI providers to power its analysis and optimisation features. Currently, AutoBuild AI uses <strong className="text-black">Claude by Anthropic</strong> for bead quality analysis and defect detection.</p>
+          <p>When you use live monitoring or defect detection features, still images from your camera feed are transmitted to Anthropic's API for processing. These transmissions are governed by <strong className="text-black">Anthropic's usage policies and data handling terms</strong>, which are separate from AutoBuild AI's terms.</p>
+          <p>AutoBuild AI does not control how Anthropic processes, stores, or uses data submitted via its API. By using AI-powered features you acknowledge that your data is subject to Anthropic's terms in addition to these terms.</p>
+        </Section>
+
+        <Section title="10. Data and AI Training">
+          <p>AutoBuild AI may, with your explicit opt-in consent, collect anonymised print data — including slicer outputs, bead analysis results, defect classifications, and print parameters — to improve its AI models.</p>
+          <p><strong className="text-black">No data is used for AI training unless you explicitly opt in.</strong> You can opt in or out at any time from the Settings page. Opting out does not affect your access to any platform features.</p>
+          <p>When opted in, data collected is anonymised before any use in model training. Camera frames are never stored server-side and are not included in training data. Only structured analysis outputs (defect type, severity, bead count, print parameters) are eligible for collection.</p>
+          <p>You may withdraw consent at any time via Settings → Data Training. Withdrawal applies from the time of the change; it does not retroactively remove previously collected data.</p>
+        </Section>
+
+        {/* Accept flow */}
+        <div className="mt-10 border-t border-gray-100 pt-8 space-y-4">
+          <p className="text-xs font-semibold text-black uppercase tracking-widest mb-5">Your Agreements</p>
+
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <input type="checkbox" checked={tosChecked} onChange={e => setTosChecked(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-black flex-shrink-0" />
+            <span className="text-sm text-black/70 leading-relaxed">
+              I have read and agree to the <strong className="text-black">Terms of Service</strong>. <span className="text-red-500 text-xs">Required</span>
+            </span>
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <input type="checkbox" checked={privacyChecked} onChange={e => setPrivacyChecked(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-black flex-shrink-0" />
+            <span className="text-sm text-black/70 leading-relaxed">
+              I have read and agree to the{' '}
+              <button type="button" onClick={e => { e.preventDefault(); router.push('/privacy'); }}
+                className="text-black font-semibold underline underline-offset-2 hover:no-underline">
+                Privacy Policy
+              </button>. <span className="text-red-500 text-xs">Required</span>
+            </span>
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <input type="checkbox" checked={dataChecked} onChange={e => setDataChecked(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-black flex-shrink-0" />
+            <span className="text-sm text-black/70 leading-relaxed">
+              I agree to allow AutoBuild AI to use my anonymised print data to improve its AI models. <span className="text-black/40 text-xs">Optional — you can change this in Settings</span>
+            </span>
+          </label>
+
+          <div className="pt-2">
+            <button onClick={handleAccept} disabled={!canAccept}
+              className={`w-full py-3 rounded-xl text-sm font-semibold transition-all ${
+                canAccept
+                  ? saved
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-black text-white hover:bg-black/90'
+                  : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+              }`}>
+              {saved ? 'Saved ✓' : 'Accept & Continue'}
+            </button>
+            {!canAccept && (
+              <p className="text-[11px] text-black/35 text-center mt-2">
+                Please accept the Terms of Service and Privacy Policy to continue.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100 pt-6 mt-8">
           <p className="text-[11px] text-black/25 text-center">
             AutoBuild AI · {effective} · All rights reserved
           </p>

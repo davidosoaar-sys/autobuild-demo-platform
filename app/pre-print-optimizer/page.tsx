@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useProjects, ManualPrinterConfig } from '@/lib/project-store';
+import { supabase } from '@/lib/supabase';
 import AppNav from '@/components/AppNav';
 import ParameterInputs from './components/ParameterInputs';
 import FileUpload, { SiteDimensions } from './components/FileUpload';
@@ -296,6 +297,24 @@ export default function PrePrintOptimizer() {
       setPhase('done');
       setActiveTab('results');
       setSidebarPanel(scanResult && scanResult.counts.total > 0 ? 'scan' : 'results');
+      try {
+        await supabase.from('saved_slices').insert({
+          file_name:    file.name,
+          print_date:   null,
+          start_hour:   weatherStart,
+          city:         city || null,
+          material:     parameters.cementMix,
+          layers:       data.geometry?.num_layers ?? null,
+          print_time:   data.estimated_print_time ?? null,
+          print_time_s: data.estimated_print_time_s ?? null,
+          temperature:  parameters.temperature,
+          humidity:     parameters.humidity,
+          wind_speed:   parameters.windSpeed,
+          nozzle_mm:    nozzleMm,
+          travel_saved_pct: data.optimization?.time_saved_pct ?? null,
+          result_json:  data,
+        });
+      } catch { /* silent */ }
     } catch (e: any) {
       setErrorMsg(e.message || 'Optimisation failed');
       setPhase('error');
