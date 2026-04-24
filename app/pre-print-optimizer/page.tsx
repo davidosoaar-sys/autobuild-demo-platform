@@ -322,7 +322,7 @@ export default function PrePrintOptimizer() {
   const saveSlice = async () => {
     if (!result || !file) return;
     const mc       = activeProject?.printer?.manualConfig as any;
-    const nozzleMm = mc?.nozzleDiameter ?? parseFloat(activeProject?.printer?.nozzle ?? '25') || 25;
+    const nozzleMm = (mc?.nozzleDiameter ?? null) !== null ? mc.nozzleDiameter : (parseFloat(activeProject?.printer?.nozzle ?? '25') || 25);
     try {
       await supabase.from('saved_slices').insert({
         source:           'pre-print',
