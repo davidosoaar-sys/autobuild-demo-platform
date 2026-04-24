@@ -45,14 +45,15 @@ class AdaptiveSlicerEnv(gym.Env):
 
     def __init__(
         self,
-        segments:     Optional[List[Segment]] = None,
-        layer_meta:   Optional[dict]          = None,
-        weather:      Optional[dict]          = None,
-        printer:      Optional[dict]          = None,
-        layer_idx:    int                     = 0,
-        num_layers:   int                     = 100,
-        elapsed_min:  float                   = 0.0,
-        pot_life_min: float                   = 60.0,
+        segments:        Optional[List[Segment]] = None,
+        layer_meta:      Optional[dict]          = None,
+        weather:         Optional[dict]          = None,
+        printer:         Optional[dict]          = None,
+        layer_idx:       int                     = 0,
+        num_layers:      int                     = 100,
+        elapsed_min:     float                   = 0.0,
+        pot_life_min:    float                   = 60.0,
+        total_print_min: float                   = 0.0,   # actual estimated total duration
     ):
         super().__init__()
 
@@ -64,6 +65,7 @@ class AdaptiveSlicerEnv(gym.Env):
         self.num_layers    = num_layers
         self.elapsed_min   = elapsed_min
         self.pot_life_min  = pot_life_min
+        self.total_print_min = total_print_min
 
         self.action_space      = spaces.Discrete(MAX_SEGMENTS)
         self.observation_space = spaces.Box(
@@ -160,7 +162,10 @@ class AdaptiveSlicerEnv(gym.Env):
         obs[11] = self._n(float(p.get("max_mass_flow_l_min",   8.0)),  0.0,  40.0)
         obs[12] = self._n(float(p.get("nozzle_diameter_mm",   25.0)), 10.0,  50.0)
         obs[13] = self._n(float(self.layer_idx),                       0.0, float(self.num_layers))
-        obs[14] = self._n(self.elapsed_min, 0.0, max(self.pot_life_min, 1.0))
+        # Normalise elapsed against total estimated print duration so long prints
+        # (e.g. 52h = 3120 min) don't clip to 1.0 after the first pot-life window
+        total_min_norm = max(self.total_print_min, self.pot_life_min, 1.0)
+        obs[14] = self._n(self.elapsed_min, 0.0, total_min_norm)
         obs[15] = self._n(float(self.num_layers - self.layer_idx),     0.0, float(self.num_layers))
 
         # FIX 3: use pre-cached seg coords — one slice copy instead of loop
@@ -243,22 +248,24 @@ class AdaptiveSlicerEnv(gym.Env):
 
     def set_layer(
         self,
-        segments:     List[Segment],
-        layer_meta:   dict,
-        weather:      dict,
-        layer_idx:    int,
-        elapsed_min:  float,
-        pot_life_min: float,
-        printer:      Optional[dict] = None,
+        segments:        List[Segment],
+        layer_meta:      dict,
+        weather:         dict,
+        layer_idx:       int,
+        elapsed_min:     float,
+        pot_life_min:    float,
+        printer:         Optional[dict] = None,
+        total_print_min: float          = 0.0,
     ):
-        self.all_segments = segments
-        self.layer_meta   = layer_meta
-        self.weather      = weather
-        self.layer_idx    = layer_idx
-        self.elapsed_min  = elapsed_min
-        self.pot_life_min = pot_life_min
+        self.all_segments    = segments
+        self.layer_meta      = layer_meta
+        self.weather         = weather
+        self.layer_idx       = layer_idx
+        self.elapsed_min     = elapsed_min
+        self.pot_life_min    = pot_life_min
+        self.total_print_min = total_print_min
         if printer:
-            self.printer  = {**DEFAULT_PRINTER, **printer}
+            self.printer = {**DEFAULT_PRINTER, **printer}
 
     @staticmethod
     def _n(val: float, lo: float, hi: float) -> float:

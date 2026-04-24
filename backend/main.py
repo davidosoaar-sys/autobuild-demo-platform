@@ -165,7 +165,7 @@ def get_forecast(city: str, start_hour: float = 8.0, hours: int = 8):
     try:
         resp = requests.get(
             f"{OW_BASE}/forecast",
-            params={"q": city, "appid": OW_KEY, "units": "metric", "cnt": 16},
+            params={"q": city, "appid": OW_KEY, "units": "metric", "cnt": 40},
             timeout=8,
         )
         resp.raise_for_status()
@@ -279,6 +279,7 @@ async def optimize_endpoint(
     # ── Build printer profile ─────────────────────────────────────────────────
     printer = {
         "nozzle_diameter_mm":    nozzle_diameter_mm,
+        "bead_compression":      bead_compression,
         "max_speed_mm_s":        max_speed_mm_s,
         "min_speed_mm_s":        min_speed_mm_s,
         "max_mass_flow_l_min":   max_mass_flow_l_min,
@@ -298,12 +299,39 @@ async def optimize_endpoint(
         )
     print(f"[DEBUG] nozzle={nozzle_diameter_mm}mm bead={bead_compression} => layer_height={layer_height_m*1000:.1f}mm", flush=True)
 
+    # ── Parse and slice first — we need actual geometry for print-duration estimate ──
+    try:
+        file_bytes = await file.read()
+        geometry, layer_metas, geo_meta = parse_and_slice(
+            file_bytes,
+            fname,
+            layer_height = layer_height_m,
+            nozzle_width = nozzle_diameter_mm / 1000.0,
+            max_layers   = max_layers,
+            print_scale  = print_scale,
+        )
+    except Exception as e:
+        raise HTTPException(422, f"Failed to parse 3D file: {e}")
+
+    # Estimate print duration from real geometry so the forecast covers the full job
+    from sika733 import min_interlayer_time as _mit
+    _pump_lag_s   = max(1.0, hose_length_m * 0.15)
+    _lh_m         = layer_height_m if layer_height_m > 0 else max(
+        LAYER_HEIGHT_MIN_M, min(LAYER_HEIGHT_MAX_M, (nozzle_diameter_mm * bead_compression) / 1000.0)
+    )
+    _total_perim  = sum(float(lm.get("perimeter_m", 0.0)) for lm in layer_metas) * 1000.0
+    _num_layers   = len(layer_metas)
+    _est_print_h  = max(
+        1.0,
+        (_total_perim / max(base_speed_mm_s, 1.0) + _num_layers * (_mit(_lh_m) + _pump_lag_s)) / 3600.0 * 1.3,
+    )
+
     # ── Weather schedule ──────────────────────────────────────────────────────
     weather_sched: WeatherSchedule
 
     if city:
         try:
-            weather_sched = fetch_forecast_schedule(city, print_start_hour, 4.0)
+            weather_sched = fetch_forecast_schedule(city, print_start_hour, _est_print_h)
         except Exception:
             try:
                 snap = fetch_current_weather(city)
@@ -324,20 +352,6 @@ async def optimize_endpoint(
 
     avg_cond   = average_conditions(weather_sched)
     worst_cond = worst_conditions(weather_sched)
-
-    # ── Parse and slice ───────────────────────────────────────────────────────
-    try:
-        file_bytes = await file.read()
-        geometry, layer_metas, geo_meta = parse_and_slice(
-            file_bytes,
-            fname,
-            layer_height = layer_height_m,
-            nozzle_width = nozzle_diameter_mm / 1000.0,
-            max_layers   = max_layers,
-            print_scale  = print_scale,
-        )
-    except Exception as e:
-        raise HTTPException(422, f"Failed to parse 3D file: {e}")
 
     # ── RL optimise ───────────────────────────────────────────────────────────
     try:

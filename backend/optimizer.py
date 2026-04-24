@@ -25,6 +25,8 @@ from sika733 import (
     layer_height_for_speed,
     estimated_print_time_seconds,
     LAYER_HEIGHT_DEF_M,
+    LAYER_HEIGHT_MIN_M,
+    LAYER_HEIGHT_MAX_M,
 )
 
 
@@ -131,7 +133,17 @@ def optimize(
     max_speed_printer = float(printer.get("max_speed_mm_s",       100.0))
     min_speed_printer = float(printer.get("min_speed_mm_s",        15.0))
     flow_rate_l_min   = float(printer.get("max_mass_flow_l_min",    8.0))
-    layer_height_m    = layer_height_for_speed(base_speed_mm_s, nozzle_diam_mm)
+    pump_lag_s        = float(printer.get("pump_lag_s",              3.0))
+    bead_compression  = float(printer.get("bead_compression",        0.6))
+    # Use the printer's actual bead compression rather than the old fixed 0.6
+    layer_height_m    = layer_height_for_speed(nozzle_diam_mm, bead_compression)
+
+    # Rough total-print estimate (used to normalise elapsed_fraction and RL obs)
+    total_perim_mm  = sum(float(lm.get("perimeter_m", 0.0)) for lm in layer_metas_use) * 1000.0
+    rough_print_s   = total_perim_mm / max(base_speed_mm_s, 1.0)
+    interlayer_tot  = num_layers * min_interlayer_time(layer_height_m)
+    # Add 30 % margin and floor at 60 min so obs[14] never clips on the first layer
+    total_print_min = max(60.0, (rough_print_s + interlayer_tot) / 60.0 * 1.3)
 
     start_t = time.time()
 
@@ -151,10 +163,11 @@ def optimize(
             float(weather.get("ground_slope", 0.0)),
         )
 
-        physics_speed = max_print_speed(nozzle_diam_mm, layer_height_m, flow_rate_l_min)
-        adapted_speed = adapt_speed_for_conditions(
+        physics_speed    = max_print_speed(nozzle_diam_mm, layer_height_m, flow_rate_l_min)
+        elapsed_fraction = elapsed_min / max(total_print_min, 1.0)
+        adapted_speed    = adapt_speed_for_conditions(
             base_speed_mm_s, temp_c, humidity, wind_kmh,
-            pot_remaining, elapsed_min / max(pot_life_total, 1.0),
+            pot_remaining, elapsed_fraction,
         )
         final_speed = max(min_speed_printer, min(physics_speed, max_speed_printer, adapted_speed))
 
@@ -184,13 +197,14 @@ def optimize(
 
             if use_rl:
                 env.set_layer(
-                    segments     = segs,
-                    layer_meta   = lmeta,
-                    weather      = weather,
-                    layer_idx    = layer_idx,
-                    elapsed_min  = elapsed_min,
-                    pot_life_min = pot_life_total,
-                    printer      = printer,
+                    segments        = segs,
+                    layer_meta      = lmeta,
+                    weather         = weather,
+                    layer_idx       = layer_idx,
+                    elapsed_min     = elapsed_min,
+                    pot_life_min    = pot_life_total,
+                    printer         = printer,
+                    total_print_min = total_print_min,
                 )
                 obs, _ = env.reset()
                 while env.remaining:
@@ -233,10 +247,11 @@ def optimize(
     avg_risk     = float(np.mean([lp.risk_score        for lp in layer_params])) if layer_params else 0.0
 
     est_seconds = estimated_print_time_seconds(
-        total_travel_mm = total_travel,
-        avg_speed_mm_s  = avg_speed,
-        num_layers      = len(layer_params),
-        layer_height_m  = layer_height_m,
+        total_travel_mm      = total_travel,
+        avg_speed_mm_s       = avg_speed,
+        num_layers           = len(layer_params),
+        layer_height_m       = layer_height_m,
+        pump_lag_s_per_layer = pump_lag_s,
     )
 
     travel_saved_pct = 0.0

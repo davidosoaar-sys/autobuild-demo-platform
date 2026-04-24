@@ -13,9 +13,10 @@ from optimizer import LayerParams
 from geometry import Segment, Layer
 import math
 
-# Gap threshold — anything larger than this is a window/door opening
-# Segments within this distance are considered continuous
-CONTINUOUS_GAP_MM = 2.0   # mm — tune based on nozzle width
+# Gap threshold scales with nozzle diameter: 8% of nozzle width
+# 15mm nozzle → 1.2mm, 25mm → 2.0mm, 50mm → 4.0mm
+def _gap_threshold_mm(nozzle_diam_mm: float) -> float:
+    return max(1.0, nozzle_diam_mm * 0.08)
 
 
 def toolpath_to_gcode(
@@ -38,6 +39,8 @@ def toolpath_to_gcode(
         return f"M107       {c('PUMP OFF — stop extrusion')}"
 
     # ── Header ────────────────────────────────────────────────────────────────
+    gap_threshold_mm = _gap_threshold_mm(nozzle_diam_mm)
+
     lines += [
         c("=" * 60),
         c("AutoBuild AI — Adaptive 3DCP G-code"),
@@ -45,7 +48,7 @@ def toolpath_to_gcode(
         c(f"Printer:  {printer_name}"),
         c(f"Nozzle:   {nozzle_diam_mm} mm"),
         c(f"Layers:   {len(toolpath)}"),
-        c(f"Gap threshold: {CONTINUOUS_GAP_MM} mm (windows/doors)"),
+        c(f"Gap threshold: {gap_threshold_mm:.1f} mm (windows/doors)"),
         c("=" * 60),
         "",
         "; === INITIALISE ===",
@@ -115,7 +118,7 @@ def toolpath_to_gcode(
                 py = prev[1][1] * 1000
                 gap = math.hypot(xs - px, ys - py)
 
-                if gap > CONTINUOUS_GAP_MM:
+                if gap > gap_threshold_mm:
                     # ── WINDOW / DOOR OPENING ─────────────────────────────
                     # Stop pump, travel over gap, restart pump
                     lines += [

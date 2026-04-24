@@ -4,9 +4,6 @@ Hardcoded constants for Sikacrete®-733 W 3D
 Source: Sika Product Data Sheet, November 2023, Version 01.03
 """
 
-from dataclasses import dataclass
-from typing import Tuple
-import math
 
 # ── Product identity ──────────────────────────────────────────────────────────
 
@@ -172,36 +169,48 @@ def adapt_speed_for_conditions(
     humidity_pct: float,
     wind_kmh: float,
     pot_life_remaining_min: float,
-    elapsed_fraction: float,
+    elapsed_fraction: float,       # fraction of total print elapsed (0–1)
 ) -> float:
     speed = base_speed_mm_s
 
+    # Temperature: push faster when hot (cement sets quicker), slower when cold
     if temp_c > 25.0:
         speed *= 1.0 + (temp_c - 25.0) * 0.02
     elif temp_c < 15.0:
         speed *= max(0.85, 1.0 - (15.0 - temp_c) * 0.01)
 
+    # Humidity: dry air → surface skins faster → print faster to close layers
     if humidity_pct < HUMIDITY_WARN_PCT:
         dry_factor = (HUMIDITY_WARN_PCT - humidity_pct) / HUMIDITY_WARN_PCT
         speed *= 1.0 + dry_factor * 0.15
 
+    # Wind: slight speed-up to minimise exposed surface time
     if wind_kmh > 10:
         speed *= 1.0 + min(0.2, (wind_kmh - 10) / 100)
 
-    pot_life_fraction_used = 1.0 - (pot_life_remaining_min / pot_life_at_temp(temp_c))
+    # Pot-life urgency within the current batch window
+    pot_life_fraction_used = 1.0 - (pot_life_remaining_min / max(pot_life_at_temp(temp_c), 1.0))
     pot_life_fraction_used = max(0.0, min(1.0, pot_life_fraction_used))
     if pot_life_fraction_used > 0.7:
         urgency = (pot_life_fraction_used - 0.7) / 0.3
         speed *= 1.0 + urgency * 0.3
 
+    # Overall print progress: ease off slightly in early layers for bond strength,
+    # hold steady through mid-print, push in the final 20% to beat pot life
+    if elapsed_fraction < 0.1:
+        speed *= 0.95
+    elif elapsed_fraction > 0.8:
+        speed *= 1.0 + (elapsed_fraction - 0.8) * 0.15
+
     return round(max(20.0, min(250.0, speed)), 1)
 
 
 def layer_height_for_speed(
-    print_speed_mm_s: float,
     nozzle_diam_mm: float,
+    bead_compression: float = 0.6,
 ) -> float:
-    ideal = nozzle_diam_mm * 0.6
+    """Layer height from actual printer bead compression, not a fixed 0.6 ratio."""
+    ideal   = nozzle_diam_mm * bead_compression
     clamped = max(LAYER_HEIGHT_MIN_M * 1000, min(LAYER_HEIGHT_MAX_M * 1000, ideal))
     return round(clamped / 1000, 4)
 
@@ -211,6 +220,7 @@ def estimated_print_time_seconds(
     avg_speed_mm_s: float,
     num_layers: int,
     layer_height_m: float,
+    pump_lag_s_per_layer: float = 3.0,
 ) -> float:
     """
     Realistic print time estimate.
@@ -219,25 +229,17 @@ def estimated_print_time_seconds(
     - Travel time = total path / average speed
     - Interlayer wait is only added if a layer finishes FASTER than the min cure time
       (i.e. the printer has to pause and wait). Large complex layers won't need extra wait.
-    - Pump lag = 3s per layer
+    - Pump lag per layer comes from printer hose config (hose_length_m * 0.15),
+      defaulting to 3s if not supplied.
     """
     if avg_speed_mm_s <= 0 or total_travel_mm <= 0:
         return 0.0
 
-    # Travel time
-    travel_time_s = total_travel_mm / avg_speed_mm_s
-
-    # Average time per layer just from printing
+    travel_time_s     = total_travel_mm / avg_speed_mm_s
     avg_layer_print_s = travel_time_s / max(num_layers, 1)
-
-    # Minimum cure time per layer
-    min_cure_s = min_interlayer_time(layer_height_m)
-
-    # Only wait if printing faster than cure allows
-    wait_per_layer_s = max(0.0, min_cure_s - avg_layer_print_s)
-    total_wait_s     = wait_per_layer_s * num_layers
-
-    # Pump lag
-    pump_lag_s = num_layers * 3.0
+    min_cure_s        = min_interlayer_time(layer_height_m)
+    wait_per_layer_s  = max(0.0, min_cure_s - avg_layer_print_s)
+    total_wait_s      = wait_per_layer_s * num_layers
+    pump_lag_s        = num_layers * pump_lag_s_per_layer
 
     return travel_time_s + total_wait_s + pump_lag_s

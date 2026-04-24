@@ -10,9 +10,7 @@ OpenWeatherMap free tier:
 The optimizer requests weather at intervals throughout the estimated print duration.
 """
 
-import os
 import time
-import math
 import requests
 from typing import List, Optional
 from dataclasses import dataclass, field
@@ -85,12 +83,15 @@ def fetch_forecast_schedule(
     print_duration_h: float,
 ) -> WeatherSchedule:
     """
-    Fetch 3-hour forecast for a city and extract snapshots
-    covering the print duration.
+    Fetch the full 5-day / 3-hour forecast (cnt=40 = 120 hours) so that
+    long prints (e.g. 52-hour builds) get a real weather reading every
+    3 hours throughout, not just 2 readings from a hardcoded 4-hour window.
+    print_duration_h is kept as a parameter for documentation but no longer
+    clips the data — the optimizer consumes as many blocks as the print needs.
     """
     resp = requests.get(
         f"{OW_BASE}/forecast",
-        params={"q": city, "APPID": OPENWEATHER_KEY, "units": "metric", "cnt": 16},
+        params={"q": city, "APPID": OPENWEATHER_KEY, "units": "metric", "cnt": 40},
         timeout=10,
     )
     resp.raise_for_status()
@@ -100,17 +101,18 @@ def fetch_forecast_schedule(
     now_ts = time.time()
 
     for item in data["list"]:
-        item_ts   = item["dt"]
-        offset_h  = (item_ts - now_ts) / 3600.0
-        # Only keep forecasts within the print window
-        if -1 <= offset_h <= print_duration_h + 3:
-            snapshots.append(WeatherSnapshot(
-                temperature  = item["main"]["temp"],
-                humidity     = item["main"]["humidity"],
-                wind_speed   = item["wind"]["speed"] * 3.6,
-                description  = item["weather"][0]["description"],
-                timestamp_h  = max(0.0, offset_h),
-            ))
+        item_ts  = item["dt"]
+        offset_h = (item_ts - now_ts) / 3600.0
+        # Keep all future forecasts — skip entries more than 1h in the past
+        if offset_h < -1:
+            continue
+        snapshots.append(WeatherSnapshot(
+            temperature  = item["main"]["temp"],
+            humidity     = item["main"]["humidity"],
+            wind_speed   = item["wind"]["speed"] * 3.6,
+            description  = item["weather"][0]["description"],
+            timestamp_h  = max(0.0, offset_h),
+        ))
 
     return WeatherSchedule(
         snapshots        = snapshots,
