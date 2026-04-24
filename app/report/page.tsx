@@ -203,12 +203,18 @@ export default function ReportPage() {
 
         {/* Print parameters */}
         <Section title="Print Parameters">
-          <Row label="Layer Height"   value={r.layerHeight   ? `${r.layerHeight} mm`   : '—'}/>
-          <Row label="Nozzle"         value={r.nozzle        ? `${r.nozzle} mm`        : '—'}/>
-          <Row label="Total Layers"   value={r.totalLayers   ? String(r.totalLayers)   : '—'}/>
-          <Row label="Total Segments" value={r.totalSegments ? String(r.totalSegments) : '—'}/>
-          <Row label="Travel Saved"   value={r.travelSaved   != null ? `${r.travelSaved}%` : '—'}/>
-          <Row label="Computed In"    value={r.computedIn    ? `${r.computedIn}s`      : '—'} mono/>
+          <Row label="Layer Height"    value={r.layerHeight    ? `${r.layerHeight} mm`        : '—'}/>
+          <Row label="Nozzle"          value={r.nozzle         ? `${r.nozzle} mm`             : '—'}/>
+          <Row label="Total Layers"    value={r.totalLayers    ? String(r.totalLayers)         : '—'}/>
+          <Row label="Total Segments"  value={r.totalSegments  ? String(r.totalSegments)       : '—'}/>
+          <Row label="Travel Saved"    value={r.travelSaved    != null ? `${r.travelSaved}%`   : '—'}/>
+          <Row label="Computed In"     value={r.computedIn     ? `${r.computedIn}s`            : '—'} mono/>
+          <Row label="Bead Scans"      value={r.beadScans      != null ? String(r.beadScans)   : '—'}/>
+          <Row label="Total Alerts"    value={r.totalAlerts    != null ? String(r.totalAlerts) : '—'}/>
+          <Row label="Print Speed"     value={r.printSpeed     != null ? `${r.printSpeed} mm/s`     : '—'}/>
+          <Row label="Extrusion Rate"  value={r.extrusionRate  != null ? `${r.extrusionRate}%`       : '—'}/>
+          <Row label="Pump Speed"      value={r.pumpSpeed      != null ? `${r.pumpSpeed} mm/s`       : '—'}/>
+          <Row label="Extruder Speed"  value={r.extruderSpeed  != null ? `${r.extruderSpeed} mm/s`   : '—'}/>
         </Section>
 
         {/* Site conditions */}
@@ -257,6 +263,30 @@ export default function ReportPage() {
                 <p className="text-sm text-black/30">No events recorded</p>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Print Controls Log */}
+        <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+            <p className={labelCls}>Print Controls Log</p>
+            <span className="text-[10px] text-black/30">
+              {(r.controlHistory?.length ?? 0)} change{(r.controlHistory?.length ?? 0) !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {(!r.controlHistory?.length) ? (
+              <div className="px-5 py-8 text-center">
+                <p className="text-sm text-black/30">No manual control changes recorded</p>
+              </div>
+            ) : (r.controlHistory as { time: string; control: string; value: string }[]).map((c, i) => (
+              <div key={i} className="flex items-center gap-4 px-5 py-3">
+                <span className="text-[10px] font-mono text-black/35 w-20 flex-shrink-0">{c.time}</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-black/20 flex-shrink-0"/>
+                <span className="text-xs text-black/60 flex-1">{c.control}</span>
+                <span className="text-[10px] font-mono font-semibold text-black/50">{c.value}</span>
+              </div>
+            ))}
           </div>
         </div>
 

@@ -9,7 +9,7 @@ import AppNav from '@/components/AppNav';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab = 'monitor' | 'sensors' | 'defects';
+type Tab = 'monitor' | 'sensors' | 'post-processing';
 
 interface SensorReading {
   label: string; value: string; unit: string;
@@ -18,7 +18,7 @@ interface SensorReading {
 }
 
 interface PrinterControl {
-  printSpeed: number; extrusionRate: number; pumpPressure: number; paused: boolean;
+  printSpeed: number; extrusionRate: number; pumpSpeed: number; extruderSpeed: number; paused: boolean;
 }
 
 interface Camera {
@@ -719,7 +719,13 @@ function BeadEventLog({ entries }: { entries: BeadAnalysis[] }) {
 export default function LiveMonitoring() {
   const router = useRouter();
   const { activeProject, updateProject } = useProjects();
-  const sessionRef = useRef({ layersPrinted: 0, errorsDetected: 0, alerts: [] as ReportAlert[] });
+  const sessionRef = useRef({
+    layersPrinted:  0,
+    errorsDetected: 0,
+    alerts:         [] as ReportAlert[],
+    controlHistory: [] as { time: string; control: string; value: string }[],
+    beadScans:      0,
+  });
   const tickRef    = useRef<NodeJS.Timeout | null>(null);
 
   const [activeTab,   setActiveTab]   = useState<Tab>('monitor');
@@ -733,7 +739,7 @@ export default function LiveMonitoring() {
   const [alertLog,    setAlertLog]    = useState<AlertEntry[]>([]);
   const [beadLog,     setBeadLog]     = useState<BeadAnalysis[]>([]);
   const [activeAlert, setActiveAlert] = useState<BeadAnalysis | null>(null);
-  const [controls,    setControls]    = useState<PrinterControl>({ printSpeed: 60, extrusionRate: 100, pumpPressure: 4.2, paused: false });
+  const [controls,    setControls]    = useState<PrinterControl>({ printSpeed: 60, extrusionRate: 100, pumpSpeed: 80, extruderSpeed: 100, paused: false });
   const [cameras,     setCameras]     = useState<Camera[]>([]);
 
   const [sensors, setSensors] = useState<SensorReading[]>(() => {
@@ -747,7 +753,7 @@ export default function LiveMonitoring() {
       { label: 'Humidity',        unit: '%',     trend: 'stable', ...seed(cond?.humidity,    v => v > 80 || v < 30) },
       { label: 'Wind Speed',      unit: 'km/h',  trend: 'stable', ...seed(cond?.windSpeed,   v => v > 15) },
       { label: 'Flow Rate',       unit: 'L/min', trend: 'stable', value: '—', status: 'ok', history: [] },
-      { label: 'Pump Pressure',   unit: 'bar',   trend: 'stable', value: '—', status: 'ok', history: [] },
+      { label: 'Pump Speed',      unit: 'mm/s',  trend: 'stable', value: '—', status: 'ok', history: [] },
       { label: 'Concrete Temp',   unit: '°C',    trend: 'stable', value: '—', status: 'ok', history: [] },
       { label: 'Pot Life Left',   unit: 'min',   trend: 'stable', value: '—', status: 'ok', history: [] },
       { label: 'Mix Consistency', unit: '%',     trend: 'stable', value: '—', status: 'ok', history: [] },
@@ -833,6 +839,7 @@ export default function LiveMonitoring() {
 
   const handleBeadLog = useCallback((analysis: BeadAnalysis) => {
     setBeadLog(prev => [analysis, ...prev.slice(0, 99)]);
+    sessionRef.current.beadScans += 1;
     const level: 'info' | 'warn' | 'error' = analysis.severity === 'high' ? 'error' : analysis.severity === 'medium' ? 'warn' : 'info';
     const msg = analysis.verdict === 'unclear'
       ? `Bead analysis unclear — ${analysis.cameraLabel}`
@@ -848,7 +855,10 @@ export default function LiveMonitoring() {
 
   const updateControl = (key: keyof PrinterControl, val: number | boolean) => {
     setControls(prev => ({ ...prev, [key]: val }));
-    if (key !== 'paused') addAlert(`${key} set to ${val}`, 'info');
+    if (key !== 'paused') {
+      addAlert(`${key} set to ${val}`, 'info');
+      sessionRef.current.controlHistory.push({ time: new Date().toLocaleTimeString(), control: key, value: String(val) });
+    }
   };
 
   const addCamera    = () => { const id = String(Date.now()); setCameras(prev => [...prev, { id, label: `Camera ${prev.length + 1}`, angle: 'front', active: true }]); };
@@ -879,6 +889,13 @@ export default function LiveMonitoring() {
       alerts:         [...(existing.alerts ?? []), ...s.alerts],
       printerName:    activeProject.printer.name,
       structureType:  activeProject.structureType,
+      controlHistory: s.controlHistory,
+      beadScans:      s.beadScans,
+      totalAlerts:    s.alerts.length,
+      printSpeed:     controls.printSpeed,
+      extrusionRate:  controls.extrusionRate,
+      pumpSpeed:      controls.pumpSpeed,
+      extruderSpeed:  controls.extruderSpeed,
     };
     updateProject(activeProject.id, { status: 'complete', report });
     router.push('/report');
@@ -936,10 +953,10 @@ export default function LiveMonitoring() {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
-            {(['monitor', 'sensors', 'defects'] as Tab[]).map(t => (
+            {(['monitor', 'sensors', 'post-processing'] as Tab[]).map(t => (
               <button key={t} onClick={() => setActiveTab(t)}
                 className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${activeTab === t ? 'bg-black text-white' : 'text-black/40 hover:text-black hover:bg-gray-100'}`}>
-                {t === 'monitor' ? 'Monitor' : t === 'sensors' ? 'Sensors' : 'Defects'}
+                {t === 'monitor' ? 'Monitor' : t === 'sensors' ? 'Sensors' : 'Post Processing'}
               </button>
             ))}
             <div className="w-px h-4 bg-gray-200" />
@@ -1009,9 +1026,10 @@ export default function LiveMonitoring() {
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-4">Printer Control</h3>
                   <div className="space-y-5">
                     {[
-                      { label: 'Print Speed',    key: 'printSpeed'    as const, min: 10,  max: 150, step: 5,   unit: ' mm/s', warn: controls.printSpeed > 120 },
-                      { label: 'Extrusion Rate', key: 'extrusionRate' as const, min: 50,  max: 150, step: 5,   unit: '%',     warn: controls.extrusionRate > 130 },
-                      { label: 'Pump Pressure',  key: 'pumpPressure'  as const, min: 1,   max: 10,  step: 0.1, unit: ' bar',  warn: controls.pumpPressure > 8 },
+                      { label: 'Print Speed',     key: 'printSpeed'    as const, min: 10,  max: 150, step: 5, unit: ' mm/s', warn: controls.printSpeed    > 120 },
+                      { label: 'Extrusion Rate',  key: 'extrusionRate' as const, min: 50,  max: 150, step: 5, unit: '%',     warn: controls.extrusionRate > 130 },
+                      { label: 'Pump Speed',      key: 'pumpSpeed'     as const, min: 10,  max: 200, step: 5, unit: ' mm/s', warn: controls.pumpSpeed     > 160 },
+                      { label: 'Extruder Speed',  key: 'extruderSpeed' as const, min: 10,  max: 200, step: 5, unit: ' mm/s', warn: controls.extruderSpeed > 160 },
                     ].map(s => {
                       const pct = ((controls[s.key] as number - s.min) / (s.max - s.min)) * 100;
                       return (
@@ -1148,8 +1166,8 @@ export default function LiveMonitoring() {
             </motion.div>
           )}
 
-          {activeTab === 'defects' && (
-            <motion.div key="defects" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          {activeTab === 'post-processing' && (
+            <motion.div key="post-processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <DefectDetectionPanel onAlert={addAlert} />
             </motion.div>
           )}

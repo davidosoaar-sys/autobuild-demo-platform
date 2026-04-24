@@ -321,28 +321,31 @@ export default function PrePrintOptimizer() {
 
   const saveSlice = async () => {
     if (!result || !file) return;
-    const mc       = activeProject?.printer?.manualConfig as any;
-    const nozzleMm = (mc?.nozzleDiameter ?? null) !== null ? mc.nozzleDiameter : (parseFloat(activeProject?.printer?.nozzle ?? '25') || 25);
     try {
-      await supabase.from('saved_slices').insert({
+      console.log('Saving slice to Supabase...');
+      const { data, error } = await supabase.from('saved_slices').insert({
         source:           'pre-print',
+        user_id:          null,
+        project_id:       activeProject?.id ?? null,
         file_name:        file.name,
-        print_date:       null,
-        start_hour:       weatherStart,
-        city:             city || null,
-        material:         parameters.cementMix,
-        layers:           result.geometry?.num_layers ?? null,
+        gcode_url:        null,
         print_time:       result.estimated_print_time ?? null,
-        print_time_s:     result.estimated_print_time_s ?? null,
+        num_layers:       result.geometry?.num_layers ?? null,
+        travel_saved_pct: result.optimization?.time_saved_pct ?? null,
+        material:         parameters.cementMix,
+        city:             city || null,
+        print_date:       null,
+        print_start_hour: weatherStart,
         temperature:      parameters.temperature,
         humidity:         parameters.humidity,
         wind_speed:       parameters.windSpeed,
-        nozzle_mm:        nozzleMm,
-        travel_saved_pct: result.optimization?.time_saved_pct ?? null,
         result_json:      result,
       });
-      setSliceSaved(true);
-    } catch { /* silent */ }
+      if (error) console.error('Slice save error:', error);
+      else { console.log('Slice saved:', data); setSliceSaved(true); }
+    } catch (e) {
+      console.error('Slice save exception:', e);
+    }
   };
 
   const beginPrint = async () => {

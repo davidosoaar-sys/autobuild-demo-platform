@@ -389,24 +389,30 @@ export default function SlicerTool() {
   const saveSlice = async () => {
     if (!result || !file) return;
     try {
-      await supabase.from('saved_slices').insert({
-        source:       'slicer',
-        file_name:    file.name,
-        print_date:   printDate,
-        start_hour:   toDecimalHour(startTime),
-        city:         cityStr || null,
-        material:     cementId,
-        layers:       result.geometry?.total_layers ?? null,
-        print_time:   result.estimated_print_time ?? null,
-        print_time_s: result.estimated_print_time_s ?? null,
-        temperature:  result.weather?.avg?.temperature ?? forecastWeather?.temperature ?? manualTemp,
-        humidity:     result.weather?.avg?.humidity    ?? forecastWeather?.humidity    ?? manualHumidity,
-        wind_speed:   result.weather?.avg?.wind_speed  ?? forecastWeather?.wind_speed  ?? manualWind,
-        nozzle_mm:    nozzle,
-        result_json:  result,
+      console.log('Saving slice to Supabase...');
+      const { data, error } = await supabase.from('saved_slices').insert({
+        source:           'slicer',
+        user_id:          null,
+        project_id:       null,
+        file_name:        file.name,
+        gcode_url:        null,
+        print_time:       result.estimated_print_time ?? null,
+        num_layers:       result.geometry?.total_layers ?? null,
+        travel_saved_pct: null,
+        material:         cementId,
+        city:             cityStr || null,
+        print_date:       printDate,
+        print_start_hour: toDecimalHour(startTime),
+        temperature:      result.weather?.avg?.temperature ?? forecastWeather?.temperature ?? manualTemp,
+        humidity:         result.weather?.avg?.humidity    ?? forecastWeather?.humidity    ?? manualHumidity,
+        wind_speed:       result.weather?.avg?.wind_speed  ?? forecastWeather?.wind_speed  ?? manualWind,
+        result_json:      result,
       });
-      setSliceSaved(true);
-    } catch { /* silent */ }
+      if (error) console.error('Slice save error:', error);
+      else { console.log('Slice saved:', data); setSliceSaved(true); }
+    } catch (e) {
+      console.error('Slice save exception:', e);
+    }
   };
 
   const dl = (content: string, filename: string) => {
