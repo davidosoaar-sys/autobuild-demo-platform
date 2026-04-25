@@ -9,7 +9,7 @@ import AppNav from '@/components/AppNav';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab = 'monitor' | 'sensors' | 'post-processing';
+type Tab = 'monitor' | 'sensors';
 
 interface SensorReading {
   label: string; value: string; unit: string;
@@ -953,10 +953,10 @@ export default function LiveMonitoring() {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
-            {(['monitor', 'sensors', 'post-processing'] as Tab[]).map(t => (
+            {(['monitor', 'sensors'] as Tab[]).map(t => (
               <button key={t} onClick={() => setActiveTab(t)}
                 className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl capitalize transition-all ${activeTab === t ? 'bg-black text-white' : 'text-black/40 hover:text-black hover:bg-gray-100'}`}>
-                {t === 'monitor' ? 'Monitor' : t === 'sensors' ? 'Sensors' : 'Post Processing'}
+                {t === 'monitor' ? 'Monitor' : 'Sensors'}
               </button>
             ))}
             <div className="w-px h-4 bg-gray-200" />
@@ -1166,11 +1166,6 @@ export default function LiveMonitoring() {
             </motion.div>
           )}
 
-          {activeTab === 'post-processing' && (
-            <motion.div key="post-processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <DefectDetectionPanel onAlert={addAlert} />
-            </motion.div>
-          )}
 
         </AnimatePresence>
       </div>

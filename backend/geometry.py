@@ -411,14 +411,23 @@ def _generate_zigzag(
     density:            float,
     nozzle_diameter_mm: float,
 ) -> List[Segment]:
-    nozzle_m        = nozzle_diameter_mm / 1000.0
-    spacing         = nozzle_m / max(density, 0.01)
+    nozzle_width_m  = nozzle_diameter_mm / 1000.0
+    spacing         = nozzle_width_m / max(density, 0.01)
     x_min, x_max    = bounds_x
     y_min, y_max    = bounds_y
+
+    max_segments = 500
+    width = x_max - x_min
+    if width > 0 and spacing > 0:
+        estimated_segments = max(1, int(width / spacing) + 1)
+        if estimated_segments > max_segments:
+            print(f"[infill] zigzag: {estimated_segments} segs → capping at {max_segments}", flush=True)
+            spacing = width / max_segments
+
     segs: List[Segment] = []
     x       = x_min
     forward = True
-    while x <= x_max and len(segs) < 500:
+    while x <= x_max:
         if forward:
             segs.append(((x, y_min), (x, y_max)))
         else:
@@ -434,10 +443,20 @@ def _generate_hexagonal(
     density:            float,
     nozzle_diameter_mm: float,
 ) -> List[Segment]:
-    nozzle_m     = nozzle_diameter_mm / 1000.0
-    r            = nozzle_m / max(density, 0.01)
-    x_min, x_max = bounds_x
-    y_min, y_max = bounds_y
+    nozzle_width_m = nozzle_diameter_mm / 1000.0
+    r              = nozzle_width_m / max(density, 0.01)
+    x_min, x_max   = bounds_x
+    y_min, y_max   = bounds_y
+
+    max_segments = 500
+    est_cols = max(1, int((x_max - x_min) / (r * 3.0)) + 1)
+    est_rows = max(1, int((y_max - y_min) / (r * math.sqrt(3))) + 1)
+    est_segs = est_rows * est_cols * 6
+    if est_segs > max_segments:
+        scale = math.sqrt(est_segs / max_segments)
+        print(f"[infill] hexagonal: ~{est_segs} segs → scaling r by {scale:.2f}", flush=True)
+        r *= scale
+
     segs: List[Segment] = []
     row = 0
     y   = y_min + r
