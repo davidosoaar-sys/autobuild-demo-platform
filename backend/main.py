@@ -264,7 +264,6 @@ async def optimize_endpoint(
     print_scale:           float          = Form(1.0),
     # Infill / structure / time blocks
     infill_pattern:        str            = Form("none"),
-    infill_density:        float          = Form(0.4),
     structure_type:        str            = Form("wall"),
     time_blocks:           str            = Form("[]"),
 ):
@@ -381,7 +380,7 @@ async def optimize_endpoint(
             z = layer_metas[layer_idx]["z_height_m"] if layer_idx < len(layer_metas) else 0.0
             infill = generate_infill_segments(
                 bounds_x=bx, bounds_y=by, z_height=z,
-                pattern=infill_pattern, density=infill_density,
+                pattern=infill_pattern,
                 nozzle_diameter_mm=nozzle_diameter_mm,
             )
             print(f"[infill] Generated {len(infill)} segments for layer {layer_idx}", flush=True)

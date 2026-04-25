@@ -376,9 +376,10 @@ export default function SlicerTool() {
   const [cementId,  setCementId]  = useState('sika-733w-3d-us');
   const [customMix, setCustomMix] = useState<CustomMix>(DEFAULT_CUSTOM);
 
-  // Infill (Task 8)
-  const [infillPattern, setInfillPattern] = useState('none');
-  const [infillDensity, setInfillDensity] = useState(0.4);
+  // Infill
+  const [infillPattern,  setInfillPattern]  = useState('none');
+  const [structureType,  setStructureType]  = useState('wall');
+  const [scanResult,     setScanResult]     = useState<any>(null);
 
   // Time blocks (Task 9)
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([newBlock()]);
@@ -409,7 +410,7 @@ export default function SlicerTool() {
 
   const run = async () => {
     if (!file) return;
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setScanResult(null);
     try {
       const fd = new FormData();
       fd.append('file',                 file);
@@ -429,11 +430,11 @@ export default function SlicerTool() {
       fd.append('wind_speed',           String(forecastWeather?.wind_speed  ?? manualWind));
       // Infill
       fd.append('infill_pattern',       infillPattern);
-      fd.append('infill_density',       String(infillDensity));
+      fd.append('structure_type',       structureType);
       // Time blocks
       fd.append('time_blocks',          JSON.stringify(timeBlocks.map(b => ({ start: b.start, end: b.end }))));
 
-      console.log('Sending infill:', infillPattern, infillDensity);
+      console.log('Sending infill:', infillPattern);
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -462,6 +463,15 @@ export default function SlicerTool() {
         if (error) console.error('Slice save error:', error);
         else setSliceSaved(true);
       } catch (e) { console.error('Slice save exception:', e); }
+      // Silent scan
+      try {
+        const sf = new FormData();
+        sf.append('file', file);
+        sf.append('nozzle_diameter_mm', String(nozzle));
+        sf.append('layer_height_m', String(layerHeightMm / 1000));
+        const sr = await fetch(`${API}/scan`, { method: 'POST', body: sf });
+        if (sr.ok) setScanResult(await sr.json());
+      } catch { /* silent */ }
     } catch (e: any) {
       setError(e.message || 'Optimization failed');
     } finally { setLoading(false); }
@@ -513,6 +523,7 @@ export default function SlicerTool() {
               numLayers={numLayers}
               layerHeight={result.printer.layer_height_mm / 1000}
               nozzleDiameter={nozzle / 1000}
+              structureType={structureType}
               fullscreen
               onBack={() => setShowResults(false)}
             />
@@ -560,7 +571,7 @@ export default function SlicerTool() {
                           <StatRow label="Layer Height" value={`${result.printer.layer_height_mm} mm`}          delay={0.04}/>
                           <StatRow label="Nozzle"       value={`${result.printer.nozzle_mm} mm`}                delay={0.06}/>
                           <StatRow label="Print Speed"  value={`${result.printer.effective_speed} mm/s`}        delay={0.08}/>
-                          <StatRow label="G-code Lines" value={result.gcode_lines.toLocaleString()}             delay={0.10}/>
+                          <StatRow label="G-code Lines" value={(result.gcode_lines || result.gcode_full?.split('\n').length || 0).toLocaleString()} delay={0.10}/>
                           <StatRow label="Material"     value={isCustom ? 'Custom' : (selectedMat?.name ?? cementId)} delay={0.12}/>
                           {result.optimization && (
                             <StatRow label="Travel Saved" value={`${result.optimization.time_saved_pct}%`} accent="text-emerald-400" delay={0.14}/>
@@ -686,7 +697,24 @@ export default function SlicerTool() {
 
                     {sidebarPanel === 'scan' && (
                       <motion.div key="scan" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                        <p className="text-[11px] text-white/25 text-center py-8">Scan data unavailable in standalone slicer</p>
+                        {scanResult ? (
+                          <div className="space-y-2">
+                            <div className="rounded-xl px-3 py-2.5 border border-white/8 bg-white/4 mb-3">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-[10px] text-white/30 uppercase tracking-widest">Pre-print Score</span>
+                                <span className={`text-sm font-bold ${scanResult.score >= 80 ? 'text-emerald-400' : scanResult.score >= 50 ? 'text-amber-400' : 'text-red-400'}`}>{scanResult.score}/100</span>
+                              </div>
+                              <p className="text-[11px] text-white/60">{scanResult.verdict_msg}</p>
+                            </div>
+                            {(scanResult.issues ?? []).length === 0 ? (
+                              <p className="text-[11px] text-white/30 text-center py-4">No issues found</p>
+                            ) : (scanResult.issues ?? []).map((issue: any, i: number) => (
+                              <ScanIssueRow key={i} issue={issue} delay={i * 0.05} />
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-white/25 text-center py-8">Run optimizer to see scan results</p>
+                        )}
                       </motion.div>
                     )}
 
@@ -788,6 +816,16 @@ export default function SlicerTool() {
                 <Field label="Max flow (L/min)"><NumInput value={flowRate} onChange={setFlowRate} min={1} max={30} step={0.5} /></Field>
                 <Field label="Acceleration (mm/s²)"><NumInput value={acceleration} onChange={setAcceleration} min={50} max={2000} step={50} /></Field>
               </div>
+              <Field label="Structure Type">
+                <div className="flex gap-2">
+                  {(['wall', 'column'] as const).map(t => (
+                    <button key={t} onClick={() => setStructureType(t)}
+                      className={`flex-1 py-2 text-xs font-medium rounded-xl capitalize transition-colors ${structureType === t ? 'bg-black text-white' : 'bg-gray-100 text-black/50 hover:text-black'}`}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </Field>
             </div>
 
             {/* Cement */}
@@ -831,30 +869,6 @@ export default function SlicerTool() {
                   </button>
                 ))}
               </div>
-              {infillPattern !== 'none' && (
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-black">Infill Density</span>
-                      <div className="flex items-center gap-1.5">
-                        <input type="number" value={infillDensity} min={0.2} max={0.8} step={0.05}
-                          onChange={e => setInfillDensity(Number(e.target.value))}
-                          className="w-16 px-2 py-1 text-xs font-mono text-right border border-gray-200 rounded-lg focus:outline-none focus:border-black text-black" />
-                      </div>
-                    </div>
-                    <input type="range" min={0.2} max={0.8} step={0.05} value={infillDensity}
-                      onChange={e => setInfillDensity(Number(e.target.value))}
-                      className="w-full h-0.5 rounded-full appearance-none cursor-pointer accent-black bg-gray-200" />
-                    <div className="flex justify-between mt-1.5">
-                      <span className="text-[10px] text-black/25">0.2</span>
-                      <span className="text-[10px] text-black/25">0.8</span>
-                    </div>
-                  </div>
-                  {infillDensity < 0.4 && (
-                    <p className="text-[10px] text-amber-600 font-medium">Low density — consider ≥ 0.4 for structural integrity</p>
-                  )}
-                </div>
-              )}
             </div>
 
             {/* Weather */}
@@ -961,7 +975,8 @@ export default function SlicerTool() {
                   toolpath={(result?.toolpath ?? []) as any}
                   numLayers={result?.geometry.total_layers ?? 0}
                   layerHeight={(result?.printer.layer_height_mm ?? layerHeightMm) / 1000}
-                  nozzleDiameter={nozzle}
+                  nozzleDiameter={nozzle / 1000}
+                  structureType={structureType}
                 />
               ) : (
                 <div className="flex items-center justify-center min-h-[520px]">

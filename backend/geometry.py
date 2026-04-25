@@ -391,39 +391,34 @@ def generate_infill_segments(
     bounds_y:           Tuple[float, float],
     z_height:           float,
     pattern:            str,
-    density:            float,
     nozzle_diameter_mm: float,
 ) -> List[Segment]:
-    """Return infill segments for one layer. Returns [] if pattern is 'none'."""
-    if density < 0.2:
-        print(f"[infill] density {density} < 0.2 — skipping", flush=True)
+    """Return infill segments inset inside the perimeter beads."""
+    bead_w  = nozzle_diameter_mm / 1000.0
+    inner_x = (bounds_x[0] + bead_w, bounds_x[1] - bead_w)
+    inner_y = (bounds_y[0] + bead_w, bounds_y[1] - bead_w)
+    if inner_x[1] - inner_x[0] < bead_w or inner_y[1] - inner_y[0] < bead_w:
         return []
+    spacing = bead_w
     if pattern == "zigzag":
-        return _generate_zigzag(bounds_x, bounds_y, density, nozzle_diameter_mm)
+        return _generate_zigzag(inner_x, inner_y, spacing)
     elif pattern == "hexagonal":
-        return _generate_hexagonal(bounds_x, bounds_y, density, nozzle_diameter_mm)
+        return _generate_hexagonal(inner_x, inner_y, spacing)
     return []
 
 
 def _generate_zigzag(
-    bounds_x:           Tuple[float, float],
-    bounds_y:           Tuple[float, float],
-    density:            float,
-    nozzle_diameter_mm: float,
+    bounds_x: Tuple[float, float],
+    bounds_y: Tuple[float, float],
+    spacing:  float,
 ) -> List[Segment]:
-    nozzle_width_m  = nozzle_diameter_mm / 1000.0
-    spacing         = nozzle_width_m / max(density, 0.01)
-    x_min, x_max    = bounds_x
-    y_min, y_max    = bounds_y
-
-    max_segments = 500
-    width = x_max - x_min
-    if width > 0 and spacing > 0:
-        estimated_segments = max(1, int(width / spacing) + 1)
-        if estimated_segments > max_segments:
-            print(f"[infill] zigzag: {estimated_segments} segs → capping at {max_segments}", flush=True)
-            spacing = width / max_segments
-
+    x_min, x_max = bounds_x
+    y_min, y_max = bounds_y
+    max_lines    = 300
+    estimated_lines = int((x_max - x_min) / spacing) if spacing > 0 else 0
+    if estimated_lines > max_lines:
+        print(f"[infill] zigzag: capping {estimated_lines} → {max_lines} lines", flush=True)
+        spacing = (x_max - x_min) / max_lines
     segs: List[Segment] = []
     x       = x_min
     forward = True
@@ -438,17 +433,14 @@ def _generate_zigzag(
 
 
 def _generate_hexagonal(
-    bounds_x:           Tuple[float, float],
-    bounds_y:           Tuple[float, float],
-    density:            float,
-    nozzle_diameter_mm: float,
+    bounds_x: Tuple[float, float],
+    bounds_y: Tuple[float, float],
+    spacing:  float,
 ) -> List[Segment]:
-    nozzle_width_m = nozzle_diameter_mm / 1000.0
-    r              = nozzle_width_m / max(density, 0.01)
-    x_min, x_max   = bounds_x
-    y_min, y_max   = bounds_y
-
-    max_segments = 500
+    r            = spacing
+    x_min, x_max = bounds_x
+    y_min, y_max = bounds_y
+    max_segments = 1800
     est_cols = max(1, int((x_max - x_min) / (r * 3.0)) + 1)
     est_rows = max(1, int((y_max - y_min) / (r * math.sqrt(3))) + 1)
     est_segs = est_rows * est_cols * 6
@@ -456,7 +448,6 @@ def _generate_hexagonal(
         scale = math.sqrt(est_segs / max_segments)
         print(f"[infill] hexagonal: ~{est_segs} segs → scaling r by {scale:.2f}", flush=True)
         r *= scale
-
     segs: List[Segment] = []
     row = 0
     y   = y_min + r

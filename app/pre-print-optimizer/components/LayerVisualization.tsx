@@ -1107,12 +1107,14 @@ export default function LayerVisualization({
           {isOrtho?'Ortho':'Persp'}
         </button>
 
-        {/* Path Lines */}
-        <button onClick={()=>setShowPathLines(v=>!v)}
-          className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${showPathLines?'text-white':'text-white/35 hover:text-white/70'}`}
-          style={{background: showPathLines?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.28)', backdropFilter:'blur(10px)'}}>
-          Path Lines
-        </button>
+        {/* Path Lines — hidden when toolpath is empty */}
+        {toolpath.length > 0 && (
+          <button onClick={()=>setShowPathLines(v=>!v)}
+            className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${showPathLines?'text-white':'text-white/35 hover:text-white/70'}`}
+            style={{background: showPathLines?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.28)', backdropFilter:'blur(10px)'}}>
+            Path Lines
+          </button>
+        )}
 
         {/* Rebar */}
         <button onClick={()=>setShowRebar(v=>!v)} title="16mm vertical · 6mm stirrups · columns only"
