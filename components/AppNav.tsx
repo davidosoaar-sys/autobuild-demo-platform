@@ -5,14 +5,15 @@ import Image from 'next/image';
 import { useProjects } from '@/lib/project-store';
 
 interface AppNavProps {
-  currentStep: 'printer' | 'pre-print' | 'monitor' | 'report';
+  currentStep: 'printer' | 'pre-print' | 'monitor' | 'post-processing' | 'report';
 }
 
 const STEPS = [
-  { key: 'printer',   label: 'Printer Setup', route: '/printer-setup' },
-  { key: 'pre-print', label: 'Pre-Print',      route: '/pre-print-optimizer' },
-  { key: 'monitor',   label: 'Live Monitor',   route: '/live-monitoring' },
-  { key: 'report',    label: 'Report',         route: '/report' },
+  { key: 'printer',         label: 'Printer Setup',   route: '/printer-setup' },
+  { key: 'pre-print',       label: 'Pre-Print',       route: '/pre-print-optimizer' },
+  { key: 'monitor',         label: 'Live Monitor',    route: '/live-monitoring' },
+  { key: 'post-processing', label: 'Post Processing', route: '/post-processing' },
+  { key: 'report',          label: 'Report',          route: '/report' },
 ] as const;
 
 export default function AppNav({ currentStep }: AppNavProps) {

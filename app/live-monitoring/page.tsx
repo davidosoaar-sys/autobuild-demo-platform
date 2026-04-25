@@ -897,8 +897,8 @@ export default function LiveMonitoring() {
       pumpSpeed:      controls.pumpSpeed,
       extruderSpeed:  controls.extruderSpeed,
     };
-    updateProject(activeProject.id, { status: 'complete', report });
-    router.push('/report');
+    updateProject(activeProject.id, { status: 'post-processing', report });
+    router.push('/post-processing');
   };
 
   const keySensors = sensors.slice(0, 4);

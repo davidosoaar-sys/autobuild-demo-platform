@@ -23,6 +23,7 @@ interface ParameterInputsProps {
   onCementChange?:    (cement: string) => void;
   onCityChange?:      (city: string) => void;
   onStartHourChange?: (hour: number) => void;
+  onInfillChange?:    (pattern: string, density: number) => void;
 }
 
 interface CityResult { name: string; country: string; state: string; display: string; }
@@ -266,13 +267,15 @@ function CitySearch({ onSelect, startHour }: { onSelect: (city: string, weather:
 }
 
 export default function ParameterInputs({
-  parameters, onChange, onWeatherChange, onCementChange, onCityChange, onStartHourChange,
+  parameters, onChange, onWeatherChange, onCementChange, onCityChange, onStartHourChange, onInfillChange,
 }: ParameterInputsProps) {
-  const [useBlocks,  setUseBlocks]  = useState(false);
-  const [startHour,  setStartHour]  = useState(8.0);
-  const [blocks,     setBlocks]     = useState<WeatherBlock[]>([newBlock(8)]);
-  const [materialId, setMaterialId] = useState('sika-733w-3d-us');
-  const [customMix,  setCustomMix]  = useState<Record<string,string>>({});
+  const [useBlocks,     setUseBlocks]     = useState(false);
+  const [startHour,     setStartHour]     = useState(8.0);
+  const [blocks,        setBlocks]        = useState<WeatherBlock[]>([newBlock(8)]);
+  const [materialId,    setMaterialId]    = useState('sika-733w-3d-us');
+  const [customMix,     setCustomMix]     = useState<Record<string,string>>({});
+  const [infillPattern, setInfillPattern] = useState('none');
+  const [infillDensity, setInfillDensity] = useState(0.4);
 
   const selected = MATERIALS.find(m => m.id === materialId) ?? MATERIALS[0];
   const updateParam = (key: keyof Parameters, value: any) => onChange({ ...parameters, [key]: value });
@@ -480,6 +483,41 @@ export default function ParameterInputs({
               placeholder="e.g. BATCH-2024-001"
               className={inputCls + ' font-mono'}/>
           </div>
+        </div>
+      </div>
+
+      {/* Infill */}
+      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-5 pt-5 pb-4 border-b border-gray-50">
+          <p className={labelCls}>Infill Pattern</p>
+        </div>
+        <div className="px-5 py-5 space-y-4">
+          <div className="flex gap-2">
+            {(['none', 'zigzag', 'hexagonal'] as const).map(p => (
+              <button key={p} onClick={() => { setInfillPattern(p); onInfillChange?.(p, infillDensity); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${
+                  infillPattern === p ? 'bg-black text-white' : 'bg-gray-100 text-black/50 hover:text-black'
+                }`}>
+                {p === 'none' ? 'None' : p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+          {infillPattern !== 'none' && (
+            <>
+              <SliderRow
+                label="Infill Density"
+                value={infillDensity}
+                unit=""
+                min={0.2} max={0.8} step={0.05}
+                onChange={v => { setInfillDensity(v); onInfillChange?.(infillPattern, v); }}
+              />
+              {infillDensity < 0.4 && (
+                <p className="text-[10px] text-amber-600 font-medium">
+                  Low density — consider ≥ 0.4 for structural integrity
+                </p>
+              )}
+            </>
+          )}
         </div>
       </div>
 

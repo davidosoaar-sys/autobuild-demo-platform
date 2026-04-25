@@ -52,7 +52,7 @@ export interface Project {
   name:          string;
   description:   string;
   createdAt:     string;
-  status:        'setup' | 'pre-print' | 'printing' | 'complete';
+  status:        'setup' | 'pre-print' | 'printing' | 'post-processing' | 'complete';
   address:       string;
   structureType: string;
   totalLayers:   number;

@@ -29,6 +29,7 @@ interface LayerVisualizationProps {
   pathColor?:       string;
   modelDimensions?: { x: number; y: number; z: number };
   onBack?:          () => void;
+  structureType?:   string;
 }
 
 // ── Time-of-day configs ───────────────────────────────────────────────────────
@@ -485,9 +486,10 @@ function ToolpathLines({ toolpath, layerHeight, progress }: {
 
 // ── BIM Rebar overlay ─────────────────────────────────────────────────────────
 
-function RebarOverlay({ site, numLayers, layerHeight }: {
-  site: SiteDimensions; numLayers: number; layerHeight: number;
+function RebarOverlay({ site, numLayers, layerHeight, structureType }: {
+  site: SiteDimensions; numLayers: number; layerHeight: number; structureType?: string;
 }) {
+  if (structureType !== 'column') return null;
   const w = Math.max(site.width  || 12, 2);
   const l = Math.max(site.length || 10, 2);
   const h = numLayers * layerHeight;
@@ -681,7 +683,7 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
 function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, site, modelScale,
   snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor, nozzleDiameter = 0.025,
   tod = 'noon', showModel = true, showToolpath = true,
-  numLayers = 0, showPathLines = false, showRebar = false, isOrtho = false }: {
+  numLayers = 0, showPathLines = false, showRebar = false, isOrtho = false, structureType }: {
   fileUrl: string|null; fileExt: string; toolpath: Layer[];
   layerHeight: number; animProgress: number; mode: ViewMode;
   site: SiteDimensions; modelScale: number; snap: string|null;
@@ -690,6 +692,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
   pathColor?: string; nozzleDiameter?: number; tod?: TimeOfDay;
   showModel?: boolean; showToolpath?: boolean;
   numLayers?: number; showPathLines?: boolean; showRebar?: boolean; isOrtho?: boolean;
+  structureType?: string;
 }) {
   const isEnv = mode === 'environment';
   const isDark = mode === 'dark';
@@ -743,7 +746,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
       )}
 
       {showRebar && (
-        <RebarOverlay site={site} numLayers={numLayers || toolpath.length} layerHeight={layerHeight}/>
+        <RebarOverlay site={site} numLayers={numLayers || toolpath.length} layerHeight={layerHeight} structureType={structureType}/>
       )}
 
       {isOrtho && (
@@ -857,7 +860,7 @@ function PlaybackBar({
 
 export default function LayerVisualization({
   file, toolpath, numLayers, layerHeight, nozzleDiameter, site, fullscreen,
-  externalMode, onModeChange, modelScale: extScale, sitePlan, modelDimensions, onBack,
+  externalMode, onModeChange, modelScale: extScale, sitePlan, modelDimensions, onBack, structureType,
 }: LayerVisualizationProps) {
   const [internalMode,    setInternalMode]    = useState<ViewMode>('environment');
   const [tod,             setTod]             = useState<TimeOfDay>('noon');
@@ -978,9 +981,9 @@ export default function LayerVisualization({
             </button>
             <button onClick={()=>setShowPathLines(v=>!v)}
               className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${showPathLines?'bg-black text-white':'text-black/40 hover:text-black'}`}>
-              Lines
+              Path Lines
             </button>
-            <button onClick={()=>setShowRebar(v=>!v)} title="16mm vertical · 6mm stirrups"
+            <button onClick={()=>setShowRebar(v=>!v)} title="16mm vertical · 6mm stirrups · columns only"
               className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${showRebar?'bg-black text-white':'text-black/40 hover:text-black'}`}>
               Rebar
             </button>
@@ -992,7 +995,8 @@ export default function LayerVisualization({
               animProgress={0} mode={mode} site={resolvedSite} modelScale={modelScale}
               snap={null} enableTransform={false} transformMode="translate"
               orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor} tod={tod}
-              numLayers={numLayers} showPathLines={false} showRebar={showRebar} isOrtho={isOrtho}/>
+              numLayers={numLayers} showPathLines={false} showRebar={showRebar} isOrtho={isOrtho}
+              structureType={structureType}/>
           </Canvas>
           <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg">
             <span className="text-white/40 text-[10px]">Drag · scroll</span>
@@ -1017,7 +1021,8 @@ export default function LayerVisualization({
           orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}
           nozzleDiameter={nozzleDiameter ?? 0.025} tod={tod}
           showModel={showModel} showToolpath={showToolpath}
-          numLayers={numLayers} showPathLines={showPathLines} showRebar={showRebar} isOrtho={isOrtho}/>
+          numLayers={numLayers} showPathLines={showPathLines} showRebar={showRebar} isOrtho={isOrtho}
+          structureType={structureType}/>
       </Canvas>
 
       {/* Top-left controls — single compact row */}
@@ -1080,11 +1085,11 @@ export default function LayerVisualization({
         <button onClick={()=>setShowPathLines(v=>!v)}
           className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${showPathLines?'text-white':'text-white/35 hover:text-white/70'}`}
           style={{background: showPathLines?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.28)', backdropFilter:'blur(10px)'}}>
-          Lines
+          Path Lines
         </button>
 
         {/* Rebar */}
-        <button onClick={()=>setShowRebar(v=>!v)} title="16mm vertical · 6mm stirrups"
+        <button onClick={()=>setShowRebar(v=>!v)} title="16mm vertical · 6mm stirrups · columns only"
           className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${showRebar?'text-white':'text-white/35 hover:text-white/70'}`}
           style={{background: showRebar?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.28)', backdropFilter:'blur(10px)'}}>
           Rebar

@@ -14,7 +14,7 @@ export interface DBProject {
   description:    string | null;
   address:        string | null;
   structure_type: string;
-  status:         'setup' | 'pre-print' | 'printing' | 'complete';
+  status:         'setup' | 'pre-print' | 'printing' | 'post-processing' | 'complete';
   total_layers:   number;
   print_speed:    number;
   report?:        Record<string, any> | null;

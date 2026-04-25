@@ -18,10 +18,11 @@ function timeAgo(iso: string) {
 }
 
 const STATUS: Record<Project['status'], { label: string; dotClass: string }> = {
-  setup:       { label: 'Setup',     dotClass: 'bg-black/20' },
-  'pre-print': { label: 'Pre-Print', dotClass: 'bg-black/50' },
-  printing:    { label: 'Printing',  dotClass: 'bg-white animate-pulse' },
-  complete:    { label: 'Complete',  dotClass: 'bg-black' },
+  setup:             { label: 'Setup',           dotClass: 'bg-black/20' },
+  'pre-print':       { label: 'Pre-Print',       dotClass: 'bg-black/50' },
+  printing:          { label: 'Printing',        dotClass: 'bg-white animate-pulse' },
+  'post-processing': { label: 'Post Processing', dotClass: 'bg-black/60' },
+  complete:          { label: 'Complete',        dotClass: 'bg-black' },
 };
 
 const STRUCTURES = ['Standard Home','Load-bearing wall','Foundation slab','Column','Partition wall','Retaining wall','Custom'];
@@ -220,10 +221,11 @@ export default function ProjectsPage() {
 
   const handleOpen = (project: Project) => {
     setActiveProject(project.id);
-    if (project.status==='setup')          router.push('/printer-setup');
-    else if (project.status==='pre-print') router.push('/pre-print-optimizer');
-    else if (project.status==='printing')  router.push('/live-monitoring');
-    else                                   router.push('/report');
+    if (project.status==='setup')                  router.push('/printer-setup');
+    else if (project.status==='pre-print')         router.push('/pre-print-optimizer');
+    else if (project.status==='printing')          router.push('/live-monitoring');
+    else if (project.status==='post-processing')   router.push('/post-processing');
+    else                                           router.push('/report');
   };
 
   return (

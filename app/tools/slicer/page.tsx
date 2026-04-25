@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MATERIALS } from '@/app/pre-print-optimizer/components/ParameterInputs';
+import { StatRow, FactorRow, ScanIssueRow, Factor } from '@/app/pre-print-optimizer/components/ResultComponents';
 import { supabase } from '@/lib/supabase';
 import dynamic from 'next/dynamic';
 
@@ -30,17 +31,29 @@ interface CityResult   { name: string; country: string; state: string; display: 
 interface LiveWeather  { temperature: number; humidity: number; wind_speed: number; description: string; pot_life_min: number; risk_score: number; }
 interface ForecastHour { hour: number; temperature: number; humidity: number; wind_speed: number; description: string; risk: number; }
 
+interface LayerStat {
+  layer: number; z_height_mm: number; segments: number;
+  perimeter_mm: number; area_cm2: number; complexity: number;
+  print_speed_mm_s: number; risk_score: number; temperature_c?: number;
+}
+
 interface SlicerResult {
+  result_id?: string;
   estimated_print_time: string;
   estimated_print_time_s?: number;
-  cement?: { open_time_min: number };
-  geometry: { total_layers: number };
+  cement?: { display_name?: string; open_time_min: number; risk_score?: number };
+  geometry: { total_layers: number; num_layers?: number; layer_height?: number; bounds_x?: [number,number]; bounds_y?: [number,number]; total_height_m?: number };
   printer: { layer_height_mm: number; nozzle_mm: number; effective_speed: number };
-  weather: { city: string; avg: { temperature: number; humidity: number; wind_speed: number } };
+  weather: { city: string; source?: string; avg: { temperature: number; humidity: number; wind_speed: number }; worst?: { temperature: number } };
   toolpath: unknown[];
   gcode_full: string;
   gcode_lines: number;
+  elapsed_seconds?: number;
+  optimization?: { time_saved_pct: number; env_risk_score: number; total_travel_mm: number; naive_travel_mm: number; total_segments: number };
+  layer_stats?: LayerStat[];
 }
+
+interface TimeBlock { id: string; start: string; end: string; }
 
 interface CustomMix {
   potLife10c: number; potLife20c: number; potLife30c: number;
@@ -49,6 +62,8 @@ interface CustomMix {
   waterRatio: string; strength28d: string;
 }
 
+type SidebarPanel = 'results' | 'layers' | 'changes' | 'scan';
+
 const DEFAULT_CUSTOM: CustomMix = {
   potLife10c: 80, potLife20c: 60, potLife30c: 40,
   layerMin: 6,   layerMax: 20,
@@ -56,10 +71,11 @@ const DEFAULT_CUSTOM: CustomMix = {
   waterRatio: '15–17%', strength28d: '—',
 };
 
-const todayStr  = () => new Date().toISOString().split('T')[0];
+const todayStr   = () => new Date().toISOString().split('T')[0];
 const nowTimeStr = () => { const d = new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
 const toDecimalHour = (t: string) => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
 const fmtTime = (t: string) => { const [h, m] = t.split(':').map(Number); const ampm = h >= 12 ? 'PM' : 'AM'; return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${ampm}`; };
+const newBlock = (): TimeBlock => ({ id: Math.random().toString(36).slice(2), start: '07:00', end: '17:00' });
 
 function interpolateHourly(raw: ForecastHour[], fromHour: number, count: number): ForecastHour[] {
   const result: ForecastHour[] = [];
@@ -93,6 +109,36 @@ function hourToLabel(h: number) {
   const ampm = hh >= 12 ? 'PM' : 'AM';
   const disp = hh > 12 ? hh - 12 : hh === 0 ? 12 : hh;
   return `${disp}:${String(mm).padStart(2, '0')} ${ampm}`;
+}
+
+function buildSlicerFactors(result: SlicerResult, cementId: string, selectedMat: typeof MATERIALS[0] | undefined): Factor[] {
+  const avg   = result.weather?.avg ?? {};
+  const opt   = result.optimization;
+  const factors: Factor[] = [];
+
+  const temp = avg.temperature ?? 20;
+  if (temp > 30)      factors.push({ label: 'High Temperature', value: `${temp}°C`, impact: `Speed increased ~${Math.round((temp-30)*1.5)}% to outrun cement setting`, ok: false });
+  else if (temp < 15) factors.push({ label: 'Low Temperature',  value: `${temp}°C`, impact: 'Slower curing — speed reduced for stronger bonding', ok: false });
+  else                factors.push({ label: 'Temperature',      value: `${temp}°C`, impact: 'Optimal range — no speed adjustment required', ok: true });
+
+  const hum = avg.humidity ?? 65;
+  if (hum < 50)      factors.push({ label: 'Low Humidity',  value: `${hum}%`, impact: 'Dry air — travel moves minimised', ok: false });
+  else if (hum > 80) factors.push({ label: 'High Humidity', value: `${hum}%`, impact: 'Slow drying — speed slightly reduced', ok: false });
+  else               factors.push({ label: 'Humidity',      value: `${hum}%`, impact: 'Good range — workability maintained', ok: true });
+
+  const wind = avg.wind_speed ?? 8;
+  if (wind > 15)    factors.push({ label: 'High Wind',     value: `${wind} km/h`, impact: 'Windward walls prioritised in segment sequence', ok: false });
+  else if (wind > 8) factors.push({ label: 'Moderate Wind', value: `${wind} km/h`, impact: 'Minor adjustment to elevated layer order', ok: false });
+  else              factors.push({ label: 'Wind Speed',    value: `${wind} km/h`, impact: 'Calm conditions — no wind compensation needed', ok: true });
+
+  const openTime  = result.cement?.open_time_min ?? selectedMat?.potLife20c ?? 60;
+  const riskScore = result.cement?.risk_score    ?? opt?.env_risk_score ?? 0;
+  factors.push({
+    label: selectedMat?.name ?? cementId, value: `${openTime} min open time`,
+    impact: `Risk ${riskScore}/100 — ${riskScore < 20 ? 'low risk' : 'speed adjusted'}`, ok: riskScore < 20,
+  });
+  if (opt && opt.time_saved_pct > 0) factors.push({ label: 'RL Travel Optimisation', value: `${opt.time_saved_pct}% saved`, impact: `Travel reduced from ${opt.naive_travel_mm}mm to ${opt.total_travel_mm}mm`, ok: true });
+  return factors;
 }
 
 function CitySearch({
@@ -158,10 +204,7 @@ function CitySearch({
       if (!Array.isArray(fd) || fd.length === 0) throw new Error();
       setForecast(fd);
       const planned = interpolateHourly(fd, hour, 1)[0] ?? fd[0];
-      const w: LiveWeather = {
-        temperature: planned.temperature, humidity: planned.humidity, wind_speed: planned.wind_speed,
-        description: planned.description, pot_life_min: 60, risk_score: planned.risk,
-      };
+      const w: LiveWeather = { temperature: planned.temperature, humidity: planned.humidity, wind_speed: planned.wind_speed, description: planned.description, pot_life_min: 60, risk_score: planned.risk };
       setWeather(w);
       onSelectRef.current(cityStr, w);
       onFCRef.current?.({ temperature: planned.temperature, humidity: planned.humidity, wind_speed: planned.wind_speed });
@@ -171,7 +214,6 @@ function CitySearch({
     } finally { setFetching(false); }
   }, []);
 
-  // Re-fetch when printDate or startTime changes (if city already selected)
   useEffect(() => {
     if (!cityStrRef.current) return;
     if (isOutOfRange(printDate)) {
@@ -191,18 +233,15 @@ function CitySearch({
     if (isOutOfRange(printDate)) {
       setForecastUnavailable(true);
       onSelectRef.current(cs, { temperature: 20, humidity: 65, wind_speed: 8, description: '', pot_life_min: 60, risk_score: 0 });
-      onFCRef.current?.(null);
-      return;
+      onFCRef.current?.(null); return;
     }
     await doFetch(cs, toDecimalHour(startTime));
   };
 
   const forecastLabel = (() => {
     try {
-      const d       = new Date(printDate + 'T00:00:00');
-      const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
-      const date    = d.toLocaleDateString('en-US', { day: 'numeric', month: 'long' });
-      return `${weekday} ${date} at ${fmtTime(startTime)}`;
+      const d = new Date(printDate + 'T00:00:00');
+      return `${d.toLocaleDateString('en-US', { weekday: 'long' })} ${d.toLocaleDateString('en-US', { day: 'numeric', month: 'long' })} at ${fmtTime(startTime)}`;
     } catch { return fmtTime(startTime); }
   })();
 
@@ -233,7 +272,6 @@ function CitySearch({
           </div>
         )}
       </div>
-
       {fetching && (
         <div className="mt-2 flex items-center gap-2 text-xs text-black/35">
           <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
@@ -244,18 +282,12 @@ function CitySearch({
         </div>
       )}
       {error && <p className="mt-1.5 text-[11px] text-black/35">{error}</p>}
-
-      {/* Forecast unavailable — beyond 5-day window */}
       {selected && forecastUnavailable && !fetching && (
         <div className="mt-3 bg-black rounded-2xl p-4">
           <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">{selected}</p>
-          <p className="text-xs text-white/40 leading-relaxed">
-            Forecast unavailable for this date — please enter conditions manually below
-          </p>
+          <p className="text-xs text-white/40">Forecast unavailable — enter conditions manually below</p>
         </div>
       )}
-
-      {/* Forecast card */}
       {weather && !fetching && !forecastUnavailable && (
         <div className="mt-3 bg-black rounded-2xl p-4">
           <div className="flex items-center justify-between mb-1">
@@ -264,11 +296,7 @@ function CitySearch({
           </div>
           <p className="text-[10px] text-white/50 mb-3">{forecastLabel}</p>
           <div className="grid grid-cols-3 gap-2">
-            {[
-              { label: 'Temp',     value: `${weather.temperature}°C` },
-              { label: 'Humidity', value: `${weather.humidity}%` },
-              { label: 'Wind',     value: `${weather.wind_speed.toFixed(1)} km/h` },
-            ].map((s, i) => (
+            {[{ label: 'Temp', value: `${weather.temperature}°C` }, { label: 'Humidity', value: `${weather.humidity}%` }, { label: 'Wind', value: `${weather.wind_speed.toFixed(1)} km/h` }].map((s, i) => (
               <div key={i} className="bg-white/6 rounded-xl px-2.5 py-2">
                 <p className="text-[9px] text-white/30 mb-0.5">{s.label}</p>
                 <p className="text-sm font-semibold text-white">{s.value}</p>
@@ -280,9 +308,7 @@ function CitySearch({
               <p className="text-[9px] text-white/25 uppercase tracking-widest mb-2">8-hour outlook</p>
               <div className="flex gap-1.5 overflow-x-auto pb-1">
                 {interpolateHourly(forecast, toDecimalHour(startTime), 8).map((f, i) => (
-                  <div key={i} className={`flex-shrink-0 rounded-xl px-2.5 py-2 text-center min-w-[52px] border ${
-                    f.risk > 50 ? 'bg-red-500/15 border-red-500/20' : f.risk > 20 ? 'bg-amber-400/10 border-amber-400/15' : 'bg-white/5 border-white/5'
-                  }`}>
+                  <div key={i} className={`flex-shrink-0 rounded-xl px-2.5 py-2 text-center min-w-[52px] border ${f.risk > 50 ? 'bg-red-500/15 border-red-500/20' : f.risk > 20 ? 'bg-amber-400/10 border-amber-400/15' : 'bg-white/5 border-white/5'}`}>
                     <p className="text-[8px] text-white/30 mb-0.5">{hourToLabel(f.hour)}</p>
                     <p className="text-[12px] font-semibold text-white">{f.temperature}°</p>
                     <p className={`text-[8px] font-medium mt-0.5 ${riskColor(f.risk)}`}>{f.risk > 50 ? 'High' : f.risk > 20 ? 'Med' : 'OK'}</p>
@@ -319,19 +345,24 @@ function NumInput({ value, onChange, min, max, step }: { value: number; onChange
 export default function SlicerTool() {
   const router       = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [file,        setFile]        = useState<File | null>(null);
   const [loading,     setLoading]     = useState(false);
   const [result,      setResult]      = useState<SlicerResult | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [error,       setError]       = useState('');
   const [sliceSaved,  setSliceSaved]  = useState(false);
-  const [cityStr,        setCityStr]        = useState('');
-  const [printDate,      setPrintDate]      = useState<string>(todayStr);
-  const [startTime,      setStartTime]      = useState<string>(nowTimeStr);
-  const [forecastWeather, setForecastWeather] = useState<{ temperature: number; humidity: number; wind_speed: number } | null>(null);
-  const [manualTemp,     setManualTemp]     = useState(20);
-  const [manualHumidity, setManualHumidity] = useState(65);
-  const [manualWind,     setManualWind]     = useState(8);
+  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>('results');
+  const [showSidebar,  setShowSidebar]  = useState(true);
+
+  // Weather
+  const [cityStr,          setCityStr]          = useState('');
+  const [printDate,        setPrintDate]        = useState<string>(todayStr);
+  const [startTime,        setStartTime]        = useState<string>(nowTimeStr);
+  const [forecastWeather,  setForecastWeather]  = useState<{ temperature: number; humidity: number; wind_speed: number } | null>(null);
+  const [manualTemp,       setManualTemp]       = useState(20);
+  const [manualHumidity,   setManualHumidity]   = useState(65);
+  const [manualWind,       setManualWind]       = useState(8);
 
   // Printer
   const [nozzle,       setNozzle]       = useState(25);
@@ -342,8 +373,15 @@ export default function SlicerTool() {
   const [acceleration, setAcceleration] = useState(500);
 
   // Cement
-  const [cementId,   setCementId]   = useState('sika-733w-3d-us');
-  const [customMix,  setCustomMix]  = useState<CustomMix>(DEFAULT_CUSTOM);
+  const [cementId,  setCementId]  = useState('sika-733w-3d-us');
+  const [customMix, setCustomMix] = useState<CustomMix>(DEFAULT_CUSTOM);
+
+  // Infill (Task 8)
+  const [infillPattern, setInfillPattern] = useState('none');
+  const [infillDensity, setInfillDensity] = useState(0.4);
+
+  // Time blocks (Task 9)
+  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([newBlock()]);
 
   const layerHeightMm = Math.round(nozzle * compression) / 10;
   const selectedMat   = MATERIALS.find(m => m.id === cementId);
@@ -353,6 +391,21 @@ export default function SlicerTool() {
     setCustomMix(prev => ({ ...prev, [k]: v }));
 
   const handleFile = (f: File | null) => { setFile(f); setResult(null); setShowResults(false); setError(''); };
+
+  const addTimeBlock = () => setTimeBlocks(prev => [...prev, newBlock()]);
+  const addBreak = () => {
+    const last = timeBlocks[timeBlocks.length - 1];
+    const breakEnd = last?.end ?? '17:00';
+    const [bh, bm] = breakEnd.split(':').map(Number);
+    const resumeH  = bh + 1;
+    setTimeBlocks(prev => [...prev, { id: Math.random().toString(36).slice(2), start: `${String(resumeH).padStart(2,'0')}:00`, end: `${String(resumeH+8).padStart(2,'0')}:00` }]);
+  };
+  const removeTimeBlock = (id: string) => setTimeBlocks(prev => prev.filter(b => b.id !== id));
+
+  const totalBlockHours = timeBlocks.reduce((sum, b) => {
+    const s = toDecimalHour(b.start), e = toDecimalHour(b.end);
+    return sum + Math.max(0, e - s);
+  }, 0);
 
   const run = async () => {
     if (!file) return;
@@ -374,13 +427,40 @@ export default function SlicerTool() {
       fd.append('temperature',          String(forecastWeather?.temperature ?? manualTemp));
       fd.append('humidity',             String(forecastWeather?.humidity    ?? manualHumidity));
       fd.append('wind_speed',           String(forecastWeather?.wind_speed  ?? manualWind));
+      // Infill
+      fd.append('infill_pattern',       infillPattern);
+      fd.append('infill_density',       String(infillDensity));
+      // Time blocks
+      fd.append('time_blocks',          JSON.stringify(timeBlocks.map(b => ({ start: b.start, end: b.end }))));
+
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error((err as any).detail || `Server error ${res.status}`);
       }
-      const sliceData = await res.json();
-      setResult(sliceData); setShowResults(true); setSliceSaved(false);
+      const sliceData: SlicerResult = await res.json();
+      setResult(sliceData); setShowResults(true);
+      setSidebarPanel('results');
+      // Auto-save
+      try {
+        const { error } = await supabase.from('saved_slices').insert({
+          source: 'slicer', user_id: null, project_id: null,
+          file_name: file.name, gcode_url: null,
+          print_time:       sliceData.estimated_print_time ?? null,
+          num_layers:       sliceData.geometry?.total_layers ?? null,
+          travel_saved_pct: sliceData.optimization?.time_saved_pct ?? null,
+          material:         cementId,
+          city:             cityStr || null,
+          print_date:       printDate,
+          print_start_hour: toDecimalHour(startTime),
+          temperature:      forecastWeather?.temperature ?? manualTemp,
+          humidity:         forecastWeather?.humidity    ?? manualHumidity,
+          wind_speed:       forecastWeather?.wind_speed  ?? manualWind,
+          result_json:      sliceData,
+        });
+        if (error) console.error('Slice save error:', error);
+        else setSliceSaved(true);
+      } catch (e) { console.error('Slice save exception:', e); }
     } catch (e: any) {
       setError(e.message || 'Optimization failed');
     } finally { setLoading(false); }
@@ -389,30 +469,24 @@ export default function SlicerTool() {
   const saveSlice = async () => {
     if (!result || !file) return;
     try {
-      console.log('Saving slice to Supabase...');
       const { data, error } = await supabase.from('saved_slices').insert({
-        source:           'slicer',
-        user_id:          null,
-        project_id:       null,
-        file_name:        file.name,
-        gcode_url:        null,
-        print_time:       result.estimated_print_time ?? null,
-        num_layers:       result.geometry?.total_layers ?? null,
-        travel_saved_pct: null,
-        material:         cementId,
-        city:             cityStr || null,
-        print_date:       printDate,
+        source: 'slicer', user_id: null, project_id: null,
+        file_name: file.name, gcode_url: null,
+        print_time: result.estimated_print_time ?? null,
+        num_layers: result.geometry?.total_layers ?? null,
+        travel_saved_pct: result.optimization?.time_saved_pct ?? null,
+        material: cementId,
+        city: cityStr || null,
+        print_date: printDate,
         print_start_hour: toDecimalHour(startTime),
-        temperature:      result.weather?.avg?.temperature ?? forecastWeather?.temperature ?? manualTemp,
-        humidity:         result.weather?.avg?.humidity    ?? forecastWeather?.humidity    ?? manualHumidity,
-        wind_speed:       result.weather?.avg?.wind_speed  ?? forecastWeather?.wind_speed  ?? manualWind,
-        result_json:      result,
+        temperature: result.weather?.avg?.temperature ?? forecastWeather?.temperature ?? manualTemp,
+        humidity:    result.weather?.avg?.humidity    ?? forecastWeather?.humidity    ?? manualHumidity,
+        wind_speed:  result.weather?.avg?.wind_speed  ?? forecastWeather?.wind_speed  ?? manualWind,
+        result_json: result,
       });
       if (error) console.error('Slice save error:', error);
-      else { console.log('Slice saved:', data); setSliceSaved(true); }
-    } catch (e) {
-      console.error('Slice save exception:', e);
-    }
+      else { setSliceSaved(true); }
+    } catch (e) { console.error('Slice save exception:', e); }
   };
 
   const dl = (content: string, filename: string) => {
@@ -421,26 +495,9 @@ export default function SlicerTool() {
     a.download = filename; a.click();
   };
 
-  const basename = file?.name?.replace(/\.[^.]+$/, '') ?? 'print';
-
-  const reportContent = result ? [
-    'AutoBuild AI — Slicer Report', `File: ${file?.name}`, '',
-    `Print time:   ${result.estimated_print_time}`,
-    `Layers:       ${result.geometry.total_layers}`,
-    `Layer height: ${result.printer.layer_height_mm} mm`,
-    `Nozzle:       ${result.printer.nozzle_mm} mm`,
-    `Speed:        ${result.printer.effective_speed} mm/s`,
-    `G-code lines: ${result.gcode_lines}`, '',
-    `Material:     ${isCustom ? 'Custom Mortar' : (selectedMat?.name ?? cementId)}`,
-    isCustom ? `Pot life 20°C: ${customMix.potLife20c} min` : `Pot life 20°C: ${selectedMat?.potLife20c} min`,
-    '', `Print strategy:`,
-    `  Date:  ${printDate}`,
-    `  Start: ${fmtTime(startTime)}`,
-    '', `Weather: ${result.weather.city}`,
-    `  Temp: ${result.weather.avg.temperature}°C`,
-    `  Humidity: ${result.weather.avg.humidity}%`,
-    `  Wind: ${result.weather.avg.wind_speed} km/h`,
-  ].join('\n') : '';
+  const basename  = file?.name?.replace(/\.[^.]+$/, '') ?? 'print';
+  const numLayers = result?.geometry?.total_layers ?? result?.geometry?.num_layers ?? 0;
+  const factors   = result ? buildSlicerFactors(result, cementId, selectedMat) : [];
 
   return (
     <>
@@ -452,165 +509,208 @@ export default function SlicerTool() {
             <LayerVisualization
               file={file!}
               toolpath={result.toolpath as any}
-              numLayers={result.geometry.total_layers}
+              numLayers={numLayers}
               layerHeight={result.printer.layer_height_mm / 1000}
               nozzleDiameter={nozzle / 1000}
               fullscreen
               onBack={() => setShowResults(false)}
             />
 
+            {/* Sidebar toggle */}
+            <button onClick={() => setShowSidebar(v => !v)}
+              className="absolute top-3 right-3 z-30 w-7 h-7 rounded-xl flex items-center justify-center transition-all hover:bg-white/10"
+              style={{ background: 'rgba(0,0,0,0.28)', backdropFilter: 'blur(10px)' }}>
+              <svg className="w-3.5 h-3.5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                {showSidebar
+                  ? <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />}
+              </svg>
+            </button>
+
             {/* Glass sidebar */}
-            <div className="absolute top-3 right-3 bottom-3 z-20 w-[300px] rounded-2xl flex flex-col"
-              style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.10)' }}>
+            <div className={`absolute top-10 right-3 bottom-3 z-20 w-[310px] flex flex-col transition-all duration-300 ${showSidebar ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'}`}
+              style={{ filter: 'drop-shadow(0 0 30px rgba(0,0,0,0.5))' }}>
+              <div className="flex flex-col h-full rounded-2xl overflow-hidden border border-white/10"
+                style={{ background: 'rgba(6,6,10,0.78)', backdropFilter: 'blur(24px)' }}>
 
-              {/* Sidebar header */}
-              <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between flex-shrink-0">
-                <div className="min-w-0">
-                  <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40">Slicer Results</p>
-                  <p className="text-xs font-medium text-white mt-0.5 truncate max-w-[200px]">{file?.name}</p>
-                </div>
-                <button onClick={() => setShowResults(false)}
-                  className="text-white/40 hover:text-white text-xl leading-none transition-colors flex-shrink-0 ml-2">×</button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-
-                {/* Print time hero */}
-                <div className="text-center py-2">
-                  <p className="text-[9px] text-white/30 uppercase tracking-widest mb-1.5">Estimated Print Time</p>
-                  <p className="text-3xl font-bold text-white">{result.estimated_print_time}</p>
-                </div>
-
-                {/* Stats list */}
-                <div className="space-y-0">
-                  {[
-                    ['Layers',       String(result.geometry.total_layers)],
-                    ['Layer Height', `${result.printer.layer_height_mm} mm`],
-                    ['G-code Lines', result.gcode_lines.toLocaleString()],
-                    ['Avg Speed',    `${result.printer.effective_speed} mm/s`],
-                    ['Material',     isCustom ? 'Custom Mortar' : (selectedMat?.name ?? cementId)],
-                    ['Weather',      result.weather.city !== 'manual' ? result.weather.city : 'Default'],
-                    ['Avg Temp',     `${result.weather.avg.temperature}°C`],
-                    ['Humidity',     `${result.weather.avg.humidity}%`],
-                    ['Wind',         `${result.weather.avg.wind_speed} km/h`],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between py-2 border-b border-white/6">
-                      <span className="text-[10px] text-white/40">{label}</span>
-                      <span className="text-xs font-semibold text-white">{value}</span>
-                    </div>
+                {/* Tabs */}
+                <div className="flex items-center border-b border-white/8 flex-shrink-0 px-3">
+                  {(['results', 'layers', 'changes', 'scan'] as SidebarPanel[]).map(panel => (
+                    <button key={panel} onClick={() => setSidebarPanel(panel)}
+                      className={`relative py-3 px-2 text-[11px] font-medium transition-all mr-1 capitalize ${sidebarPanel === panel ? 'text-white' : 'text-white/30 hover:text-white/60'}`}>
+                      {panel}
+                      {sidebarPanel === panel && <span className="absolute bottom-0 left-0 right-0 h-px bg-white rounded-full" />}
+                    </button>
                   ))}
                 </div>
 
-                {/* Pot life warning */}
-                {(() => {
-                  const estMin  = result.estimated_print_time_s ? result.estimated_print_time_s / 60 : null;
-                  const openMin = result.cement?.open_time_min
-                    ?? (isCustom ? customMix.potLife20c : selectedMat?.potLife20c ?? null);
-                  if (estMin === null || openMin === null) return null;
-                  const over = estMin > openMin;
-                  return (
-                    <div className="bg-black rounded-2xl px-4 py-3.5 space-y-1">
-                      <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40">Pot Life Check</p>
-                      <p className="text-xs font-semibold text-white">
-                        {over
-                          ? `Print time (${Math.round(estMin)} min) exceeds open time (${openMin} min) — plan a batch break`
-                          : `Within open time — ${Math.round(openMin - estMin)} min margin remaining`}
-                      </p>
-                    </div>
-                  );
-                })()}
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-3">
+                  <AnimatePresence mode="wait">
 
-                {/* Print Strategy */}
-                <div className="space-y-0">
-                  <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40 mb-2">Print Strategy</p>
-                  {[
-                    ['Date',       printDate],
-                    ['Start',      fmtTime(startTime)],
-                    ['Open time',  (() => {
-                      const openMin = result.cement?.open_time_min
-                        ?? (isCustom ? customMix.potLife20c : selectedMat?.potLife20c ?? null);
-                      const estMin  = result.estimated_print_time_s ? Math.round(result.estimated_print_time_s / 60) : null;
-                      if (openMin === null) return '—';
-                      return estMin !== null ? `${openMin} min open · ${estMin} min est` : `${openMin} min`;
-                    })()],
-                    ['Conditions', (() => {
-                      const t = result.weather.avg.temperature;
-                      const h = result.weather.avg.humidity;
-                      const w = result.weather.avg.wind_speed;
-                      return `${t}°C · ${h}% RH · ${w.toFixed(1)} km/h`;
-                    })()],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between py-2 border-b border-white/6">
-                      <span className="text-[10px] text-white/40">{label}</span>
-                      <span className="text-xs font-semibold text-white">{value}</span>
-                    </div>
-                  ))}
+                    {sidebarPanel === 'results' && (
+                      <motion.div key="res" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                        <div className="pt-1 pb-4 border-b border-white/8 mb-3">
+                          <p className="text-[10px] text-white/30 uppercase tracking-widest mb-1">Est. Print Time</p>
+                          <p className="text-3xl font-bold text-white tracking-tight leading-none">{result.estimated_print_time}</p>
+                        </div>
+                        <div className="mb-3">
+                          <StatRow label="Layers"       value={String(numLayers)}                                delay={0.02}/>
+                          <StatRow label="Layer Height" value={`${result.printer.layer_height_mm} mm`}          delay={0.04}/>
+                          <StatRow label="Nozzle"       value={`${result.printer.nozzle_mm} mm`}                delay={0.06}/>
+                          <StatRow label="Print Speed"  value={`${result.printer.effective_speed} mm/s`}        delay={0.08}/>
+                          <StatRow label="G-code Lines" value={result.gcode_lines.toLocaleString()}             delay={0.10}/>
+                          <StatRow label="Material"     value={isCustom ? 'Custom' : (selectedMat?.name ?? cementId)} delay={0.12}/>
+                          {result.optimization && (
+                            <StatRow label="Travel Saved" value={`${result.optimization.time_saved_pct}%`} accent="text-emerald-400" delay={0.14}/>
+                          )}
+                          {result.elapsed_seconds != null && (
+                            <StatRow label="Computed In" value={`${result.elapsed_seconds}s`} delay={0.16}/>
+                          )}
+                        </div>
+                        <div className="border-t border-white/6 pt-3 mb-3">
+                          <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">Conditions</p>
+                          <StatRow label="Temperature" value={`${result.weather.avg.temperature}°C`}    delay={0.18}/>
+                          <StatRow label="Humidity"    value={`${result.weather.avg.humidity}%`}         delay={0.20}/>
+                          <StatRow label="Wind"        value={`${result.weather.avg.wind_speed} km/h`}   delay={0.22}/>
+                          {result.optimization && (
+                            <StatRow label="Env Risk"
+                              value={`${result.optimization.env_risk_score}/100`}
+                              accent={result.optimization.env_risk_score < 20 ? 'text-emerald-400' : result.optimization.env_risk_score < 50 ? 'text-amber-400' : 'text-red-400'}
+                              delay={0.24}/>
+                          )}
+                        </div>
+                        <div className="border-t border-white/6 pt-3 mb-3">
+                          <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">Print Strategy</p>
+                          <StatRow label="Date"  value={printDate}        delay={0.26}/>
+                          <StatRow label="Start" value={fmtTime(startTime)} delay={0.28}/>
+                          <StatRow label="City"  value={result.weather.city !== 'manual' ? result.weather.city : 'Manual'} delay={0.30}/>
+                        </div>
+                        {(() => {
+                          const estMin  = result.estimated_print_time_s ? result.estimated_print_time_s / 60 : null;
+                          const openMin = result.cement?.open_time_min ?? (isCustom ? customMix.potLife20c : selectedMat?.potLife20c ?? null);
+                          if (estMin === null || openMin === null) return null;
+                          const over = estMin > openMin;
+                          return (
+                            <div className="rounded-xl px-3 py-2.5 border border-white/8 bg-white/4 mb-3">
+                              <p className="text-[9px] text-white/30 uppercase tracking-widest mb-1">Pot Life Check</p>
+                              <p className={`text-[11px] font-semibold ${over ? 'text-amber-300' : 'text-emerald-300'}`}>
+                                {over ? `Exceeds open time — plan a batch break` : `${Math.round(openMin - estMin)} min margin remaining`}
+                              </p>
+                            </div>
+                          );
+                        })()}
+                        <div className="border-t border-white/6 pt-3">
+                          <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">G-code Preview</p>
+                          <pre className="text-[9px] text-white/35 font-mono leading-relaxed overflow-x-auto max-h-16 scrollbar-none">{result.gcode_full?.split('\n').slice(0,10).join('\n')}</pre>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {sidebarPanel === 'layers' && (
+                      <motion.div key="layers" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-2">
+                        {(result.layer_stats ?? []).length > 0 && (() => {
+                          const stats  = result.layer_stats!;
+                          const speeds = stats.map(ls => ls.print_speed_mm_s);
+                          const minS   = Math.min(...speeds);
+                          const maxS   = Math.max(...speeds);
+                          const tempColor = (t: number) => t < 15 ? '#60a5fa' : t <= 25 ? '#e5e5e5' : t <= 30 ? '#fbbf24' : '#f87171';
+                          return (
+                            <div className="rounded-xl border border-white/8 p-3 mb-2" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[9px] text-white/40 uppercase tracking-wider">Speed profile</span>
+                                <span className="text-[9px] font-mono text-white/25">{minS}–{maxS} mm/s</span>
+                              </div>
+                              <div className="flex items-end gap-px h-16 w-full overflow-hidden rounded-lg">
+                                {stats.map((ls, i) => {
+                                  const h  = maxS === minS ? 50 : ((ls.print_speed_mm_s - minS) / (maxS - minS)) * 100;
+                                  return (
+                                    <div key={i} className="flex-1 flex flex-col justify-end group relative">
+                                      <div className="rounded-sm transition-opacity group-hover:opacity-100 opacity-80"
+                                        style={{ height: `${Math.max(8, h)}%`, background: tempColor(ls.temperature_c ?? 20) }} />
+                                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:flex items-center z-10 pointer-events-none">
+                                        <div className="rounded-lg px-2 py-1 text-[8px] font-mono text-white whitespace-nowrap" style={{ background: 'rgba(0,0,0,0.85)' }}>
+                                          L{ls.layer+1} · {ls.print_speed_mm_s}mm/s · {ls.temperature_c??'—'}°C
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        <p className="text-[9px] text-white/25 uppercase tracking-wider pt-1">Per-layer detail</p>
+                        {(result.layer_stats ?? []).map((ls, i) => {
+                          const layerTimeSec = ls.print_speed_mm_s > 0 ? ls.perimeter_mm / ls.print_speed_mm_s : 0;
+                          const layerTimeStr = layerTimeSec < 60 ? `${Math.round(layerTimeSec)}s` : `${Math.floor(layerTimeSec/60)}m ${Math.round(layerTimeSec%60)}s`;
+                          return (
+                            <motion.div key={i} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.008 }}
+                              className="rounded-xl p-2.5 border border-white/5 bg-white/4 hover:bg-white/6 transition-colors">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] font-bold text-white">Layer {ls.layer+1}</span>
+                                <span className="text-[9px] font-mono text-white/30">{ls.z_height_mm}mm</span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-1 mb-1.5">
+                                {[['Est. time', layerTimeStr], ['Speed', `${ls.print_speed_mm_s}mm/s`], ['Risk', `${ls.risk_score}/100`]].map(([l, v]) => (
+                                  <div key={l} className="rounded-lg px-2 py-1.5 border border-white/6 bg-white/3 text-center">
+                                    <p className="text-[8px] text-white/25 mb-0.5">{l}</p>
+                                    <p className="text-[10px] font-bold font-mono text-white">{v}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                {[['Segments', String(ls.segments)], ['Perimeter', `${ls.perimeter_mm}mm`]].map(([l, v]) => (
+                                  <div key={l} className="flex justify-between">
+                                    <span className="text-[9px] text-white/25">{l}</span>
+                                    <span className="text-[9px] font-mono text-white/60">{v}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                        {(!result.layer_stats || result.layer_stats.length === 0) && (
+                          <p className="text-[11px] text-white/30 text-center py-8">No layer data available</p>
+                        )}
+                      </motion.div>
+                    )}
+
+                    {sidebarPanel === 'changes' && (
+                      <motion.div key="chg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-2">
+                        {factors.map((f, i) => <FactorRow key={i} {...f} delay={i * 0.05} />)}
+                        {factors.length === 0 && <p className="text-[11px] text-white/30 text-center py-8">Run optimizer to see changes</p>}
+                      </motion.div>
+                    )}
+
+                    {sidebarPanel === 'scan' && (
+                      <motion.div key="scan" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                        <p className="text-[11px] text-white/25 text-center py-8">Scan data unavailable in standalone slicer</p>
+                      </motion.div>
+                    )}
+
+                  </AnimatePresence>
                 </div>
 
-                {/* Save */}
-                <button onClick={saveSlice} disabled={sliceSaved}
-                  className={`w-full py-2.5 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 ${
-                    sliceSaved
-                      ? 'bg-emerald-500/20 text-emerald-300 cursor-default'
-                      : 'bg-white/10 text-white hover:bg-white/20 border border-white/15'
-                  }`}>
-                  {sliceSaved ? (
-                    <>
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/>
-                      </svg>
-                      Saved to My Slices
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2H7a2 2 0 01-2-2V5z"/>
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-6h6v6"/>
-                      </svg>
-                      Save to My Slices
-                    </>
-                  )}
-                </button>
-
-                {/* Downloads */}
-                <div className="space-y-2 pt-1">
+                {/* Actions */}
+                <div className="px-4 pb-4 pt-3 border-t border-white/8 flex-shrink-0 space-y-2">
+                  <button onClick={saveSlice} disabled={sliceSaved}
+                    className={`w-full py-2.5 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 ${sliceSaved ? 'bg-emerald-500/20 text-emerald-300 cursor-default' : 'bg-white/10 text-white hover:bg-white/20 border border-white/15'}`}>
+                    {sliceSaved ? '✓ Saved to My Slices' : 'Save to My Slices'}
+                  </button>
                   <button onClick={() => dl(result.gcode_full, `${basename}.gcode`)}
-                    className="w-full py-2.5 text-xs font-semibold bg-white text-black rounded-xl hover:bg-white/90 transition-all flex items-center justify-center gap-2">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
+                    className="w-full py-2.5 text-xs font-semibold bg-white text-black rounded-xl hover:bg-white/90 transition-all">
                     Download .gcode
                   </button>
                   <button onClick={() => dl(result.gcode_full, `${basename}_gcode.txt`)}
-                    className="w-full py-2.5 text-xs font-semibold border border-white/20 text-white rounded-xl hover:bg-white/10 transition-all flex items-center justify-center gap-2">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
+                    className="w-full py-2.5 text-xs font-semibold border border-white/20 text-white rounded-xl hover:bg-white/10 transition-all">
                     G-code .txt
                   </button>
-                  <button onClick={() => dl(reportContent, `${basename}_report.txt`)}
-                    className="w-full py-2.5 text-xs font-semibold border border-white/10 text-white/50 rounded-xl hover:bg-white/5 transition-all flex items-center justify-center gap-2">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Report .txt
+                  <button onClick={() => setShowResults(false)}
+                    className="w-full py-2 text-[11px] text-white/30 hover:text-white/60 transition-colors text-center">
+                    ← Back to setup
                   </button>
                 </div>
-
-                {/* My Slices link */}
-                <button onClick={() => router.push('/tools/slices')}
-                  className="w-full py-2 text-[11px] font-medium text-white/40 hover:text-white/70 transition-colors text-center flex items-center justify-center gap-1.5">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0l-4-4m4 4l-4 4"/>
-                  </svg>
-                  View all saved slices
-                </button>
-
-                {/* Back to setup */}
-                <button onClick={() => setShowResults(false)}
-                  className="w-full py-2 text-[11px] font-medium text-white/30 hover:text-white/60 transition-colors text-center">
-                  ← Back to setup
-                </button>
               </div>
             </div>
           </motion.div>
@@ -656,10 +756,7 @@ export default function SlicerTool() {
                 onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
                 onDragOver={e => e.preventDefault()}
                 onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
-                  file ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-black hover:bg-gray-50'
-                }`}
-              >
+                className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${file ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-black hover:bg-gray-50'}`}>
                 {file ? (
                   <>
                     <p className="text-sm font-semibold text-black truncate">{file.name}</p>
@@ -683,47 +780,24 @@ export default function SlicerTool() {
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Printer</h2>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Nozzle (mm)">
-                  <NumInput value={nozzle} onChange={setNozzle} min={10} max={80} />
-                </Field>
-                <Field label={`Compression → ${layerHeightMm} mm`}>
-                  <NumInput value={compression} onChange={setCompression} min={0.4} max={0.9} step={0.05} />
-                </Field>
-                <Field label="Max velocity (mm/s)">
-                  <NumInput value={velocity} onChange={setVelocity} min={10} max={300} />
-                </Field>
-                <Field label="Hose length (m)">
-                  <NumInput value={hoseLength} onChange={setHoseLength} min={1} max={100} />
-                </Field>
-                <Field label="Max flow (L/min)">
-                  <NumInput value={flowRate} onChange={setFlowRate} min={1} max={30} step={0.5} />
-                </Field>
-                <Field label="Acceleration (mm/s²)">
-                  <NumInput value={acceleration} onChange={setAcceleration} min={50} max={2000} step={50} />
-                </Field>
+                <Field label="Nozzle (mm)"><NumInput value={nozzle} onChange={setNozzle} min={10} max={80} /></Field>
+                <Field label={`Compression → ${layerHeightMm} mm`}><NumInput value={compression} onChange={setCompression} min={0.4} max={0.9} step={0.05} /></Field>
+                <Field label="Max velocity (mm/s)"><NumInput value={velocity} onChange={setVelocity} min={10} max={300} /></Field>
+                <Field label="Hose length (m)"><NumInput value={hoseLength} onChange={setHoseLength} min={1} max={100} /></Field>
+                <Field label="Max flow (L/min)"><NumInput value={flowRate} onChange={setFlowRate} min={1} max={30} step={0.5} /></Field>
+                <Field label="Acceleration (mm/s²)"><NumInput value={acceleration} onChange={setAcceleration} min={50} max={2000} step={50} /></Field>
               </div>
             </div>
 
-            {/* Cement mix */}
+            {/* Cement */}
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Cement Mix</h2>
               <select value={cementId} onChange={e => setCementId(e.target.value)} className={selectCls}>
-                {MATERIALS.map(m => (
-                  <option key={m.id} value={m.id}>{m.name} — {m.region}</option>
-                ))}
+                {MATERIALS.map(m => <option key={m.id} value={m.id}>{m.name} — {m.region}</option>)}
               </select>
-
-              {/* Standard material info */}
               {!isCustom && selectedMat && (
                 <div className="grid grid-cols-2 gap-2">
-                  {[
-                    ['Pot life 20°C', `${selectedMat.potLife20c} min`],
-                    ['Strength 28d',   selectedMat.strength28d],
-                    ['Layer range',   `${selectedMat.layerMin}–${selectedMat.layerMax} mm`],
-                    ['Water ratio',    selectedMat.waterRatio],
-                    ['Grain size',    `≤${selectedMat.grainSize} mm`],
-                    ['Spread flow',   `${selectedMat.spreadFlow} mm`],
-                  ].map(([k, v]) => (
+                  {[['Pot life 20°C', `${selectedMat.potLife20c} min`], ['Strength 28d', selectedMat.strength28d], ['Layer range', `${selectedMat.layerMin}–${selectedMat.layerMax} mm`], ['Water ratio', selectedMat.waterRatio]].map(([k, v]) => (
                     <div key={k} className="bg-gray-50 rounded-xl px-3 py-2">
                       <p className="text-[9px] text-black/30 uppercase tracking-wide">{k}</p>
                       <p className="text-xs font-semibold text-black">{v}</p>
@@ -731,54 +805,53 @@ export default function SlicerTool() {
                   ))}
                 </div>
               )}
-
-              {/* Custom mortar editable params */}
               {isCustom && (
-                <div className="space-y-4">
-                  <p className="text-[10px] text-black/40">Enter your mortar properties</p>
+                <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Pot life 10°C (min)">
-                      <NumInput value={customMix.potLife10c} onChange={v => setCustomField('potLife10c', v)} min={10} max={240} />
-                    </Field>
-                    <Field label="Pot life 20°C (min)">
-                      <NumInput value={customMix.potLife20c} onChange={v => setCustomField('potLife20c', v)} min={10} max={240} />
-                    </Field>
-                    <Field label="Pot life 30°C (min)">
-                      <NumInput value={customMix.potLife30c} onChange={v => setCustomField('potLife30c', v)} min={5} max={120} />
-                    </Field>
-                    <Field label="Grain size (mm)">
-                      <NumInput value={customMix.grainSize} onChange={v => setCustomField('grainSize', v)} min={0.1} max={10} step={0.1} />
-                    </Field>
-                    <Field label="Layer min (mm)">
-                      <NumInput value={customMix.layerMin} onChange={v => setCustomField('layerMin', v)} min={1} max={50} />
-                    </Field>
-                    <Field label="Layer max (mm)">
-                      <NumInput value={customMix.layerMax} onChange={v => setCustomField('layerMax', v)} min={1} max={100} />
-                    </Field>
-                    <Field label="Spread flow (mm)">
-                      <NumInput value={customMix.spreadFlow} onChange={v => setCustomField('spreadFlow', v)} min={80} max={300} />
-                    </Field>
-                    <Field label="Strength 28d">
-                      <input value={customMix.strength28d} onChange={e => setCustomField('strength28d', e.target.value)}
-                        placeholder="e.g. 40 MPa" className={inputCls} />
-                    </Field>
+                    <Field label="Pot life 10°C"><NumInput value={customMix.potLife10c} onChange={v => setCustomField('potLife10c', v)} min={10} max={240} /></Field>
+                    <Field label="Pot life 20°C"><NumInput value={customMix.potLife20c} onChange={v => setCustomField('potLife20c', v)} min={10} max={240} /></Field>
+                    <Field label="Pot life 30°C"><NumInput value={customMix.potLife30c} onChange={v => setCustomField('potLife30c', v)} min={5} max={120} /></Field>
+                    <Field label="Grain size (mm)"><NumInput value={customMix.grainSize} onChange={v => setCustomField('grainSize', v)} min={0.1} max={10} step={0.1} /></Field>
+                    <Field label="Layer min (mm)"><NumInput value={customMix.layerMin} onChange={v => setCustomField('layerMin', v)} min={1} max={50} /></Field>
+                    <Field label="Layer max (mm)"><NumInput value={customMix.layerMax} onChange={v => setCustomField('layerMax', v)} min={1} max={100} /></Field>
                   </div>
-                  <Field label="Water ratio">
-                    <input value={customMix.waterRatio} onChange={e => setCustomField('waterRatio', e.target.value)}
-                      placeholder="e.g. 14–16%" className={inputCls} />
-                  </Field>
-                  <div className="bg-black rounded-xl p-3 grid grid-cols-3 gap-2">
-                    {[
-                      ['10°C', `${customMix.potLife10c} min`],
-                      ['20°C', `${customMix.potLife20c} min`],
-                      ['30°C', `${customMix.potLife30c} min`],
-                    ].map(([t, v]) => (
-                      <div key={t} className="text-center">
-                        <p className="text-[9px] text-white/30 mb-0.5">{t}</p>
-                        <p className="text-xs font-bold text-white">{v}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Infill — Task 8 */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Infill Pattern</h2>
+              <div className="flex gap-2">
+                {(['none', 'zigzag', 'hexagonal'] as const).map(p => (
+                  <button key={p} onClick={() => setInfillPattern(p)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${infillPattern === p ? 'bg-black text-white' : 'bg-gray-100 text-black/50 hover:text-black'}`}>
+                    {p === 'none' ? 'None' : p.charAt(0).toUpperCase() + p.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {infillPattern !== 'none' && (
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-black">Infill Density</span>
+                      <div className="flex items-center gap-1.5">
+                        <input type="number" value={infillDensity} min={0.2} max={0.8} step={0.05}
+                          onChange={e => setInfillDensity(Number(e.target.value))}
+                          className="w-16 px-2 py-1 text-xs font-mono text-right border border-gray-200 rounded-lg focus:outline-none focus:border-black text-black" />
                       </div>
-                    ))}
+                    </div>
+                    <input type="range" min={0.2} max={0.8} step={0.05} value={infillDensity}
+                      onChange={e => setInfillDensity(Number(e.target.value))}
+                      className="w-full h-0.5 rounded-full appearance-none cursor-pointer accent-black bg-gray-200" />
+                    <div className="flex justify-between mt-1.5">
+                      <span className="text-[10px] text-black/25">0.2</span>
+                      <span className="text-[10px] text-black/25">0.8</span>
+                    </div>
                   </div>
+                  {infillDensity < 0.4 && (
+                    <p className="text-[10px] text-amber-600 font-medium">Low density — consider ≥ 0.4 for structural integrity</p>
+                  )}
                 </div>
               )}
             </div>
@@ -786,47 +859,85 @@ export default function SlicerTool() {
             {/* Weather */}
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
               <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Weather</h2>
-
-              {/* Date + time always visible */}
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Print Date">
-                  <input type="date" value={printDate} onChange={e => setPrintDate(e.target.value)}
-                    className={inputCls} />
+                  <input type="date" value={printDate} onChange={e => setPrintDate(e.target.value)} className={inputCls} />
                 </Field>
                 <Field label="Start Time">
-                  <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
-                    className={inputCls} />
+                  <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={inputCls} />
                 </Field>
               </div>
-
-              {/* City search — passes date+time for forecast */}
-              <CitySearch
-                onSelect={(cs) => setCityStr(cs)}
-                printDate={printDate}
-                startTime={startTime}
-                onForecastChange={setForecastWeather}
-              />
-              {!cityStr && <p className="text-[10px] text-black/25 -mt-2">Optional — leave blank to enter conditions manually</p>}
-
-              {/* Manual conditions — shown when no city or forecast unavailable */}
+              <CitySearch onSelect={cs => setCityStr(cs)} printDate={printDate} startTime={startTime} onForecastChange={setForecastWeather} />
+              {!cityStr && <p className="text-[10px] text-black/25 -mt-2">Optional — leave blank to enter manually</p>}
               {(!cityStr || !forecastWeather) && (
                 <div className="space-y-3 pt-1">
-                  <p className="text-[10px] text-black/30">
-                    {cityStr ? 'Forecast unavailable — enter conditions manually' : 'No city selected — enter conditions manually'}
-                  </p>
+                  <p className="text-[10px] text-black/30">{cityStr ? 'Forecast unavailable — enter manually' : 'No city selected — enter manually'}</p>
                   <div className="grid grid-cols-3 gap-3">
-                    <Field label="Temp (°C)">
-                      <NumInput value={manualTemp} onChange={setManualTemp} min={5} max={45} step={0.5} />
-                    </Field>
-                    <Field label="Humidity (%)">
-                      <NumInput value={manualHumidity} onChange={setManualHumidity} min={20} max={100} />
-                    </Field>
-                    <Field label="Wind (km/h)">
-                      <NumInput value={manualWind} onChange={setManualWind} min={0} max={60} step={0.5} />
-                    </Field>
+                    <Field label="Temp (°C)"><NumInput value={manualTemp} onChange={setManualTemp} min={5} max={45} step={0.5} /></Field>
+                    <Field label="Humidity (%)"><NumInput value={manualHumidity} onChange={setManualHumidity} min={20} max={100} /></Field>
+                    <Field label="Wind (km/h)"><NumInput value={manualWind} onChange={setManualWind} min={0} max={60} step={0.5} /></Field>
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Working Hours / Time Blocks — Task 9 */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Working Hours</h2>
+                <span className="text-[10px] text-black/25">{totalBlockHours.toFixed(1)} hrs / day</span>
+              </div>
+
+              {/* Timeline visualization */}
+              <div className="relative h-6 bg-gray-50 rounded-lg overflow-hidden border border-gray-100">
+                {timeBlocks.map(b => {
+                  const s = toDecimalHour(b.start);
+                  const e = toDecimalHour(b.end);
+                  const left  = Math.max(0, (s / 24) * 100);
+                  const width = Math.max(0, ((e - s) / 24) * 100);
+                  return (
+                    <div key={b.id}
+                      className="absolute top-0 bottom-0 bg-black/80 rounded-sm"
+                      style={{ left: `${left}%`, width: `${width}%` }} />
+                  );
+                })}
+                {[0, 6, 12, 18, 24].map(h => (
+                  <div key={h} className="absolute top-0 bottom-0 w-px bg-gray-200" style={{ left: `${(h/24)*100}%` }}>
+                    <span className="absolute -bottom-5 -translate-x-1/2 text-[8px] text-black/25">{h}h</span>
+                  </div>
+                ))}
+              </div>
+              <div className="h-4" />
+
+              {timeBlocks.map((block, idx) => (
+                <div key={block.id} className="border border-gray-100 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold text-black/40 uppercase tracking-widest">Block {idx + 1}</span>
+                    {timeBlocks.length > 1 && (
+                      <button onClick={() => removeTimeBlock(block.id)} className="text-black/20 hover:text-black text-lg leading-none">&times;</button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Start">
+                      <input type="time" value={block.start} onChange={e => setTimeBlocks(prev => prev.map(b => b.id === block.id ? { ...b, start: e.target.value } : b))} className={inputCls} />
+                    </Field>
+                    <Field label="End">
+                      <input type="time" value={block.end} onChange={e => setTimeBlocks(prev => prev.map(b => b.id === block.id ? { ...b, end: e.target.value } : b))} className={inputCls} />
+                    </Field>
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex gap-2">
+                <button onClick={addBreak}
+                  className="flex-1 py-2 text-xs font-medium border border-dashed border-gray-200 rounded-xl text-black/35 hover:text-black hover:border-black transition-colors">
+                  + Add Break
+                </button>
+                <button onClick={addTimeBlock}
+                  className="flex-1 py-2 text-xs font-medium border border-dashed border-gray-200 rounded-xl text-black/35 hover:text-black hover:border-black transition-colors">
+                  + Add Time Block
+                </button>
+              </div>
             </div>
 
             {/* Run (mobile) */}
@@ -842,8 +953,6 @@ export default function SlicerTool() {
 
           {/* ── Right panel ── */}
           <div className="space-y-4">
-
-            {/* 3D viewer */}
             <div className="bg-black rounded-2xl overflow-hidden shadow-sm" style={{ minHeight: 520 }}>
               {file ? (
                 <LayerVisualization
@@ -865,14 +974,12 @@ export default function SlicerTool() {
                 </div>
               )}
             </div>
-
-            {/* Hint when result is ready */}
             {result && !loading && !showResults && (
               <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
                 className="bg-black rounded-2xl px-5 py-4 shadow-sm flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold text-white">Optimization complete</p>
-                  <p className="text-xs text-white/40 mt-0.5">{result.estimated_print_time} · {result.geometry.total_layers} layers</p>
+                  <p className="text-xs text-white/40 mt-0.5">{result.estimated_print_time} · {numLayers} layers</p>
                 </div>
                 <button onClick={() => setShowResults(true)}
                   className="flex-shrink-0 px-4 py-2 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-all">
