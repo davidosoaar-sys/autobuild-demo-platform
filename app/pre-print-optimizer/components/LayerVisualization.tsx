@@ -6,7 +6,7 @@ import { OrbitControls, Line, TransformControls, GizmoHelper, GizmoViewport, Ort
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 
-interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; }
+interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; infill?: boolean; }
 type Layer         = Segment[];
 type ViewMode      = 'environment' | 'dark' | 'light';
 type TimeOfDay     = 'morning' | 'noon' | 'sunset';
@@ -534,16 +534,23 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
   const allSegs = useMemo(() => {
-    const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
+    const out: { s:[number,number,number]; e:[number,number,number]; layer: number; infill: boolean }[] = [];
     toolpath.forEach((layer, li) => {
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
-        out.push({ s:[seg.x0, y, -seg.y0], e:[seg.x1, y, -seg.y1], layer: li });
+        out.push({ s:[seg.x0, y, -seg.y0], e:[seg.x1, y, -seg.y1], layer: li, infill: !!seg.infill });
       });
     });
     return out;
   }, [toolpath, layerHeight]);
+
+  const beadSegs = useMemo(() => allSegs.filter(s => !s.infill), [allSegs]);
+
+  const beadCounts = useMemo(() => {
+    let c = 0;
+    return allSegs.map(s => { if (!s.infill) c++; return c; });
+  }, [allSegs]);
 
   if (allSegs.length === 0) return null;
 
@@ -565,7 +572,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
   const beadH = lhMM * 1.6;
 
   const fullGeo = useMemo(() => {
-    const total = allSegs.length;
+    const total = beadSegs.length;
     if (total === 0) return null;
 
     // 8-vertex tapered box — proven bead shape:
@@ -576,7 +583,7 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
     const indices   = new Uint32Array(total * 36);
 
     for (let i = 0; i < total; i++) {
-      const s   = allSegs[i];
+      const s   = beadSegs[i];
       const dx  = s.e[0] - s.s[0];
       const dz  = s.e[2] - s.s[2];
       const len = Math.sqrt(dx*dx + dz*dz);
@@ -626,16 +633,30 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
     geo.computeVertexNormals();
     return geo;
-  }, [allSegs, beadW, beadH]);
+  }, [beadSegs, beadW, beadH]);
+
+  const infillGeo = useMemo(() => {
+    const segs = allSegs.filter(s => s.infill);
+    if (!segs.length) return null;
+    const pts = new Float32Array(segs.length * 6);
+    segs.forEach((s, i) => {
+      pts[i*6+0] = s.s[0]; pts[i*6+1] = s.s[1]; pts[i*6+2] = s.s[2];
+      pts[i*6+3] = s.e[0]; pts[i*6+4] = s.e[1]; pts[i*6+5] = s.e[2];
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+    return g;
+  }, [allSegs]);
 
   useEffect(() => {
     if (!fullGeo) return;
     if (progress >= 1) {
       fullGeo.setDrawRange(0, Infinity);
     } else {
-      fullGeo.setDrawRange(0, (segIdx + 1) * 36);
+      const bc = segIdx < beadCounts.length ? beadCounts[segIdx] : 0;
+      fullGeo.setDrawRange(0, bc * 36);
     }
-  }, [fullGeo, progress, segIdx, allSegs.length]);
+  }, [fullGeo, progress, segIdx, beadCounts]);
 
   return (
     <group>
@@ -648,6 +669,11 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
             side={THREE.DoubleSide}
           />
         </mesh>
+      )}
+      {infillGeo && (
+        <lineSegments geometry={infillGeo} renderOrder={2}>
+          <lineBasicMaterial color="white" transparent opacity={0.4}/>
+        </lineSegments>
       )}
       <group position={nozzle}>
         <mesh>

@@ -433,6 +433,7 @@ export default function SlicerTool() {
       // Time blocks
       fd.append('time_blocks',          JSON.stringify(timeBlocks.map(b => ({ start: b.start, end: b.end }))));
 
+      console.log('Sending infill:', infillPattern, infillDensity);
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

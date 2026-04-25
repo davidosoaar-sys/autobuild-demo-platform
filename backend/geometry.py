@@ -395,6 +395,9 @@ def generate_infill_segments(
     nozzle_diameter_mm: float,
 ) -> List[Segment]:
     """Return infill segments for one layer. Returns [] if pattern is 'none'."""
+    if density < 0.2:
+        print(f"[infill] density {density} < 0.2 — skipping", flush=True)
+        return []
     if pattern == "zigzag":
         return _generate_zigzag(bounds_x, bounds_y, density, nozzle_diameter_mm)
     elif pattern == "hexagonal":
@@ -415,7 +418,7 @@ def _generate_zigzag(
     segs: List[Segment] = []
     x       = x_min
     forward = True
-    while x <= x_max:
+    while x <= x_max and len(segs) < 500:
         if forward:
             segs.append(((x, y_min), (x, y_max)))
         else:
