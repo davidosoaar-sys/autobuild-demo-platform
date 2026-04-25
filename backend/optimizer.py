@@ -353,3 +353,34 @@ def _total_print_mm(segs: List[Segment]) -> float:
 
 def _seg_len(p0, p1) -> float:
     return float(np.hypot(p1[0] - p0[0], p1[1] - p0[1]))
+
+
+def _enforce_continuous_loop(ordered_segments: list) -> list:
+    """
+    Convert ordered Segment tuples to enriched dicts with type='travel'|'extrude'.
+    Inserts explicit travel moves between non-adjacent segments (gap > 2 mm).
+    """
+    if not ordered_segments:
+        return []
+
+    import math as _math
+    GAP_M  = 0.002
+    result = []
+
+    for i, seg in enumerate(ordered_segments):
+        if i == 0:
+            result.append({"type": "travel", "x0": 0.0, "y0": 0.0,
+                           "x1": seg[0][0], "y1": seg[0][1], "extrude": False})
+        else:
+            prev = ordered_segments[i - 1]
+            gap  = _math.hypot(seg[0][0] - prev[1][0], seg[0][1] - prev[1][1])
+            if gap > GAP_M:
+                result.append({"type": "travel",
+                               "x0": prev[1][0], "y0": prev[1][1],
+                               "x1": seg[0][0],  "y1": seg[0][1], "extrude": False})
+
+        result.append({"type": "extrude",
+                       "x0": seg[0][0], "y0": seg[0][1],
+                       "x1": seg[1][0], "y1": seg[1][1], "extrude": True})
+
+    return result

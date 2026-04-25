@@ -85,6 +85,10 @@ class AdaptiveSlicerEnv(gym.Env):
         # FIX 3: pre-compute segment coords array for fast indexing
         self._seg_coords: np.ndarray = np.zeros((MAX_SEGMENTS, 4), dtype=np.float32)
 
+        self.layer_print_times: dict = {}
+        self.temperature = float(self.weather.get("temperature", 20.0))
+        self.humidity    = float(self.weather.get("humidity",    65.0))
+
     def _build_seg_coords(self):
         """Cache segment coords as numpy array once per layer."""
         n = min(len(self.all_segments), MAX_SEGMENTS)
@@ -105,6 +109,8 @@ class AdaptiveSlicerEnv(gym.Env):
         self._step_count = 0
         self._travel_mm  = 0.0
         self._build_seg_coords()
+        # record when this layer started being printed
+        self.layer_print_times[self.layer_idx] = self.elapsed_min
         return self._obs(), {}
 
     def step(self, action: int):
@@ -183,37 +189,10 @@ class AdaptiveSlicerEnv(gym.Env):
         return obs
 
     def _reward(self, travel_m: float, seg_len_m: float) -> float:
-        w    = self.weather
-        temp = float(w.get("temperature", 20.0))
-
-        print_reward   =  seg_len_m * 3.0
-        travel_penalty = -travel_m  * 2.5
-
-        pot_remaining = max(0.0, self.pot_life_min - self.elapsed_min)
-        pot_frac_used = 1.0 - pot_remaining / max(self.pot_life_min, 1.0)
-        time_penalty  = -max(0.0, pot_frac_used - 0.8) * 10.0
-
-        risk = composite_risk_score(
-            temp,
-            float(w.get("humidity",     65.0)),
-            float(w.get("wind_speed",    8.0)),
-            float(w.get("ground_slope",  0.0)),
-        )
-        env_penalty  = -(risk / 100.0) * 2.0
-        struct_bonus = 0.0
-        if len(self.printed) >= 2:
-            prev = self.all_segments[self.printed[-2]]
-            dist = float(np.linalg.norm(
-                np.array(prev[1]) - np.array(self.all_segments[self.printed[-1]][0])
-            ))
-            if dist < 0.01:
-                struct_bonus = 0.5
-
-        speed_bonus = 0.0
-        if len(self.remaining) == 0 and self.elapsed_min < self.pot_life_min * 0.5:
-            speed_bonus = 1.0
-
-        return float(print_reward + travel_penalty + time_penalty + env_penalty + struct_bonus + speed_bonus)
+        quality_score    = self._calculate_quality_score(travel_m, seg_len_m)
+        continuity_score = self._calculate_continuity_score(travel_m, seg_len_m)
+        travel_penalty   = self._calculate_travel_penalty(travel_m) * 0.3
+        return float(quality_score + continuity_score - travel_penalty)
 
     def _start_pos(self) -> np.ndarray:
         if not self.all_segments:
@@ -266,6 +245,83 @@ class AdaptiveSlicerEnv(gym.Env):
         self.total_print_min = total_print_min
         if printer:
             self.printer = {**DEFAULT_PRINTER, **printer}
+        self.temperature = float(weather.get("temperature", 20.0))
+        self.humidity    = float(weather.get("humidity",    65.0))
+
+    # ── Curing time helpers (Task 2) ─────────────────────────────────────────
+
+    def _get_curing_time_minutes(self, temperature: float, humidity: float) -> float:
+        base_curing_time = 45.0  # Sikacrete at 20°C
+        temp_factor      = 1.0 - ((temperature - 20) * 0.03)
+        humidity_factor  = 1.0 + ((humidity - 50) * 0.005)
+        return base_curing_time * temp_factor * humidity_factor
+
+    def _layer_has_cured_enough(self, layer_idx: int, current_time_minutes: float) -> bool:
+        if layer_idx not in self.layer_print_times:
+            return True  # assume cured if we have no data
+        layer_print_time = self.layer_print_times[layer_idx]
+        curing_time      = self._get_curing_time_minutes(self.temperature, self.humidity)
+        min_bond_time    = curing_time * 0.2
+        return (current_time_minutes - layer_print_time) >= min_bond_time
+
+    # ── Decomposed reward helpers (Task 1) ───────────────────────────────────
+
+    def _calculate_quality_score(self, travel_m: float, seg_len_m: float) -> float:
+        """Primary reward: layer bonding, open time respect, material freshness."""
+        quality = seg_len_m * 3.0
+
+        pot_remaining      = max(0.0, self.pot_life_min - self.elapsed_min)
+        pot_frac_remaining = pot_remaining / max(self.pot_life_min, 1.0)
+        # freshness bonus — reward printing early in pot life window
+        quality += pot_frac_remaining * 1.5
+
+        # heavy penalty when approaching pot life expiry (>80% used)
+        pot_frac_used = 1.0 - pot_frac_remaining
+        if pot_frac_used > 0.8:
+            quality -= (pot_frac_used - 0.8) * 20.0
+
+        # cold joint penalty — previous layer not cured enough
+        if self.layer_idx > 0 and not self._layer_has_cured_enough(self.layer_idx - 1, self.elapsed_min):
+            quality -= 2.0
+
+        # env risk penalty — bad conditions reduce structural quality
+        w    = self.weather
+        risk = composite_risk_score(
+            float(w.get("temperature", 20.0)),
+            float(w.get("humidity",    65.0)),
+            float(w.get("wind_speed",   8.0)),
+            float(w.get("ground_slope", 0.0)),
+        )
+        quality -= (risk / 100.0) * 1.5
+        return quality
+
+    def _calculate_continuity_score(self, travel_m: float, seg_len_m: float) -> float:
+        """Secondary reward: continuous flow, minimal stop/start events."""
+        if travel_m < 0.001:
+            continuity = 2.0
+        elif travel_m < 0.02:
+            continuity = 1.0 - (travel_m / 0.02)
+        else:
+            continuity = -min(travel_m * 5.0, 3.0)
+
+        # structural continuity bonus — consecutive adjacent segments
+        if len(self.printed) >= 2:
+            prev = self.all_segments[self.printed[-2]]
+            dist = float(np.linalg.norm(
+                np.array(prev[1]) - np.array(self.all_segments[self.printed[-1]][0])
+            ))
+            if dist < 0.01:
+                continuity += 0.5
+
+        # speed bonus if all done well within pot life
+        if len(self.remaining) == 0 and self.elapsed_min < self.pot_life_min * 0.5:
+            continuity += 1.0
+
+        return continuity
+
+    def _calculate_travel_penalty(self, travel_m: float) -> float:
+        """Tertiary: travel distance at 30% weight."""
+        return travel_m * 2.5
 
     @staticmethod
     def _n(val: float, lo: float, hi: float) -> float:

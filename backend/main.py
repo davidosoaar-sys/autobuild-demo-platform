@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 import requests
 
-from geometry   import parse_and_slice
+from geometry   import parse_and_slice, generate_infill_segments
 from optimizer  import optimize
 from gcode      import toolpath_to_gcode, format_print_time
 from weather    import (
@@ -262,6 +262,11 @@ async def optimize_endpoint(
     print_speed:           Optional[float] = Form(None),
     # Scale factor
     print_scale:           float          = Form(1.0),
+    # Infill / structure / time blocks
+    infill_pattern:        str            = Form("none"),
+    infill_density:        float          = Form(0.4),
+    structure_type:        str            = Form("wall"),
+    time_blocks:           str            = Form("[]"),
 ):
     fname = file.filename or ""
     allowed_exts = (".stl", ".obj", ".stp", ".step", ".dxf", ".ifc")
@@ -367,6 +372,21 @@ async def optimize_endpoint(
     except Exception as e:
         raise HTTPException(500, f"Optimisation failed: {e}")
 
+    # ── Infill injection ──────────────────────────────────────────────────────
+    if infill_pattern != "none":
+        bx = geo_meta["bounds_x"]
+        by = geo_meta["bounds_y"]
+        for layer_idx, layer_segs in enumerate(toolpath):
+            z = layer_metas[layer_idx]["z_height_m"] if layer_idx < len(layer_metas) else 0.0
+            infill = generate_infill_segments(bx, by, z, infill_pattern, infill_density, nozzle_diameter_mm)
+            layer_segs.extend(infill)
+
+    # ── Parse time blocks ─────────────────────────────────────────────────────
+    try:
+        parsed_time_blocks = json.loads(time_blocks) if time_blocks else []
+    except Exception:
+        parsed_time_blocks = []
+
     # ── G-code ────────────────────────────────────────────────────────────────
     gcode_str = toolpath_to_gcode(
         toolpath       = toolpath,
@@ -374,6 +394,9 @@ async def optimize_endpoint(
         printer_name   = printer_name,
         uses_e_axis    = uses_e_axis,
         nozzle_diam_mm = nozzle_diameter_mm,
+        structure_type = structure_type,
+        time_blocks    = parsed_time_blocks,
+        print_start_hour = print_start_hour,
     )
 
     elapsed   = round(time.time() - start, 2)

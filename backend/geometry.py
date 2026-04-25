@@ -18,6 +18,7 @@ FAST_PATH_THRESHOLD is computed dynamically from nozzle_width:
 """
 
 import io
+import math
 import numpy as np
 import trimesh
 from shapely.geometry import LineString
@@ -381,3 +382,76 @@ def _dist(a: Tuple[float, float], b: Tuple[float, float]) -> float:
 
 def _seg_len(p0: Tuple[float, float], p1: Tuple[float, float]) -> float:
     return float(np.hypot(p1[0] - p0[0], p1[1] - p0[1]))
+
+
+# ── Infill generation ─────────────────────────────────────────────────────────
+
+def generate_infill_segments(
+    bounds_x:           Tuple[float, float],
+    bounds_y:           Tuple[float, float],
+    z_height:           float,
+    pattern:            str,
+    density:            float,
+    nozzle_diameter_mm: float,
+) -> List[Segment]:
+    """Return infill segments for one layer. Returns [] if pattern is 'none'."""
+    if pattern == "zigzag":
+        return _generate_zigzag(bounds_x, bounds_y, density, nozzle_diameter_mm)
+    elif pattern == "hexagonal":
+        return _generate_hexagonal(bounds_x, bounds_y, density, nozzle_diameter_mm)
+    return []
+
+
+def _generate_zigzag(
+    bounds_x:           Tuple[float, float],
+    bounds_y:           Tuple[float, float],
+    density:            float,
+    nozzle_diameter_mm: float,
+) -> List[Segment]:
+    nozzle_m        = nozzle_diameter_mm / 1000.0
+    spacing         = nozzle_m / max(density, 0.01)
+    x_min, x_max    = bounds_x
+    y_min, y_max    = bounds_y
+    segs: List[Segment] = []
+    x       = x_min
+    forward = True
+    while x <= x_max:
+        if forward:
+            segs.append(((x, y_min), (x, y_max)))
+        else:
+            segs.append(((x, y_max), (x, y_min)))
+        forward = not forward
+        x      += spacing
+    return segs
+
+
+def _generate_hexagonal(
+    bounds_x:           Tuple[float, float],
+    bounds_y:           Tuple[float, float],
+    density:            float,
+    nozzle_diameter_mm: float,
+) -> List[Segment]:
+    nozzle_m     = nozzle_diameter_mm / 1000.0
+    r            = nozzle_m / max(density, 0.01)
+    x_min, x_max = bounds_x
+    y_min, y_max = bounds_y
+    segs: List[Segment] = []
+    row = 0
+    y   = y_min + r
+    while y - r <= y_max:
+        x_offset = r * 1.5 * (row % 2)
+        x        = x_min + r + x_offset
+        while x - r <= x_max:
+            segs.extend(_hexagon_at(x, y, r))
+            x += r * 3.0
+        y   += r * math.sqrt(3)
+        row += 1
+    return segs
+
+
+def _hexagon_at(cx: float, cy: float, r: float) -> List[Segment]:
+    pts = [
+        (cx + r * math.cos(math.pi / 3 * i), cy + r * math.sin(math.pi / 3 * i))
+        for i in range(6)
+    ]
+    return [(pts[i], pts[(i + 1) % 6]) for i in range(6)]
