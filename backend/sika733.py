@@ -116,12 +116,18 @@ def max_print_speed(
 
 
 def temperature_risk_factor(temp_c: float) -> float:
+    # Optimal range per Sikacrete 733 data sheet: 15°C to 25°C
+    # AMBIENT_TEMP_MAX = 30°C — above 25°C is already elevated risk
     if 15.0 <= temp_c <= 25.0:
         return 0.0
     elif temp_c < 15.0:
         return min(1.0, (15.0 - temp_c) / 10.0)
+    elif temp_c <= 30.0:
+        # 25°C to 30°C — moderate risk, linear scale
+        return min(0.6, (temp_c - 25.0) / 5.0 * 0.6)
     else:
-        return min(1.0, (temp_c - 25.0) / 5.0)
+        # Above 30°C — high risk
+        return min(1.0, 0.6 + (temp_c - 30.0) / 10.0 * 0.4)
 
 
 def humidity_risk_factor(humidity_pct: float) -> float:

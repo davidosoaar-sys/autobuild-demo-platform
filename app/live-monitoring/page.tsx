@@ -527,6 +527,25 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
 
       setAnalysis(result);
 
+      if (typeof window !== 'undefined' && localStorage.getItem('autobuild_data_training_opted_in') === 'true') {
+        try {
+          await supabase.from('training_frames').insert({
+            project_id:      null,
+            camera_id:       'post-processing-upload',
+            image_url:       null,
+            verdict:         result.verdict,
+            severity:        result.severity,
+            angle_deviation: result.angle_deviation ?? null,
+            defect_type:     result.defect_type     ?? null,
+            description:     result.description     ?? null,
+            confidence:      result.confidence      ?? null,
+            gcode_context:   null,
+            verified:        true,
+            overridden:      false,
+          });
+        } catch { /* silent */ }
+      }
+
       const level: 'info' | 'warn' | 'error' =
         result.severity === 'high'   ? 'error' :
         result.severity === 'medium' ? 'warn'  : 'info';

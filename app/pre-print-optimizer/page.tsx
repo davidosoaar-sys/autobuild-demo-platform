@@ -75,7 +75,7 @@ function buildFactors(result: OptimizeResult, params: Parameters): Factor[] {
   const factors: Factor[] = [];
 
   const temp = (worst['temperature'] ?? avg['temperature'] ?? params.temperature) as number;
-  if (temp > 30) factors.push({ label:'High Temperature', value:`${temp}°C`, impact:`Speed increased ~${Math.round((temp-30)*1.5)}% to outrun cement setting time`, ok:false });
+  if (temp >= 30) factors.push({ label:'High Temperature', value:`${temp}°C`, impact:`Speed increased ~${Math.round((temp-30)*1.5)}% to outrun cement setting time`, ok:false });
   else if (temp < 15) factors.push({ label:'Low Temperature', value:`${temp}°C`, impact:'Slower curing — print speed reduced for stronger layer bonding', ok:false });
   else factors.push({ label:'Temperature', value:`${temp}°C`, impact:'Optimal range — no speed adjustment required', ok:true });
 

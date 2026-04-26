@@ -117,7 +117,7 @@ function buildSlicerFactors(result: SlicerResult, cementId: string, selectedMat:
   const factors: Factor[] = [];
 
   const temp = avg.temperature ?? 20;
-  if (temp > 30)      factors.push({ label: 'High Temperature', value: `${temp}°C`, impact: `Speed increased ~${Math.round((temp-30)*1.5)}% to outrun cement setting`, ok: false });
+  if (temp >= 30)     factors.push({ label: 'High Temperature', value: `${temp}°C`, impact: `Speed increased ~${Math.round((temp-30)*1.5)}% to outrun cement setting`, ok: false });
   else if (temp < 15) factors.push({ label: 'Low Temperature',  value: `${temp}°C`, impact: 'Slower curing — speed reduced for stronger bonding', ok: false });
   else                factors.push({ label: 'Temperature',      value: `${temp}°C`, impact: 'Optimal range — no speed adjustment required', ok: true });
 

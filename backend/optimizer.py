@@ -221,6 +221,7 @@ def optimize(
             toolpath.append(ordered_segs)
             total_travel += layer_travel
             naive_travel += naive_l
+            print(f"[travel] Layer {layer_idx}: naive={round(naive_l,1)}mm optimized={round(layer_travel,1)}mm", flush=True)
 
         segs_total_mm = _total_print_mm(ordered_segs) if ordered_segs else 0.0
         layer_time_s  = (segs_total_mm / max(final_speed, 1.0)) + interlayer_s
@@ -244,7 +245,7 @@ def optimize(
     elapsed_wall = time.time() - start_t
     total_segs   = sum(len(t) for t in toolpath)
     avg_speed    = float(np.mean([lp.print_speed_mm_s for lp in layer_params])) if layer_params else base_speed_mm_s
-    avg_risk     = float(np.mean([lp.risk_score        for lp in layer_params])) if layer_params else 0.0
+    avg_risk     = float(np.max([lp.risk_score         for lp in layer_params])) if layer_params else 0.0
 
     est_seconds = estimated_print_time_seconds(
         total_travel_mm      = total_travel,
