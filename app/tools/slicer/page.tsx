@@ -377,9 +377,8 @@ export default function SlicerTool() {
   const [customMix, setCustomMix] = useState<CustomMix>(DEFAULT_CUSTOM);
 
   // Infill
-  const [infillPattern,  setInfillPattern]  = useState('none');
-  const [structureType,  setStructureType]  = useState('wall');
-  const [scanResult,     setScanResult]     = useState<any>(null);
+  const [infillPattern, setInfillPattern] = useState('none');
+  const [scanResult,    setScanResult]    = useState<any>(null);
 
   // Time blocks (Task 9)
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([newBlock()]);
@@ -430,7 +429,6 @@ export default function SlicerTool() {
       fd.append('wind_speed',           String(forecastWeather?.wind_speed  ?? manualWind));
       // Infill
       fd.append('infill_pattern',       infillPattern);
-      fd.append('structure_type',       structureType);
       // Time blocks
       fd.append('time_blocks',          JSON.stringify(timeBlocks.map(b => ({ start: b.start, end: b.end }))));
 
@@ -523,7 +521,6 @@ export default function SlicerTool() {
               numLayers={numLayers}
               layerHeight={result.printer.layer_height_mm / 1000}
               nozzleDiameter={nozzle / 1000}
-              structureType={structureType}
               fullscreen
               onBack={() => setShowResults(false)}
             />
@@ -816,16 +813,6 @@ export default function SlicerTool() {
                 <Field label="Max flow (L/min)"><NumInput value={flowRate} onChange={setFlowRate} min={1} max={30} step={0.5} /></Field>
                 <Field label="Acceleration (mm/s²)"><NumInput value={acceleration} onChange={setAcceleration} min={50} max={2000} step={50} /></Field>
               </div>
-              <Field label="Structure Type">
-                <div className="flex gap-2">
-                  {(['wall', 'column'] as const).map(t => (
-                    <button key={t} onClick={() => setStructureType(t)}
-                      className={`flex-1 py-2 text-xs font-medium rounded-xl capitalize transition-colors ${structureType === t ? 'bg-black text-white' : 'bg-gray-100 text-black/50 hover:text-black'}`}>
-                      {t.charAt(0).toUpperCase() + t.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </Field>
             </div>
 
             {/* Cement */}
@@ -976,7 +963,6 @@ export default function SlicerTool() {
                   numLayers={result?.geometry.total_layers ?? 0}
                   layerHeight={(result?.printer.layer_height_mm ?? layerHeightMm) / 1000}
                   nozzleDiameter={nozzle / 1000}
-                  structureType={structureType}
                 />
               ) : (
                 <div className="flex items-center justify-center min-h-[520px]">

@@ -279,19 +279,15 @@ def _slice_layer(
     if not shapely_segs:
         return []
 
-    # Fast path — stitch raw segments into continuous chains to eliminate corner
-    # artifacts and orphaned micro-loops at wall junctions.
+    # Fast path — raw segments, no buffer. Visual gaps handled by beadW on frontend.
+    # Threshold 0 means all non-empty layers always take fast path, skipping the
+    # expensive Shapely buffer+union that was the primary optimize bottleneck.
     if len(shapely_segs) > 0:
-        raw = [
+        return _nn_chain([
             ((float(s.coords[0][0]), float(s.coords[0][1])),
              (float(s.coords[1][0]), float(s.coords[1][1])))
             for s in shapely_segs
-        ]
-        chains   = _stitch_segments(raw)
-        chains   = _filter_artifacts(chains)
-        stitched = [seg for chain in chains for seg in chain]
-        print(f"[geometry] z={z:.4f}: {len(raw)} raw segs → {len(stitched)} stitched segs", flush=True)
-        return stitched if stitched else raw
+        ])
 
     try:
         bead_union = unary_union([
@@ -337,76 +333,6 @@ def _walk_ring(coords) -> List[Segment]:
         if _seg_len(p0, p1) > 1e-9:
             out.append((p0, p1))
     return out
-
-
-def _stitch_segments(raw_segments: List[Segment], tolerance: float = 1e-4) -> List[List[Segment]]:
-    """
-    Stitch raw line segments into continuous chains by connecting endpoints
-    within tolerance. Fixes corner/junction artifacts where trimesh produces
-    disconnected stub segments instead of a continuous perimeter path.
-    """
-    from collections import defaultdict
-
-    def snap(p: Tuple[float, float]) -> Tuple[float, float]:
-        return (round(p[0] / tolerance) * tolerance,
-                round(p[1] / tolerance) * tolerance)
-
-    graph: dict = defaultdict(list)
-    for i, seg in enumerate(raw_segments):
-        a, b = snap(seg[0]), snap(seg[1])
-        graph[a].append((b, i))
-        graph[b].append((a, i))
-
-    visited_edges: set = set()
-    chains: List[List[Segment]] = []
-
-    for start_node in list(graph.keys()):
-        if all(i in visited_edges for _, i in graph[start_node]):
-            continue
-
-        chain: List[Segment] = []
-        current = start_node
-
-        while True:
-            next_edge = None
-            for neighbor, edge_idx in graph[current]:
-                if edge_idx not in visited_edges:
-                    next_edge = (neighbor, edge_idx)
-                    break
-            if next_edge is None:
-                break
-
-            neighbor, edge_idx = next_edge
-            visited_edges.add(edge_idx)
-            seg = raw_segments[edge_idx]
-
-            if snap(seg[0]) == current:
-                chain.append(seg)
-                current = snap(seg[1])
-            else:
-                chain.append((seg[1], seg[0]))
-                current = snap(seg[0])
-
-        if chain:
-            chains.append(chain)
-
-    return chains
-
-
-def _filter_artifacts(chains: List[List[Segment]], min_segments: int = 4, min_perimeter_m: float = 0.1) -> List[List[Segment]]:
-    """Remove orphaned micro-loops and stub chains that are too short to be real wall paths."""
-    filtered = []
-    for chain in chains:
-        if len(chain) < min_segments:
-            continue
-        perimeter = sum(
-            ((s[1][0] - s[0][0]) ** 2 + (s[1][1] - s[0][1]) ** 2) ** 0.5
-            for s in chain
-        )
-        if perimeter < min_perimeter_m:
-            continue
-        filtered.append(chain)
-    return filtered
 
 
 def _nn_chain(segs: List[Segment]) -> List[Segment]:
