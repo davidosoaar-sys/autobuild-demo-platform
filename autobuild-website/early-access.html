@@ -60,51 +60,15 @@
 </head>
 <body>
 <nav>
-  <div class="nav-left">
-    <a href="index.html"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></a>
-    <div class="nav-menu-pill" onclick="toggleMenu()">
-      <div class="menu-icon"><span></span><span></span></div>
-      Menu
-    </div>
-  </div>
+  <a href="index.html" class="nav-logo"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></a>
+  <ul class="nav-links">
+    <li><a href="slicer.html">Slicer</a></li>
+    <li><a href="monitor.html">Monitor</a></li>
+    <li><a href="early-access.html">Early Access</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
   <a href="early-access.html" class="nav-cta">Join Waitlist</a>
 </nav>
-
-<div class="nav-overlay" id="nav-overlay">
-  <div class="nav-overlay-section">(NAVIGATION)</div>
-  <ul class="nav-overlay-links">
-    <li><a href="index.html" onclick="closeMenu()">Home</a></li>
-    <li><a href="slicer.html" onclick="closeMenu()">Slicer</a></li>
-    <li><a href="monitor.html" onclick="closeMenu()">Monitor</a></li>
-    <li><a href="early-access.html" onclick="closeMenu()">Early Access</a></li>
-    <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
-  </ul>
-  <div class="nav-overlay-footer">
-    <ul class="nav-overlay-footer-links">
-      <li><a href="terms.html" onclick="closeMenu()">Terms</a></li>
-      <li><a href="privacy.html" onclick="closeMenu()">Privacy</a></li>
-      <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
-    </ul>
-    <span class="nav-overlay-copy">© 2026 AutoBuild AI</span>
-  </div>
-</div>
-
-<script>
-function toggleMenu() {
-  document.getElementById('nav-overlay').classList.contains('open') ? closeMenu() : openMenu();
-}
-function openMenu() {
-  document.getElementById('nav-overlay').classList.add('open');
-  document.body.style.overflow = 'hidden';
-  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Close';
-}
-function closeMenu() {
-  document.getElementById('nav-overlay').classList.remove('open');
-  document.body.style.overflow = '';
-  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Menu';
-}
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
-</script>
 
 <section class="hero">
   <div class="dot-grid"></div>
