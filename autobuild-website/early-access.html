@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Early Access — AutoBuild AI</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+.hero {
+  position: relative; min-height: 60vh;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
+  padding: 160px 80px 80px; overflow: hidden; border-bottom: 1px solid var(--border);
+}
+.hero-headline { font-size: clamp(56px,9vw,120px); font-weight: 700; letter-spacing: -0.045em; line-height: 0.95; margin-bottom: 24px; }
+.hero-sub { font-size: 17px; font-weight: 300; color: rgba(0,0,0,0.42); max-width: 500px; line-height: 1.7; }
+
+.section-pad { padding: 120px 80px; border-top: 1px solid var(--border); }
+.inner { max-width: 1100px; margin: 0 auto; }
+.section-title { font-size: clamp(28px,4vw,48px); font-weight: 700; letter-spacing: -0.03em; margin-bottom: 64px; }
+
+.cards { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.access-card { background: var(--white); padding: 52px 40px; display: flex; flex-direction: column; gap: 14px; transition: background 0.2s; }
+.access-card:hover { background: var(--off); }
+.card-tag { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; color: rgba(0,0,0,0.2); }
+.card-title { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+.card-desc { font-size: 14px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.42); flex: 1; }
+.card-badge { display: inline-block; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; border: 1px solid rgba(0,0,0,0.12); border-radius: 4px; padding: 5px 12px; color: rgba(0,0,0,0.3); align-self: flex-start; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; align-items: start; }
+.form-intro-headline { font-size: clamp(28px,3.5vw,44px); font-weight: 700; letter-spacing: -0.03em; line-height: 1.08; margin-bottom: 18px; }
+.form-intro-desc { font-size: 15px; font-weight: 300; line-height: 1.75; color: rgba(0,0,0,0.42); }
+
+.waitlist-form { display: flex; flex-direction: column; gap: 12px; }
+.form-input { background: transparent; border: 1px solid rgba(0,0,0,0.12); border-radius: 6px; padding: 16px 18px; font-family: var(--font-head); font-size: 14px; color: var(--black); outline: none; transition: border-color 0.2s; width: 100%; }
+.form-input::placeholder { color: rgba(0,0,0,0.25); }
+.form-input:focus { border-color: var(--black); }
+.form-submit { background: var(--black); color: var(--white); border: none; border-radius: 6px; padding: 16px 28px; font-family: var(--font-head); font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+.form-submit:hover { opacity: 0.72; }
+.form-note { font-size: 11px; font-family: var(--font-mono); color: rgba(0,0,0,0.25); line-height: 1.6; }
+.form-note a { color: rgba(0,0,0,0.4); }
+
+.form-success { display: none; }
+.form-success.visible { display: block; }
+.success-line { width: 28px; height: 1px; background: var(--black); margin-bottom: 20px; }
+.success-headline { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+.success-desc { font-size: 14px; color: rgba(0,0,0,0.42); }
+
+.who-cols { display: grid; grid-template-columns: repeat(3,1fr); gap: 60px; }
+.who-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; color: rgba(0,0,0,0.2); margin-bottom: 18px; }
+.who-title { font-size: 20px; font-weight: 600; margin-bottom: 12px; }
+.who-desc { font-size: 14px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.42); }
+
+@media (max-width: 900px) {
+  .hero { padding: 120px 24px 60px; }
+  .section-pad { padding: 80px 24px; }
+  .cards, .who-cols { grid-template-columns: 1fr; }
+  .form-grid { grid-template-columns: 1fr; gap: 48px; }
+}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="index.html"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></a>
+    <div class="nav-menu-pill" onclick="toggleMenu()">
+      <div class="menu-icon"><span></span><span></span></div>
+      Menu
+    </div>
+  </div>
+  <a href="early-access.html" class="nav-cta">Join Waitlist</a>
+</nav>
+
+<div class="nav-overlay" id="nav-overlay">
+  <div class="nav-overlay-section">(NAVIGATION)</div>
+  <ul class="nav-overlay-links">
+    <li><a href="index.html" onclick="closeMenu()">Home</a></li>
+    <li><a href="slicer.html" onclick="closeMenu()">Slicer</a></li>
+    <li><a href="monitor.html" onclick="closeMenu()">Monitor</a></li>
+    <li><a href="early-access.html" onclick="closeMenu()">Early Access</a></li>
+    <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+  </ul>
+  <div class="nav-overlay-footer">
+    <ul class="nav-overlay-footer-links">
+      <li><a href="terms.html" onclick="closeMenu()">Terms</a></li>
+      <li><a href="privacy.html" onclick="closeMenu()">Privacy</a></li>
+      <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+    </ul>
+    <span class="nav-overlay-copy">© 2026 AutoBuild AI</span>
+  </div>
+</div>
+
+<script>
+function toggleMenu() {
+  document.getElementById('nav-overlay').classList.contains('open') ? closeMenu() : openMenu();
+}
+function openMenu() {
+  document.getElementById('nav-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Close';
+}
+function closeMenu() {
+  document.getElementById('nav-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Menu';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+</script>
+
+<section class="hero">
+  <div class="dot-grid"></div>
+  <div class="section-label fade-up">Early Access</div>
+  <h1 class="hero-headline fade-up" style="transition-delay:.08s">Be part of<br>what's next.</h1>
+  <p class="hero-sub fade-up" style="transition-delay:.16s">We're opening early access to a select group of 3DCP operators, researchers, and construction companies.</p>
+</section>
+
+<section class="section-pad" style="background:var(--off)">
+  <div class="inner">
+    <h2 class="section-title fade-up">What you get.</h2>
+    <div class="cards">
+      <div class="access-card fade-up"><div class="card-tag">Tool 01</div><div class="card-title">RL Slicer</div><p class="card-desc">Full access to the reinforcement learning slicer. Unlimited optimizations. Every feature, no restrictions.</p><span class="card-badge">FULL ACCESS</span></div>
+      <div class="access-card fade-up" style="transition-delay:.1s"><div class="card-tag">Tool 02</div><div class="card-title">Live Monitor</div><p class="card-desc">Full access to real-time AI quality monitoring. Unlimited camera feeds. Complete event logging and print reports.</p><span class="card-badge">FULL ACCESS</span></div>
+      <div class="access-card fade-up" style="transition-delay:.2s"><div class="card-tag">Session</div><div class="card-title">1 Hour Session</div><p class="card-desc">A focused one-hour trial with our team. We'll walk through both tools on your own model — see exactly what it does.</p><span class="card-badge">INCLUDED</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section-pad" id="form">
+  <div class="inner">
+    <div class="form-grid">
+      <div class="fade-up">
+        <div class="section-label">Join the waitlist</div>
+        <h2 class="form-intro-headline">We'll email you personally<br>with your access details.</h2>
+        <p class="form-intro-desc">This isn't a mass rollout. We're onboarding early users carefully so we can actually support them. Fill in the form and we'll be in touch.</p>
+      </div>
+      <div class="fade-up" style="transition-delay:.12s">
+        <form class="waitlist-form" id="waitlist-form" onsubmit="handleSubmit(event)">
+          <input type="text" class="form-input" placeholder="Full name" required />
+          <input type="email" class="form-input" placeholder="Email address" required />
+          <button type="submit" class="form-submit">Join the Waitlist</button>
+          <p class="form-note">By joining you agree to our <a href="terms.html">Terms of Service</a> and <a href="privacy.html">Privacy Policy</a>. We'll email you personally with your access details.</p>
+        </form>
+        <div class="form-success" id="form-success">
+          <div class="success-line"></div>
+          <div class="success-headline">You're on the list.</div>
+          <p class="success-desc">We'll be in touch soon with your access details.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section-pad" style="background:var(--off)">
+  <div class="inner">
+    <h2 class="section-title fade-up">Who it's for.</h2>
+    <div class="who-cols">
+      <div class="fade-up"><div class="who-label">Audience 01</div><h3 class="who-title">3DCP Operators</h3><p class="who-desc">You're running printers and want smarter tools. Whether managing one machine or a fleet, AutoBuild AI is built for your workflow.</p></div>
+      <div class="fade-up" style="transition-delay:.1s"><div class="who-label">Audience 02</div><h3 class="who-title">Researchers</h3><p class="who-desc">You're studying concrete printing and need clean, structured data. Every print produces a fully timestamped event log — a complete record to work with.</p></div>
+      <div class="fade-up" style="transition-delay:.2s"><div class="who-label">Audience 03</div><h3 class="who-title">Construction Companies</h3><p class="who-desc">You're exploring 3DCP for real projects and need to understand what intelligent tooling looks like in practice. This is where that starts.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild AI" /></div>
+  <ul class="footer-links">
+    <li><a href="slicer.html">Slicer</a></li>
+    <li><a href="monitor.html">Monitor</a></li>
+    <li><a href="terms.html">Terms</a></li>
+    <li><a href="privacy.html">Privacy</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
+  <span class="footer-copy">© 2026 AutoBuild AI</span>
+</footer>
+
+<script>
+function handleSubmit(e) {
+  e.preventDefault();
+  document.getElementById('waitlist-form').style.display = 'none';
+  document.getElementById('form-success').classList.add('visible');
+}
+const obs = new IntersectionObserver(entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }), { threshold: .08 });
+document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+document.querySelectorAll('.hero .fade-up').forEach(el => {
+  setTimeout(() => el.classList.add('visible'), parseFloat(el.style.transitionDelay || 0) * 1000 + 80);
+});
+</script>
+</body>
+</html>

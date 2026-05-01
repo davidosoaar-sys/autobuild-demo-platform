@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Terms of Service — AutoBuild AI</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+.hero {
+  position: relative; min-height: 40vh;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
+  padding: 160px 80px 60px; overflow: hidden; border-bottom: 1px solid var(--border);
+}
+.hero-headline { font-size: clamp(40px,6vw,80px); font-weight: 700; letter-spacing: -0.04em; line-height: 0.95; margin-bottom: 16px; }
+.hero-meta { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: rgba(0,0,0,0.25); }
+
+.legal-body { padding: 80px 80px 120px; }
+.inner { max-width: 720px; }
+.legal-section { margin-bottom: 52px; }
+.legal-section-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 14px; }
+.legal-body p { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(0,0,0,0.55); margin-bottom: 14px; }
+.legal-body ul { list-style: none; padding: 0; margin-bottom: 14px; }
+.legal-body ul li { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(0,0,0,0.55); padding-left: 18px; position: relative; margin-bottom: 6px; }
+.legal-body ul li::before { content: '—'; position: absolute; left: 0; color: rgba(0,0,0,0.2); }
+.legal-body a { color: var(--black); text-decoration: underline; text-underline-offset: 3px; }
+
+.legal-divider { border: none; border-top: 1px solid var(--border); margin: 52px 0; }
+
+@media (max-width: 900px) {
+  .hero { padding: 120px 24px 48px; }
+  .legal-body { padding: 60px 24px 100px; }
+}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="index.html"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></a>
+    <div class="nav-menu-pill" onclick="toggleMenu()">
+      <div class="menu-icon"><span></span><span></span></div>
+      Menu
+    </div>
+  </div>
+  <a href="early-access.html" class="nav-cta">Join Waitlist</a>
+</nav>
+
+<div class="nav-overlay" id="nav-overlay">
+  <div class="nav-overlay-section">(NAVIGATION)</div>
+  <ul class="nav-overlay-links">
+    <li><a href="index.html" onclick="closeMenu()">Home</a></li>
+    <li><a href="slicer.html" onclick="closeMenu()">Slicer</a></li>
+    <li><a href="monitor.html" onclick="closeMenu()">Monitor</a></li>
+    <li><a href="early-access.html" onclick="closeMenu()">Early Access</a></li>
+    <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+  </ul>
+  <div class="nav-overlay-footer">
+    <ul class="nav-overlay-footer-links">
+      <li><a href="terms.html" onclick="closeMenu()">Terms</a></li>
+      <li><a href="privacy.html" onclick="closeMenu()">Privacy</a></li>
+      <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+    </ul>
+    <span class="nav-overlay-copy">© 2026 AutoBuild AI</span>
+  </div>
+</div>
+
+<script>
+function toggleMenu() {
+  document.getElementById('nav-overlay').classList.contains('open') ? closeMenu() : openMenu();
+}
+function openMenu() {
+  document.getElementById('nav-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Close';
+}
+function closeMenu() {
+  document.getElementById('nav-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Menu';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+</script>
+
+<section class="hero">
+  <div class="dot-grid"></div>
+  <div class="section-label">Legal</div>
+  <h1 class="hero-headline">Terms of Service</h1>
+  <div class="hero-meta">Last updated: April 2026</div>
+</section>
+
+<div class="legal-body">
+  <div class="inner">
+
+    <div class="legal-section">
+      <p>These Terms of Service govern your use of the AutoBuild AI platform, including the RL Slicer, Live Monitor, and any related services (collectively, the "Platform"). By accessing or using the Platform, you agree to be bound by these terms.</p>
+      <p>If you do not agree to these terms, do not use the Platform.</p>
+    </div>
+
+    <hr class="legal-divider" />
+
+    <div class="legal-section">
+      <h2 class="legal-section-title">1. Use of the Platform</h2>
+      <p>AutoBuild AI grants you a limited, non-exclusive, non-transferable licence to access and use the Platform for your internal business purposes during any active access period, subject to these terms.</p>
+      <p>You agree not to:</p>
+      <ul>
+        <li>Use the Platform for any unlawful purpose or in violation of any applicable regulation</li>
+        <li>Attempt to reverse engineer, decompile, or extract source code from any part of the Platform</li>
+        <li>Resell, sublicense, or otherwise commercialise access to the Platform without written consent</li>
+        <li>Use automated means to access or scrape the Platform in a manner that exceeds normal usage</li>
+        <li>Upload models or files that contain malicious code or infringe third-party intellectual property rights</li>
+      </ul>
+    </div>
+
+    <div class="legal-section">
+      <h2 class="legal-section-title">2. Early Access</h2>
+      <p>During the early access period, the Platform is provided as-is for evaluation and testing. Features may change, be removed, or be unavailable without notice. AutoBuild AI does not guarantee uptime or performance during this period.</p>
+      <p>By joining the early access waitlist you agree to receive communications from AutoBuild AI regarding your access, platform updates, and related announcements. You may unsubscribe at any time.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2 class="legal-section-title">3. Your Data and Models</h2>
+      <p>You retain ownership of any 3D models, G-code files, and print data you upload to the Platform. By uploading content, you grant AutoBuild AI a limited licence to process that content for the purpose of providing the services you request.</p>
+      <p>We do not sell your data or share it with third parties for marketing purposes. See our <a href="privacy.html">Privacy Policy</a> for full details on how we handle your data.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2 class="legal-section-title">4. Intellectual Property</h2>
+      <p>The Platform, including its underlying algorithms, models, interface, and documentation, is the intellectual property of AutoBuild AI. Nothing in these terms transfers any ownership of AutoBuild AI's intellectual property to you.</p>
+      <p>The reinforcement learning slicer, AI models, and quality monitoring systems are proprietary. Any reproduction or derivative use requires explicit written permission.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2 class="legal-section-title">5. Disclaimers and Limitation of Liability</h2>
+      <p>The Platform is provided "as is" without warranties of any kind, express or implied. AutoBuild AI does not warrant that the Platform will be error-free, uninterrupted, or that outputs will be suitable for any particular construction application without independent verification.</p>
+      <p>G-code and print strategies generated by the Platform are recommendations only. You are solely responsible for verifying that any output is appropriate for your materials, equipment, and site conditions before use.</p>
+      <p>To the maximum extent permitted by law, AutoBuild AI's total liability arising from your use of the Platform shall not exceed the amounts paid by you in the twelve months preceding the claim.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2 class="legal-section-title">6. Termination</h2>
+      <p>AutoBuild AI may suspend or terminate your access to the Platform at any time, with or without notice, if you breach these terms or for operational reasons during the early access period.</p>
+      <p>You may stop using the Platform at any time. Provisions of these terms that by their nature survive termination will remain in effect.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2 class="legal-section-title">7. Changes to These Terms</h2>
+      <p>We may update these terms from time to time. We will notify early access users of material changes via email. Continued use of the Platform after changes take effect constitutes acceptance of the updated terms.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2 class="legal-section-title">8. Contact</h2>
+      <p>For questions about these terms, contact us at <a href="mailto:hello@autobuild3dcp.com">hello@autobuild3dcp.com</a> or via the <a href="contact.html">contact page</a>.</p>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <div class="footer-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild AI" /></div>
+  <ul class="footer-links">
+    <li><a href="slicer.html">Slicer</a></li>
+    <li><a href="monitor.html">Monitor</a></li>
+    <li><a href="terms.html">Terms</a></li>
+    <li><a href="privacy.html">Privacy</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
+  <span class="footer-copy">© 2026 AutoBuild AI</span>
+</footer>
+
+<script>
+const obs = new IntersectionObserver(entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }), { threshold: .08 });
+document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+</script>
+</body>
+</html>

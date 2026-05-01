@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Live Monitor — AutoBuild AI</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+.hero {
+  position: relative; min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 160px 48px 100px; overflow: hidden; background: var(--white);
+}
+.hero-headline { font-size: clamp(40px,6.5vw,88px); font-weight: 700; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 24px; max-width: 820px; }
+.hero-sub { font-size: 16px; font-weight: 300; color: rgba(0,0,0,0.42); max-width: 460px; line-height: 1.75; }
+
+.section-pad { padding: 120px 48px; border-top: 1px solid var(--border); }
+.inner { max-width: 1100px; margin: 0 auto; }
+.section-title { font-size: clamp(28px,4vw,52px); font-weight: 700; letter-spacing: -0.03em; margin-bottom: 64px; }
+
+.monitors-cols { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.monitor-col { background: var(--white); padding: 48px 40px; transition: background 0.2s; }
+.monitor-col:hover { background: var(--off); }
+.monitor-col-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; color: rgba(0,0,0,0.2); margin-bottom: 28px; }
+.monitor-col-title { font-size: 19px; font-weight: 600; margin-bottom: 12px; }
+.monitor-col-desc { font-size: 14px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.42); }
+
+.steps-list { max-width: 680px; }
+.step-item { display: grid; grid-template-columns: 52px 1fr; gap: 28px; padding: 36px 0; border-bottom: 1px solid var(--border); align-items: start; }
+.step-item:last-child { border-bottom: none; }
+.step-idx { font-family: var(--font-mono); font-size: 10px; color: rgba(0,0,0,0.18); padding-top: 5px; letter-spacing: 0.1em; }
+.step-body-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+.step-body-desc { font-size: 14px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.42); }
+
+.feature-rows { border-top: 1px solid var(--border); }
+.feature-row { display: flex; align-items: center; justify-content: space-between; padding: 26px 0; border-bottom: 1px solid var(--border); transition: background 0.2s, padding 0.2s, margin 0.2s; cursor: default; }
+.feature-row:hover { background: var(--off); margin: 0 -24px; padding: 26px 24px; }
+.feature-name { font-size: 16px; font-weight: 500; }
+.feature-desc { font-size: 11px; color: rgba(0,0,0,0.35); max-width: 360px; text-align: right; font-family: var(--font-mono); }
+
+.consistency-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; align-items: center; }
+.c-headline { font-size: clamp(28px,4vw,50px); font-weight: 700; letter-spacing: -0.03em; line-height: 1.08; margin-bottom: 20px; }
+.c-desc { font-size: 15px; font-weight: 300; line-height: 1.75; color: rgba(0,0,0,0.42); }
+.pull-quote { border-left: 1px solid rgba(0,0,0,0.12); padding-left: 32px; font-size: 19px; font-weight: 500; line-height: 1.55; color: rgba(0,0,0,0.7); letter-spacing: -0.01em; }
+
+@media (max-width: 900px) {
+  .monitors-cols { grid-template-columns: 1fr; }
+  .consistency-grid { grid-template-columns: 1fr; gap: 48px; }
+  .section-pad { padding: 80px 24px; }
+  .feature-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .feature-desc { text-align: left; }
+}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="index.html"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></a>
+    <div class="nav-menu-pill" onclick="toggleMenu()">
+      <div class="menu-icon"><span></span><span></span></div>
+      Menu
+    </div>
+  </div>
+  <a href="early-access.html" class="nav-cta">Join Waitlist</a>
+</nav>
+
+<div class="nav-overlay" id="nav-overlay">
+  <div class="nav-overlay-section">(NAVIGATION)</div>
+  <ul class="nav-overlay-links">
+    <li><a href="index.html" onclick="closeMenu()">Home</a></li>
+    <li><a href="slicer.html" onclick="closeMenu()">Slicer</a></li>
+    <li><a href="monitor.html" onclick="closeMenu()">Monitor</a></li>
+    <li><a href="early-access.html" onclick="closeMenu()">Early Access</a></li>
+    <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+  </ul>
+  <div class="nav-overlay-footer">
+    <ul class="nav-overlay-footer-links">
+      <li><a href="terms.html" onclick="closeMenu()">Terms</a></li>
+      <li><a href="privacy.html" onclick="closeMenu()">Privacy</a></li>
+      <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+    </ul>
+    <span class="nav-overlay-copy">© 2026 AutoBuild AI</span>
+  </div>
+</div>
+
+<script>
+function toggleMenu() {
+  document.getElementById('nav-overlay').classList.contains('open') ? closeMenu() : openMenu();
+}
+function openMenu() {
+  document.getElementById('nav-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Close';
+}
+function closeMenu() {
+  document.getElementById('nav-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Menu';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+</script>
+
+<section class="hero">
+  <div class="dot-grid"></div>
+  <div class="section-label fade-up">Live Monitor</div>
+  <h1 class="hero-headline fade-up" style="transition-delay:.08s">The extra set of eyes<br>that never blinks.</h1>
+  <p class="hero-sub fade-up" style="transition-delay:.16s">Claude Vision analyses every frame of your concrete print in real time. Bead deviation. Surface quality. Layer integrity. All logged automatically.</p>
+</section>
+
+<section class="section-pad">
+  <div class="inner">
+    <h2 class="section-title fade-up">What it monitors.</h2>
+    <div class="monitors-cols">
+      <div class="monitor-col fade-up"><div class="monitor-col-label">01 — Detection</div><h3 class="monitor-col-title">Bead deviation</h3><p class="monitor-col-desc">Angle measurement on every bead, every layer. Deviations classified by severity and logged with frame-accurate timestamps.</p></div>
+      <div class="monitor-col fade-up" style="transition-delay:.1s"><div class="monitor-col-label">02 — Quality</div><h3 class="monitor-col-title">Surface quality</h3><p class="monitor-col-desc">Consistency and uniformity checks across each pass. Irregular surfaces flagged before they compound into structural issues.</p></div>
+      <div class="monitor-col fade-up" style="transition-delay:.2s"><div class="monitor-col-label">03 — Structure</div><h3 class="monitor-col-title">Layer integrity</h3><p class="monitor-col-desc">Bonding and continuity analysis between layers. Gaps, voids, and adhesion anomalies detected and recorded in the event log.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section-pad" style="background:var(--off)">
+  <div class="inner">
+    <h2 class="section-title fade-up">How it works.</h2>
+    <div class="steps-list">
+      <div class="step-item fade-up"><span class="step-idx">01</span><div><div class="step-body-title">Connect your camera</div><p class="step-body-desc">Any standard camera works. Point it at your print head and connect through the Monitor interface — no special hardware required.</p></div></div>
+      <div class="step-item fade-up" style="transition-delay:.08s"><span class="step-idx">02</span><div><div class="step-body-title">AI analyses every frame</div><p class="step-body-desc">Claude Vision processes your video feed continuously, running deviation detection and surface analysis on each frame as it arrives.</p></div></div>
+      <div class="step-item fade-up" style="transition-delay:.16s"><span class="step-idx">03</span><div><div class="step-body-title">Alerts fire instantly</div><p class="step-body-desc">Critical deviations trigger immediate alerts. You know about a problem the moment it happens — not when you review footage later.</p></div></div>
+      <div class="step-item fade-up" style="transition-delay:.24s"><span class="step-idx">04</span><div><div class="step-body-title">Everything logged automatically</div><p class="step-body-desc">Every event is timestamped and saved. When the print ends, a complete quality report is generated — no manual documentation needed.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="section-pad">
+  <div class="inner" style="max-width:900px">
+    <h2 class="section-title fade-up" style="margin-bottom:48px">What's included.</h2>
+    <div class="feature-rows">
+      <div class="feature-row fade-up"><span class="feature-name">Claude Vision real-time analysis</span><span class="feature-desc">Frame-by-frame AI — no buffering, no delay</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Angle deviation measurement and logging</span><span class="feature-desc">Precise bead angle recorded for every layer</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Instant alerts for high severity detections</span><span class="feature-desc">Configurable thresholds — notified when it matters</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Fully automated timestamped event log</span><span class="feature-desc">Every detection saved with exact time and layer</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Complete print report on completion</span><span class="feature-desc">Summary of every event across the full print run</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Works with any standard camera</span><span class="feature-desc">No proprietary hardware required</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section-pad" style="background:var(--off)">
+  <div class="inner">
+    <div class="consistency-grid">
+      <div class="fade-up">
+        <div class="section-label">The consistency advantage</div>
+        <h2 class="c-headline">AI doesn't get tired.<br>It doesn't have blind spots.</h2>
+        <p class="c-desc">It monitors layer 1 with the same precision as layer 299. Human operators miss things — not from negligence, but from the physical limits of sustained attention. AutoBuild AI doesn't have those limits.</p>
+      </div>
+      <div class="pull-quote fade-up" style="transition-delay:.12s">
+        "Every deviation is measured, timestamped, and logged — turning a print into a fully auditable construction process."
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild AI" /></div>
+  <ul class="footer-links">
+    <li><a href="slicer.html">Slicer</a></li>
+    <li><a href="monitor.html">Monitor</a></li>
+    <li><a href="terms.html">Terms</a></li>
+    <li><a href="privacy.html">Privacy</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
+  <span class="footer-copy">© 2026 AutoBuild AI</span>
+</footer>
+
+<script>
+const obs = new IntersectionObserver(entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }), { threshold: .08 });
+document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+document.querySelectorAll('.hero .fade-up').forEach(el => {
+  setTimeout(() => el.classList.add('visible'), parseFloat(el.style.transitionDelay || 0) * 1000 + 80);
+});
+</script>
+</body>
+</html>

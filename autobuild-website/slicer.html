@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RL Slicer — AutoBuild AI</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+.hero {
+  position: relative; min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 160px 48px 100px; overflow: hidden; background: var(--white);
+}
+.hero-headline { font-size: clamp(44px,7vw,96px); font-weight: 700; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 24px; max-width: 860px; }
+.hero-sub { font-size: 16px; font-weight: 300; color: rgba(0,0,0,0.42); max-width: 460px; line-height: 1.75; }
+.hero-visual { margin-top: 72px; width: 100%; max-width: 960px; }
+.hero-visual-img { border-radius: 16px; overflow: hidden; box-shadow: 0 60px 120px rgba(0,0,0,0.13), 0 12px 32px rgba(0,0,0,0.07); border: 1px solid rgba(0,0,0,0.06); transform: perspective(1400px) rotateX(3deg); transition: transform 0.8s ease; }
+.hero-visual-img:hover { transform: perspective(1400px) rotateX(0); }
+.hero-visual-img img { display: block; width: 100%; height: auto; }
+
+.section-pad { padding: 120px 48px; border-top: 1px solid var(--border); }
+.inner { max-width: 1100px; margin: 0 auto; }
+.section-title { font-size: clamp(28px,4vw,52px); font-weight: 700; letter-spacing: -0.03em; margin-bottom: 64px; }
+
+.how-cols { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.how-col { background: var(--white); padding: 48px 40px; transition: background 0.2s; }
+.how-col:hover { background: var(--off); }
+.how-num { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; color: rgba(0,0,0,0.2); margin-bottom: 28px; }
+.how-title { font-size: 19px; font-weight: 600; margin-bottom: 12px; }
+.how-desc { font-size: 14px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.42); }
+
+.diff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center; }
+.diff-content p { font-size: 15px; font-weight: 300; line-height: 1.75; color: rgba(0,0,0,0.45); margin-bottom: 18px; }
+.diff-card { background: var(--black); border-radius: 14px; padding: 36px; font-family: var(--font-mono); box-shadow: 0 40px 80px rgba(0,0,0,0.1); }
+.diff-card-head { font-size: 9px; letter-spacing: 0.18em; color: rgba(255,255,255,0.2); margin-bottom: 28px; }
+.diff-stat { display: flex; justify-content: space-between; align-items: baseline; padding: 13px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.diff-stat:last-child { border-bottom: none; }
+.diff-sl { font-size: 10px; color: rgba(255,255,255,0.28); }
+.diff-sv { font-size: 15px; color: rgba(255,255,255,0.8); }
+.diff-sv.big { font-size: 24px; color: var(--white); }
+
+.feature-rows { border-top: 1px solid var(--border); }
+.feature-row { display: flex; align-items: center; justify-content: space-between; padding: 26px 0; border-bottom: 1px solid var(--border); transition: background 0.2s, padding 0.2s, margin 0.2s; cursor: default; }
+.feature-row:hover { background: var(--off); margin: 0 -24px; padding: 26px 24px; }
+.feature-name { font-size: 16px; font-weight: 500; }
+.feature-desc { font-size: 11px; color: rgba(0,0,0,0.35); max-width: 360px; text-align: right; font-family: var(--font-mono); }
+
+@media (max-width: 900px) {
+  .how-cols, .diff-grid { grid-template-columns: 1fr; }
+  .section-pad { padding: 80px 24px; }
+  .feature-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .feature-desc { text-align: left; }
+}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="index.html"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></a>
+    <div class="nav-menu-pill" onclick="toggleMenu()">
+      <div class="menu-icon"><span></span><span></span></div>
+      Menu
+    </div>
+  </div>
+  <a href="early-access.html" class="nav-cta">Join Waitlist</a>
+</nav>
+
+<div class="nav-overlay" id="nav-overlay">
+  <div class="nav-overlay-section">(NAVIGATION)</div>
+  <ul class="nav-overlay-links">
+    <li><a href="index.html" onclick="closeMenu()">Home</a></li>
+    <li><a href="slicer.html" onclick="closeMenu()">Slicer</a></li>
+    <li><a href="monitor.html" onclick="closeMenu()">Monitor</a></li>
+    <li><a href="early-access.html" onclick="closeMenu()">Early Access</a></li>
+    <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+  </ul>
+  <div class="nav-overlay-footer">
+    <ul class="nav-overlay-footer-links">
+      <li><a href="terms.html" onclick="closeMenu()">Terms</a></li>
+      <li><a href="privacy.html" onclick="closeMenu()">Privacy</a></li>
+      <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+    </ul>
+    <span class="nav-overlay-copy">© 2026 AutoBuild AI</span>
+  </div>
+</div>
+
+<script>
+function toggleMenu() {
+  document.getElementById('nav-overlay').classList.contains('open') ? closeMenu() : openMenu();
+}
+function openMenu() {
+  document.getElementById('nav-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Close';
+}
+function closeMenu() {
+  document.getElementById('nav-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Menu';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+</script>
+
+<section class="hero">
+  <div class="dot-grid"></div>
+  <div class="section-label fade-up">RL Slicer</div>
+  <h1 class="hero-headline fade-up" style="transition-delay:.08s">Upload your model.<br>Get a smarter build.</h1>
+  <p class="hero-sub fade-up" style="transition-delay:.16s">The only slicer that factors in your material, environment, and build conditions before computing a single path.</p>
+  <div class="hero-visual fade-up" style="transition-delay:.28s">
+    <div class="hero-visual-img">
+      <img src="uploads/pasted-1776999543166-0.png" alt="AutoBuild AI RL Slicer interface" />
+    </div>
+  </div>
+</section>
+
+<section class="section-pad">
+  <div class="inner">
+    <h2 class="section-title fade-up">How it works.</h2>
+    <div class="how-cols">
+      <div class="how-col fade-up"><div class="how-num">01 — UPLOAD</div><h3 class="how-title">Your model</h3><p class="how-desc">Drop in any STL or OBJ. The slicer parses your geometry and prepares it for environment-aware path computation.</p></div>
+      <div class="how-col fade-up" style="transition-delay:.1s"><div class="how-num">02 — CONDITIONS</div><h3 class="how-title">Set your environment</h3><p class="how-desc">Enter your city, material mix, and planned start time. Live weather, open time, and pot life margins computed automatically.</p></div>
+      <div class="how-col fade-up" style="transition-delay:.2s"><div class="how-num">03 — STRATEGY</div><h3 class="how-title">Get your G-code</h3><p class="how-desc">Receive an optimized print strategy with travel savings, a full summary, and pot life warning if conditions are tight.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section-pad" style="background:var(--off)">
+  <div class="inner">
+    <div class="diff-grid">
+      <div class="diff-content fade-up">
+        <div class="section-label">Why it matters</div>
+        <h2 class="section-title" style="margin-bottom:20px">Traditional slicers<br>don't know your site.</h2>
+        <p>Standard slicers compute paths purely from geometry. They don't know your material's open time. They don't know if it's 34°C and humid.</p>
+        <p>AutoBuild AI's RL slicer is trained on real print conditions — minimizing travel, avoiding pot life violations, and producing G-code ready for the real world.</p>
+      </div>
+      <div class="diff-card fade-up" style="transition-delay:.12s">
+        <div class="diff-card-head">Results Panel · Last Run</div>
+        <div class="diff-stat"><span class="diff-sl">Travel Saved</span><span class="diff-sv big">47%</span></div>
+        <div class="diff-stat"><span class="diff-sl">Est. Print Time</span><span class="diff-sv">4h 32m</span></div>
+        <div class="diff-stat"><span class="diff-sl">Layers</span><span class="diff-sv">284</span></div>
+        <div class="diff-stat"><span class="diff-sl">Material</span><span class="diff-sv">CC-40 Mix</span></div>
+        <div class="diff-stat"><span class="diff-sl">Temp / Humidity</span><span class="diff-sv">28°C / 62%</span></div>
+        <div class="diff-stat"><span class="diff-sl">Pot Life Margin</span><span class="diff-sv">+22 min ✓</span></div>
+        <div class="diff-stat"><span class="diff-sl">Computed in</span><span class="diff-sv">8.2s</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section-pad">
+  <div class="inner" style="max-width:900px">
+    <h2 class="section-title fade-up" style="margin-bottom:48px">What's included.</h2>
+    <div class="feature-rows">
+      <div class="feature-row fade-up"><span class="feature-name">Live weather forecast integration</span><span class="feature-desc">Temp, humidity and wind at time of computation</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Material open time awareness</span><span class="feature-desc">Each mix's working window factored into path sequencing</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Reinforcement learning path optimization</span><span class="feature-desc">Trained on real print data — not shortest-path heuristics</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Pot life warning before export</span><span class="feature-desc">Hard stop if your conditions put you at risk</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">G-code download — .gcode and .txt</span><span class="feature-desc">Compatible with standard 3DCP printer controllers</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Print strategy summary</span><span class="feature-desc">Human-readable breakdown of every decision made</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild AI" /></div>
+  <ul class="footer-links">
+    <li><a href="slicer.html">Slicer</a></li>
+    <li><a href="monitor.html">Monitor</a></li>
+    <li><a href="terms.html">Terms</a></li>
+    <li><a href="privacy.html">Privacy</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
+  <span class="footer-copy">© 2026 AutoBuild AI</span>
+</footer>
+
+<script>
+const obs = new IntersectionObserver(entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }), { threshold: .08 });
+document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+document.querySelectorAll('.hero .fade-up').forEach(el => {
+  setTimeout(() => el.classList.add('visible'), parseFloat(el.style.transitionDelay || 0) * 1000 + 80);
+});
+</script>
+</body>
+</html>

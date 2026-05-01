@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Contact — AutoBuild AI</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+.hero {
+  position: relative; min-height: 60vh;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
+  padding: 160px 80px 80px; overflow: hidden; border-bottom: 1px solid var(--border);
+}
+.hero-headline { font-size: clamp(56px,9vw,120px); font-weight: 700; letter-spacing: -0.045em; line-height: 0.95; margin-bottom: 24px; }
+.hero-sub { font-size: 17px; font-weight: 300; color: rgba(0,0,0,0.42); max-width: 480px; line-height: 1.7; }
+
+.contact-body { padding: 100px 80px; }
+.inner { max-width: 1100px; margin: 0 auto; }
+.contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; align-items: start; }
+
+.form-side {}
+.contact-form { display: flex; flex-direction: column; gap: 12px; }
+.form-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; color: rgba(0,0,0,0.3); margin-bottom: 4px; }
+.form-input { background: transparent; border: 1px solid rgba(0,0,0,0.12); border-radius: 6px; padding: 16px 18px; font-family: var(--font-head); font-size: 14px; color: var(--black); outline: none; transition: border-color 0.2s; width: 100%; }
+.form-input::placeholder { color: rgba(0,0,0,0.25); }
+.form-input:focus { border-color: var(--black); }
+textarea.form-input { resize: vertical; min-height: 140px; }
+.form-submit { background: var(--black); color: var(--white); border: none; border-radius: 6px; padding: 16px 28px; font-family: var(--font-head); font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; align-self: flex-start; }
+.form-submit:hover { opacity: 0.72; }
+
+.form-success { display: none; }
+.form-success.visible { display: block; }
+.success-line { width: 28px; height: 1px; background: var(--black); margin-bottom: 20px; }
+.success-headline { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+.success-desc { font-size: 14px; color: rgba(0,0,0,0.42); }
+
+.info-side { padding-top: 8px; }
+.info-block { margin-bottom: 52px; }
+.info-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; color: rgba(0,0,0,0.2); margin-bottom: 14px; }
+.info-value { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.info-value a { color: var(--black); text-decoration: none; transition: opacity 0.2s; }
+.info-value a:hover { opacity: 0.55; }
+.info-note { font-size: 14px; font-weight: 300; color: rgba(0,0,0,0.42); margin-top: 6px; line-height: 1.6; }
+
+.info-cta { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--black); text-decoration: none; border-bottom: 1px solid rgba(0,0,0,0.18); padding-bottom: 2px; transition: border-color 0.2s; }
+.info-cta:hover { border-color: var(--black); }
+.info-cta-arrow { font-size: 16px; transition: transform 0.2s; }
+.info-cta:hover .info-cta-arrow { transform: translateX(3px); }
+
+@media (max-width: 900px) {
+  .hero { padding: 120px 24px 60px; }
+  .contact-body { padding: 80px 24px; }
+  .contact-grid { grid-template-columns: 1fr; gap: 60px; }
+}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="index.html"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></a>
+    <div class="nav-menu-pill" onclick="toggleMenu()">
+      <div class="menu-icon"><span></span><span></span></div>
+      Menu
+    </div>
+  </div>
+  <a href="early-access.html" class="nav-cta">Join Waitlist</a>
+</nav>
+
+<div class="nav-overlay" id="nav-overlay">
+  <div class="nav-overlay-section">(NAVIGATION)</div>
+  <ul class="nav-overlay-links">
+    <li><a href="index.html" onclick="closeMenu()">Home</a></li>
+    <li><a href="slicer.html" onclick="closeMenu()">Slicer</a></li>
+    <li><a href="monitor.html" onclick="closeMenu()">Monitor</a></li>
+    <li><a href="early-access.html" onclick="closeMenu()">Early Access</a></li>
+    <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+  </ul>
+  <div class="nav-overlay-footer">
+    <ul class="nav-overlay-footer-links">
+      <li><a href="terms.html" onclick="closeMenu()">Terms</a></li>
+      <li><a href="privacy.html" onclick="closeMenu()">Privacy</a></li>
+      <li><a href="contact.html" onclick="closeMenu()">Contact</a></li>
+    </ul>
+    <span class="nav-overlay-copy">© 2026 AutoBuild AI</span>
+  </div>
+</div>
+
+<script>
+function toggleMenu() {
+  document.getElementById('nav-overlay').classList.contains('open') ? closeMenu() : openMenu();
+}
+function openMenu() {
+  document.getElementById('nav-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Close';
+}
+function closeMenu() {
+  document.getElementById('nav-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+  document.querySelector('.nav-menu-pill').innerHTML = '<div class="menu-icon"><span></span><span></span></div> Menu';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+</script>
+
+<section class="hero">
+  <div class="dot-grid"></div>
+  <div class="section-label fade-up">Contact</div>
+  <h1 class="hero-headline fade-up" style="transition-delay:.08s">Get in touch.</h1>
+  <p class="hero-sub fade-up" style="transition-delay:.16s">Questions about early access, integration, or anything else — we read every message and respond personally.</p>
+</section>
+
+<div class="contact-body">
+  <div class="inner">
+    <div class="contact-grid">
+      <div class="form-side fade-up">
+        <form class="contact-form" id="contact-form" onsubmit="handleSubmit(event)">
+          <input type="text" class="form-input" placeholder="Full name" required />
+          <input type="email" class="form-input" placeholder="Email address" required />
+          <textarea class="form-input" placeholder="Your message" required></textarea>
+          <button type="submit" class="form-submit">Send Message</button>
+        </form>
+        <div class="form-success" id="form-success">
+          <div class="success-line"></div>
+          <div class="success-headline">Message sent.</div>
+          <p class="success-desc">We'll get back to you within 24 hours.</p>
+        </div>
+      </div>
+      <div class="info-side fade-up" style="transition-delay:.12s">
+        <div class="info-block">
+          <div class="info-label">Email</div>
+          <div class="info-value"><a href="mailto:hello@autobuild3dcp.com">hello@autobuild3dcp.com</a></div>
+          <p class="info-note">We respond within 24 hours.</p>
+        </div>
+        <div class="info-block">
+          <div class="info-label">Early Access</div>
+          <p class="info-note" style="margin-bottom:16px">Want to try the platform before it launches? Join the waitlist and we'll reach out with access details.</p>
+          <a href="early-access.html" class="info-cta">Join Waitlist <span class="info-cta-arrow">→</span></a>
+        </div>
+        <div class="info-block">
+          <div class="info-label">Based in</div>
+          <div class="info-value">Australia</div>
+          <p class="info-note">Building tools for 3D concrete printing teams worldwide.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="footer-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild AI" /></div>
+  <ul class="footer-links">
+    <li><a href="slicer.html">Slicer</a></li>
+    <li><a href="monitor.html">Monitor</a></li>
+    <li><a href="terms.html">Terms</a></li>
+    <li><a href="privacy.html">Privacy</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
+  <span class="footer-copy">© 2026 AutoBuild AI</span>
+</footer>
+
+<script>
+function handleSubmit(e) {
+  e.preventDefault();
+  document.getElementById('contact-form').style.display = 'none';
+  document.getElementById('form-success').classList.add('visible');
+}
+const obs = new IntersectionObserver(entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }), { threshold: .08 });
+document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+document.querySelectorAll('.hero .fade-up').forEach(el => {
+  setTimeout(() => el.classList.add('visible'), parseFloat(el.style.transitionDelay || 0) * 1000 + 80);
+});
+</script>
+</body>
+</html>
