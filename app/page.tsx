@@ -1,199 +1,118 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
 
-interface RecentSlice {
-  id: string;
-  file_name: string;
-  print_time: string | null;
-  layers: number | null;
-  source: string | null;
-  created_at: string;
-}
+const fadeUp = {
+  hidden:  { opacity: 0, y: 28 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.65, ease: [0.22, 1, 0.36, 1] as const } },
+};
+const delay = (d: number) => ({
+  hidden:  { opacity: 0, y: 28 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.65, delay: d, ease: [0.22, 1, 0.36, 1] as const } },
+});
 
-function greeting(name: string) {
-  const h = new Date().getHours();
-  const g = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  return `${g}, ${name}.`;
-}
-
-function fmtDate(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-}
+const monoFont = "'JetBrains Mono', monospace";
 
 export default function Home() {
   const router = useRouter();
-  const [ready,         setReady]         = useState(false);
-  const [userName,      setUserName]      = useState('');
-  const [showOnboard,   setShowOnboard]   = useState(false);
-  const [nameInput,     setNameInput]     = useState('');
-  const [tosChecked,    setTosChecked]    = useState(false);
-  const [privChecked,   setPrivChecked]   = useState(false);
-  const [dataChecked,   setDataChecked]   = useState(false);
-  const [recentSlices,  setRecentSlices]  = useState<RecentSlice[]>([]);
+  const [menuOpen,       setMenuOpen]       = useState(false);
+  const [showOnboard,    setShowOnboard]    = useState(false);
+  const [nameInput,      setNameInput]      = useState('');
+  const [tosChecked,     setTosChecked]     = useState(false);
+  const [privChecked,    setPrivChecked]    = useState(false);
+  const [dataChecked,    setDataChecked]    = useState(false);
+  const [email,          setEmail]          = useState('');
+  const [waitlistJoined, setWaitlistJoined] = useState(false);
+  const [ready,          setReady]          = useState(false);
 
   useEffect(() => {
     const name = localStorage.getItem('autobuild_user_name');
     const tos  = localStorage.getItem('autobuild_tos_accepted');
     const priv = localStorage.getItem('autobuild_privacy_accepted');
-    if (!name || !tos || !priv) {
-      setShowOnboard(true);
-    } else {
-      setUserName(name);
-    }
+    if (!name || !tos || !priv) setShowOnboard(true);
     setReady(true);
-
-    supabase
-      .from('saved_slices')
-      .select('id, file_name, print_time, layers, source, created_at')
-      .order('created_at', { ascending: false })
-      .limit(3)
-      .then(({ data }) => { if (data) setRecentSlices(data); });
   }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = menuOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [menuOpen]);
 
   const handleOnboard = () => {
     if (!nameInput.trim() || !tosChecked || !privChecked) return;
-    localStorage.setItem('autobuild_user_name',             nameInput.trim());
+    localStorage.setItem('autobuild_user_name',              nameInput.trim());
     localStorage.setItem('autobuild_tos_accepted',           'true');
     localStorage.setItem('autobuild_privacy_accepted',       'true');
     localStorage.setItem('autobuild_data_training_opted_in', dataChecked ? 'true' : 'false');
-    setUserName(nameInput.trim());
     setShowOnboard(false);
   };
 
   if (!ready) return null;
 
-  const PRIMARY_TOOLS = [
-    {
-      key:   'projects',
-      label: 'Projects',
-      desc:  'Manage print jobs and track progress through setup, optimisation, and live monitoring.',
-      route: '/projects',
-      icon: (
-        <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
-        </svg>
-      ),
-    },
-    {
-      key:   'slicer',
-      label: 'Slicer',
-      desc:  'Upload a 3D model and run the RL optimizer to generate an adaptive concrete print toolpath.',
-      route: '/tools/slicer',
-      icon: (
-        <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
-        </svg>
-      ),
-    },
+  const NAV_LINKS = [
+    { label: 'Home',         href: '/' },
+    { label: 'Slicer',       href: '/tools/slicer' },
+    { label: 'Monitor',      href: '/live-monitoring' },
+    { label: 'Early Access', href: '#early-access' },
+    { label: 'Contact',      href: '/contact' },
   ];
 
-  const SECONDARY_TOOLS = [
-    {
-      key:   'monitor',
-      label: 'Live Monitor',
-      desc:  'AI bead analysis and defect logging during a concrete print.',
-      route: '/tools/monitor',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-        </svg>
-      ),
-    },
-    {
-      key:   'image-analysis',
-      label: 'Image Analysis',
-      desc:  'Upload a bead photo for AI defect detection and quality scoring.',
-      route: '/tools/image-analysis',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-        </svg>
-      ),
-    },
-    {
-      key:   'slices',
-      label: 'My Slices',
-      desc:  'Browse and download your saved slicer results.',
-      route: '/tools/slices',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-        </svg>
-      ),
-    },
-  ];
+  const BULLETS_SLICER  = ['Live weather and material open time awareness', 'RL-optimized travel paths — not just shortest distance', 'Pot life warnings before you ever hit export'];
+  const BULLETS_MONITOR = ['Frame-by-frame bead deviation measurement', 'Instant alerts for critical deviations', 'Fully automated, timestamped event log'];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="mkt">
 
-      {/* Onboarding modal */}
+      {/* ── Onboarding modal ─────────────────────────────────────── */}
       <AnimatePresence>
         {showOnboard && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-            <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
-              <div className="bg-black px-6 pt-6 pb-5">
-                <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-20 w-auto mb-4"/>
-                <p className="text-white font-bold text-lg leading-snug">Welcome to AutoBuild AI</p>
-                <p className="text-white/40 text-xs mt-1">3DCP monitoring and path optimisation platform</p>
+            style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+            <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0 }}
+              style={{ background: '#fff', borderRadius: '20px', maxWidth: '400px', width: '100%', overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.35)' }}>
+              <div style={{ background: '#080808', padding: '24px 24px 20px' }}>
+                <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={160} height={40} style={{ height: '32px', width: 'auto', marginBottom: '16px' }} />
+                <p style={{ color: '#fff', fontWeight: 700, fontSize: '18px', lineHeight: 1.3 }}>Welcome to AutoBuild AI</p>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', marginTop: '4px' }}>3DCP monitoring and path optimisation platform</p>
               </div>
-              <div className="px-6 py-5 space-y-4">
+              <div style={{ padding: '20px 24px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div>
-                  <label className="block text-xs font-semibold text-black/50 mb-1.5 uppercase tracking-wider">Your name</label>
-                  <input
-                    autoFocus
-                    value={nameInput}
-                    onChange={e => setNameInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleOnboard()}
-                    placeholder="e.g. John Doe"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-black transition-colors placeholder:text-black/20"
-                  />
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'rgba(0,0,0,0.45)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Your name</label>
+                  <input autoFocus value={nameInput} onChange={e => setNameInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleOnboard()} placeholder="e.g. John Doe"
+                    style={{ width: '100%', border: '1px solid rgba(0,0,0,0.12)', borderRadius: '12px', padding: '10px 14px', fontSize: '14px', outline: 'none' }} />
                 </div>
-
-                <div className="space-y-3 pt-1">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input type="checkbox" checked={tosChecked} onChange={e => setTosChecked(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-black flex-shrink-0"/>
-                    <span className="text-xs text-black/60 leading-relaxed">
-                      I agree to the{' '}
-                      <button type="button" onClick={e => { e.preventDefault(); router.push('/tos'); }}
-                        className="underline text-black hover:text-black/60">Terms of Service</button>
-                      {' '}<span className="text-red-400">*</span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input type="checkbox" checked={privChecked} onChange={e => setPrivChecked(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-black flex-shrink-0"/>
-                    <span className="text-xs text-black/60 leading-relaxed">
-                      I agree to the{' '}
-                      <button type="button" onClick={e => { e.preventDefault(); router.push('/privacy'); }}
-                        className="underline text-black hover:text-black/60">Privacy Policy</button>
-                      {' '}<span className="text-red-400">*</span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-3 cursor-pointer">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {[
+                    { key: 'tos',  state: tosChecked,  set: setTosChecked,  text: <>'I agree to the <button type="button" onClick={() => router.push('/tos')} style={{ textDecoration: 'underline', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 'inherit', color: 'inherit' }}>Terms of Service</button> <span style={{ color: '#f87171' }}>*</span></> },
+                    { key: 'priv', state: privChecked, set: setPrivChecked, text: <>'I agree to the <button type="button" onClick={() => router.push('/privacy')} style={{ textDecoration: 'underline', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 'inherit', color: 'inherit' }}>Privacy Policy</button> <span style={{ color: '#f87171' }}>*</span></> },
+                  ].map(item => (
+                    <label key={item.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={item.state} onChange={e => item.set(e.target.checked)}
+                        style={{ marginTop: '2px', width: '15px', height: '15px', flexShrink: 0, accentColor: '#080808' }} />
+                      <span style={{ fontSize: '12px', color: 'rgba(0,0,0,0.6)', lineHeight: 1.6 }}>{item.text}</span>
+                    </label>
+                  ))}
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
                     <input type="checkbox" checked={dataChecked} onChange={e => setDataChecked(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-black flex-shrink-0"/>
-                    <span className="text-xs text-black/50 leading-relaxed">
+                      style={{ marginTop: '2px', width: '15px', height: '15px', flexShrink: 0, accentColor: '#080808' }} />
+                    <span style={{ fontSize: '12px', color: 'rgba(0,0,0,0.45)', lineHeight: 1.6 }}>
                       Allow AutoBuild AI to use my anonymised print data to improve its models.{' '}
-                      <span className="text-black/30">(Optional)</span>
+                      <span style={{ color: 'rgba(0,0,0,0.25)' }}>(Optional)</span>
                     </span>
                   </label>
                 </div>
-
                 <button onClick={handleOnboard} disabled={!nameInput.trim() || !tosChecked || !privChecked}
-                  className="w-full py-3 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 disabled:opacity-30 transition-all">
+                  style={{ width: '100%', padding: '12px', background: '#080808', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', opacity: (!nameInput.trim() || !tosChecked || !privChecked) ? 0.3 : 1, transition: 'opacity 0.2s' }}>
                   Enter AutoBuild AI
                 </button>
               </div>
@@ -202,116 +121,283 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* Header */}
-      <header className="bg-black border-b border-white/10">
-        <div className="max-w-5xl mx-auto px-6 py-1 flex items-center justify-between">
-          <div className="-my-3">
-            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-20 w-auto"/>
-          </div>
-          <button onClick={() => router.push('/settings')}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-colors">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-            </svg>
+      {/* ── Fullscreen nav overlay ────────────────────────────────── */}
+      <div style={{ position: 'fixed', inset: 0, zIndex: 199, background: '#080808', display: 'flex', flexDirection: 'column', padding: '100px 56px 56px', opacity: menuOpen ? 1 : 0, pointerEvents: menuOpen ? 'all' : 'none', transition: 'opacity 0.4s ease' }}>
+        <div className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '10px', letterSpacing: '0.18em', color: 'rgba(255,255,255,0.25)', marginBottom: '24px' }}>(NAVIGATION)</div>
+        <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+          {NAV_LINKS.map(link => (
+            <li key={link.label}>
+              <a href={link.href} onClick={() => setMenuOpen(false)}
+                style={{ fontSize: 'clamp(40px, 7vw, 80px)', fontWeight: 700, letterSpacing: '-0.03em', color: 'rgba(255,255,255,0.85)', textDecoration: 'none', lineHeight: 1.1, display: 'inline-block', transition: 'color 0.2s ease' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#fff'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.85)'; }}>
+                {link.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: '40px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <ul style={{ listStyle: 'none', display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+            {['Terms', 'Privacy', 'Contact'].map(t => (
+              <li key={t}><a href="#" className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '11px', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>{t}</a></li>
+            ))}
+          </ul>
+          <span className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>© 2026 AutoBuild AI</span>
+        </div>
+      </div>
+
+      {/* ── Nav ──────────────────────────────────────────────────── */}
+      <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200, background: '#ffffff', borderBottom: '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 40px', height: '72px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <a href="/"><Image src="/Autobuildblack.png" alt="AutoBuild AI" width={200} height={60} style={{ width: '160px', height: 'auto', display: 'block' }} /></a>
+          <button onClick={() => setMenuOpen(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', background: menuOpen ? 'rgba(0,0,0,0.06)' : '#f7f7f5', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '100px', padding: '8px 16px', cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: '#080808', transition: 'background 0.2s ease' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#080808', borderRadius: '2px', transform: menuOpen ? 'rotate(45deg) translate(4px, 4px)' : 'none', transition: 'transform 0.3s ease' }} />
+              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#080808', borderRadius: '2px', transform: menuOpen ? 'rotate(-45deg) translate(4px, -4px)' : 'none', transition: 'transform 0.3s ease' }} />
+            </div>
+            {menuOpen ? 'Close' : 'Menu'}
           </button>
         </div>
-      </header>
+        <a href="#early-access"
+          style={{ background: '#080808', color: '#fff', borderRadius: '100px', padding: '10px 24px', fontSize: '13px', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', transition: 'opacity 0.2s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.75'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}>
+          Join Waitlist
+        </a>
+      </nav>
 
-      {/* Main */}
-      <main className="flex-1 flex flex-col items-center px-4 py-12 sm:py-16">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}
-          className="w-full max-w-3xl">
+      {/* ── Hero ─────────────────────────────────────────────────── */}
+      <section style={{ position: 'relative', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '160px 48px 100px', overflow: 'hidden', background: '#ffffff' }}>
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.06) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
 
-          {/* Greeting */}
-          <div className="mb-10">
-            {userName
-              ? <h1 className="text-2xl sm:text-3xl font-bold text-black tracking-tight">{greeting(userName)}</h1>
-              : <h1 className="text-2xl sm:text-3xl font-bold text-black tracking-tight">AutoBuild AI</h1>
-            }
-            <p className="text-sm text-black/40 mt-1.5">3D concrete printing — monitoring, optimisation, and path planning.</p>
-          </div>
-
-          {/* Primary cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-            {PRIMARY_TOOLS.map((tool, i) => (
-              <motion.button key={tool.key}
-                initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.07 + 0.05 }}
-                onClick={() => router.push(tool.route)}
-                className="group bg-white border border-gray-100 rounded-2xl p-6 text-left shadow-sm hover:shadow-md hover:border-black transition-all duration-200">
-                <div className="w-12 h-12 rounded-xl bg-gray-50 group-hover:bg-black group-hover:text-white flex items-center justify-center mb-5 transition-all text-black/40">
-                  {tool.icon}
-                </div>
-                <h2 className="text-base font-bold text-black mb-1.5">{tool.label}</h2>
-                <p className="text-xs text-black/40 leading-relaxed">{tool.desc}</p>
-                <div className="mt-5 text-[11px] font-semibold text-black/20 group-hover:text-black transition-colors">
-                  Open →
-                </div>
-              </motion.button>
-            ))}
-          </div>
-
-          {/* Secondary cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
-            {SECONDARY_TOOLS.map((tool, i) => (
-              <motion.button key={tool.key}
-                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.07 + 0.2 }}
-                onClick={() => router.push(tool.route)}
-                className="group bg-white border border-gray-100 rounded-2xl px-5 py-4 text-left shadow-sm hover:shadow-md hover:border-black transition-all duration-200 flex items-center gap-4">
-                <div className="w-9 h-9 rounded-xl bg-gray-50 group-hover:bg-black group-hover:text-white flex items-center justify-center flex-shrink-0 transition-all text-black/40">
-                  {tool.icon}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-black">{tool.label}</p>
-                  <p className="text-[11px] text-black/35 leading-relaxed mt-0.5 line-clamp-1">{tool.desc}</p>
-                </div>
-              </motion.button>
-            ))}
-          </div>
-
-          {/* Recent slices */}
-          {recentSlices.length > 0 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }}>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-black/30">Recent Slices</p>
-                <button onClick={() => router.push('/tools/slices')}
-                  className="text-[11px] text-black/30 hover:text-black transition-colors">
-                  View all →
-                </button>
-              </div>
-              <div className="space-y-2">
-                {recentSlices.map(s => (
-                  <button key={s.id} onClick={() => router.push('/tools/slices')}
-                    className="w-full bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-3 hover:border-black transition-colors group text-left">
-                    <div className="w-7 h-7 rounded-lg bg-gray-50 group-hover:bg-black group-hover:text-white flex items-center justify-center flex-shrink-0 transition-all text-black/30">
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                          d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-black truncate">{s.file_name}</p>
-                      <p className="text-[10px] text-black/35 mt-0.5">
-                        {fmtDate(s.created_at)}
-                        {s.print_time ? ` · ${s.print_time}` : ''}
-                        {s.layers     ? ` · ${s.layers.toLocaleString()} layers` : ''}
-                        {s.source     ? ` · ${s.source === 'pre-print' ? 'Pre-Print' : 'Slicer'}` : ''}
-                      </p>
-                    </div>
-                    <svg className="w-3.5 h-3.5 text-black/20 group-hover:text-black/50 flex-shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
-                    </svg>
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-
+        <motion.div initial="hidden" animate="visible" variants={fadeUp}
+          className="mkt-mono"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '100px', padding: '6px 16px 6px 12px', fontFamily: monoFont, fontSize: '10px', letterSpacing: '0.1em', color: 'rgba(0,0,0,0.38)', marginBottom: '52px', background: '#f7f7f5', position: 'relative' }}>
+          <span className="mkt-pulse" style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#16a34a', display: 'inline-block' }} />
         </motion.div>
-      </main>
+
+        <motion.h1 initial="hidden" animate="visible" variants={delay(0.08)}
+          style={{ fontSize: 'clamp(52px, 8vw, 110px)', fontWeight: 700, lineHeight: 1.0, letterSpacing: '-0.04em', marginBottom: '28px', maxWidth: '900px', color: '#000', position: 'relative' }}>
+          The Intelligence Layer<br />
+          <span style={{ opacity: 0.18 }}>for 3D Concrete Printing</span>
+        </motion.h1>
+
+        <motion.p initial="hidden" animate="visible" variants={delay(0.16)}
+          style={{ maxWidth: '420px', fontSize: '16px', fontWeight: 300, lineHeight: 1.75, color: 'rgba(0,0,0,0.42)', marginBottom: '48px', position: 'relative' }}>
+          AI-powered path optimization and real-time quality control for the future of construction.
+        </motion.p>
+
+        <motion.div initial="hidden" animate="visible" variants={delay(0.24)}
+          style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center', position: 'relative' }}>
+          <a href="#early-access"
+            style={{ background: '#080808', color: '#fff', borderRadius: '6px', padding: '14px 28px', fontSize: '14px', fontWeight: 600, textDecoration: 'none', display: 'inline-block', transition: 'opacity 0.2s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.75'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}>
+            Join the Waitlist
+          </a>
+          <a href="/tools/slicer"
+            style={{ background: 'transparent', color: '#080808', border: '1px solid rgba(0,0,0,0.18)', borderRadius: '6px', padding: '14px 28px', fontSize: '14px', fontWeight: 500, textDecoration: 'none', display: 'inline-block', transition: 'border-color 0.2s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#080808'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,0,0,0.18)'; }}>
+            See How It Works
+          </a>
+        </motion.div>
+      </section>
+
+      {/* ── Stats bar ────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', background: '#080808' }}>
+        {['47% Average Travel Saved', 'Real-time Bead Analysis', '300+ Layer Monitoring', 'Claude Vision Powered'].map((stat, i) => (
+          <motion.div key={stat} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(i * 0.06)}
+            style={{ padding: '28px 24px', borderRight: i < 3 ? '1px solid rgba(255,255,255,0.07)' : 'none', textAlign: 'center' }}>
+            <div className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '11px', letterSpacing: '0.07em', color: 'rgba(255,255,255,0.55)' }}>{stat}</div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* ── Slicer section ───────────────────────────────────────── */}
+      <section style={{ padding: '120px 48px', background: '#ffffff', borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+        <div className="mkt-slicer-grid" style={{ maxWidth: '1200px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '80px', alignItems: 'center' }}>
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp}>
+            <div className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '10px', fontWeight: 500, letterSpacing: '0.18em', textTransform: 'uppercase', opacity: 0.3, marginBottom: '20px' }}>RL Slicer</div>
+            <h2 style={{ fontSize: 'clamp(32px, 4vw, 54px)', fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: '20px', color: '#000' }}>A strategy.<br />Not just a path.</h2>
+            <p style={{ fontSize: '15px', fontWeight: 300, lineHeight: 1.75, color: 'rgba(0,0,0,0.42)', marginBottom: '28px', maxWidth: '380px' }}>
+              Our reinforcement-learning slicer considers your material, environment, and build conditions before generating a single line of G-code.
+            </p>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '36px' }}>
+              {BULLETS_SLICER.map(item => (
+                <li key={item} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: 'rgba(0,0,0,0.45)' }}>
+                  <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'rgba(0,0,0,0.3)', flexShrink: 0, display: 'inline-block' }} />{item}
+                </li>
+              ))}
+            </ul>
+            <a href="/tools/slicer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'rgba(0,0,0,0.6)', textDecoration: 'none', borderBottom: '1px solid rgba(0,0,0,0.15)', paddingBottom: '2px', transition: 'color 0.2s, border-color 0.2s' }}
+              onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.color = '#080808'; el.style.borderColor = '#080808'; }}
+              onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = 'rgba(0,0,0,0.6)'; el.style.borderColor = 'rgba(0,0,0,0.15)'; }}>
+              Learn more →
+            </a>
+          </motion.div>
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(0.12)} style={{ position: 'relative' }}>
+            <div style={{ borderRadius: '14px', overflow: 'hidden', boxShadow: '0 48px 100px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.06)', transform: 'perspective(1200px) rotateY(-4deg) rotateX(2deg)', transition: 'transform 0.7s ease' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'perspective(1200px) rotateY(-1deg) rotateX(0)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'perspective(1200px) rotateY(-4deg) rotateX(2deg)'; }}>
+              <Image src="/slicer-screenshot.png" alt="AutoBuild AI RL Slicer" width={800} height={500} style={{ display: 'block', width: '100%', height: 'auto' }} />
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── Monitor section ──────────────────────────────────────── */}
+      <section style={{ padding: '120px 48px', background: '#f7f7f5', borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+        <div className="mkt-monitor-grid" style={{ maxWidth: '1200px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '80px', alignItems: 'center' }}>
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp}
+            className="mkt-mono" style={{ background: '#080808', borderRadius: '14px', padding: '28px', fontFamily: monoFont, boxShadow: '0 40px 80px rgba(0,0,0,0.12)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={{ fontSize: '9px', letterSpacing: '0.18em', color: 'rgba(255,255,255,0.2)' }}>Bead Analysis</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '9px', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)' }}>
+                <span className="mkt-pulse" style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#16a34a', display: 'inline-block' }} />LIVE
+              </div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '20px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ fontSize: '9px', letterSpacing: '0.15em', color: 'rgba(255,255,255,0.18)' }}>CAMERA FEED — LAYER 47</div>
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+                <svg width="72" height="72" viewBox="0 0 72 72" fill="none">
+                  <circle cx="36" cy="36" r="26" stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+                  <line x1="36" y1="4" x2="36" y2="68" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5"/>
+                  <line x1="4" y1="36" x2="68" y2="36" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5"/>
+                  <circle cx="36" cy="36" r="2.5" fill="rgba(255,255,255,0.3)"/>
+                </svg>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.75)' }}>STRAIGHT +0.8°</span>
+                <span style={{ fontSize: '8px', letterSpacing: '0.1em', border: '1px solid rgba(255,255,255,0.1)', padding: '3px 8px', borderRadius: '3px', color: 'rgba(255,255,255,0.3)' }}>WITHIN TOLERANCE</span>
+              </div>
+            </div>
+            {[{ label: 'Deviation Avg.', value: '+0.4°' }, { label: 'Alerts Fired', value: '0' }, { label: 'Frames Analysed', value: '8,421' }].map((stat, i) => (
+              <div key={stat.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)' }}>{stat.label}</span>
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.75)' }}>{stat.value}</span>
+              </div>
+            ))}
+          </motion.div>
+
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(0.12)}>
+            <div className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '10px', fontWeight: 500, letterSpacing: '0.18em', textTransform: 'uppercase', opacity: 0.3, marginBottom: '20px' }}>Live Monitor</div>
+            <h2 style={{ fontSize: 'clamp(32px, 4vw, 54px)', fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: '20px', color: '#080808' }}>
+              The extra set of eyes that never blinks.
+            </h2>
+            <p style={{ fontSize: '15px', fontWeight: 300, lineHeight: 1.75, color: 'rgba(0,0,0,0.42)', marginBottom: '28px', maxWidth: '380px' }}>
+              Claude Vision analyses every frame of your print in real time — measuring deviation, logging events, and alerting you the moment something goes wrong.
+            </p>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '36px' }}>
+              {BULLETS_MONITOR.map(item => (
+                <li key={item} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', color: 'rgba(0,0,0,0.45)' }}>
+                  <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'rgba(0,0,0,0.3)', flexShrink: 0, display: 'inline-block' }} />{item}
+                </li>
+              ))}
+            </ul>
+            <a href="/live-monitoring"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'rgba(0,0,0,0.6)', textDecoration: 'none', borderBottom: '1px solid rgba(0,0,0,0.15)', paddingBottom: '2px', transition: 'color 0.2s, border-color 0.2s' }}
+              onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.color = '#080808'; el.style.borderColor = '#080808'; }}
+              onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = 'rgba(0,0,0,0.6)'; el.style.borderColor = 'rgba(0,0,0,0.15)'; }}>
+              Learn more →
+            </a>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── How it Works ─────────────────────────────────────────── */}
+      <section style={{ padding: '120px 48px', background: '#ffffff', borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+          <motion.h2 initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp}
+            style={{ fontSize: 'clamp(32px, 5vw, 68px)', fontWeight: 700, letterSpacing: '-0.04em', lineHeight: 1.0, marginBottom: '80px', maxWidth: '680px', color: '#000' }}>
+            From model to monitor<br />in minutes.
+          </motion.h2>
+          <div className="mkt-steps-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'rgba(0,0,0,0.08)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '14px', overflow: 'hidden' }}>
+            {[
+              { num: '01', icon: '↑', title: 'Upload',   desc: 'Drop in your STL or OBJ. Set your material, location, and start time.' },
+              { num: '02', icon: '⚙', title: 'Optimize', desc: 'The RL slicer computes an environment-aware print strategy in seconds.' },
+              { num: '03', icon: '◉', title: 'Monitor',  desc: 'Connect your camera. AI watches every layer and logs every deviation.' },
+            ].map((step, i) => (
+              <motion.div key={step.num} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(i * 0.1)}
+                style={{ background: '#ffffff', padding: '52px 44px', position: 'relative', overflow: 'hidden', transition: 'background 0.2s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f7f7f5'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#ffffff'; }}>
+                <div className="mkt-mono" style={{ position: 'absolute', right: '-8px', bottom: '-20px', fontSize: '130px', fontWeight: 700, color: 'rgba(0,0,0,0.03)', fontFamily: monoFont, pointerEvents: 'none', userSelect: 'none', lineHeight: 1 }}>{step.num}</div>
+                <div style={{ width: '48px', height: '48px', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', marginBottom: '28px', color: 'rgba(0,0,0,0.4)' }}>{step.icon}</div>
+                <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px', color: '#080808' }}>{step.title}</h3>
+                <p style={{ fontSize: '14px', fontWeight: 300, lineHeight: 1.65, color: 'rgba(0,0,0,0.42)' }}>{step.desc}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Early Access ─────────────────────────────────────────── */}
+      <section id="early-access" style={{ background: '#080808', color: '#fff', padding: '120px 48px', textAlign: 'center', position: 'relative', overflow: 'hidden', borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
+        <motion.h2 initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp}
+          style={{ fontSize: 'clamp(44px, 7vw, 96px)', fontWeight: 700, letterSpacing: '-0.04em', lineHeight: 1.0, marginBottom: '20px', position: 'relative' }}>
+          Be part of what&apos;s next.
+        </motion.h2>
+        <motion.p initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(0.08)}
+          style={{ fontSize: '16px', fontWeight: 300, color: 'rgba(255,255,255,0.4)', maxWidth: '420px', margin: '0 auto 44px', lineHeight: 1.7, position: 'relative' }}>
+          We&apos;re opening early access to a select group of 3DCP operators, researchers, and construction companies.
+        </motion.p>
+        <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(0.16)} style={{ position: 'relative' }}>
+          {waitlistJoined ? (
+            <p style={{ color: 'rgba(255,255,255,0.65)', fontSize: '16px' }}>You&apos;re on the list. We&apos;ll be in touch!</p>
+          ) : (
+            <form onSubmit={e => { e.preventDefault(); if (email.trim()) setWaitlistJoined(true); }}
+              style={{ display: 'flex', gap: '10px', maxWidth: '420px', margin: '0 auto 16px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" required
+                style={{ flex: 1, minWidth: '200px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '14px 18px', fontSize: '14px', color: '#fff', outline: 'none', transition: 'border-color 0.2s' }}
+                onFocus={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.3)'; }}
+                onBlur={e =>  { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.1)'; }} />
+              <button type="submit"
+                style={{ background: '#fff', color: '#080808', border: 'none', borderRadius: '6px', padding: '14px 28px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', transition: 'opacity 0.2s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}>
+                Join Waitlist
+              </button>
+            </form>
+          )}
+        </motion.div>
+        <motion.p initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(0.22)}
+          className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '11px', color: 'rgba(255,255,255,0.18)', position: 'relative' }}>
+          By joining you agree to our <a href="/tos" style={{ color: 'rgba(255,255,255,0.3)' }}>Terms</a> and <a href="/privacy" style={{ color: 'rgba(255,255,255,0.3)' }}>Privacy Policy</a>.
+        </motion.p>
+      </section>
+
+      {/* ── Footer ───────────────────────────────────────────────── */}
+      <footer style={{ background: '#080808', borderTop: '1px solid rgba(255,255,255,0.07)', padding: '36px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+        <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={120} height={30} style={{ height: '28px', width: 'auto', display: 'block' }} />
+        <ul style={{ display: 'flex', gap: '28px', listStyle: 'none', flexWrap: 'wrap' }}>
+          {[{ label: 'Slicer', href: '/tools/slicer' }, { label: 'Monitor', href: '/live-monitoring' }, { label: 'Terms', href: '/tos' }, { label: 'Privacy', href: '/privacy' }, { label: 'Contact', href: '/contact' }].map(link => (
+            <li key={link.label}>
+              <a href={link.href}
+                style={{ color: 'rgba(255,255,255,0.3)', textDecoration: 'none', fontSize: '12px', letterSpacing: '0.03em', transition: 'color 0.2s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.7)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.3)'; }}>
+                {link.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+        <span className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '12px', color: 'rgba(255,255,255,0.2)' }}>© 2026 AutoBuild AI</span>
+      </footer>
+
+      <style>{`
+        @media (max-width: 900px) {
+          .mkt-slicer-grid  { grid-template-columns: 1fr !important; gap: 48px !important; }
+          .mkt-monitor-grid { grid-template-columns: 1fr !important; gap: 48px !important; }
+          .mkt-steps-grid   { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 768px) {
+          .mkt > nav { padding: 0 20px !important; height: 60px !important; }
+        }
+      `}</style>
     </div>
   );
 }
