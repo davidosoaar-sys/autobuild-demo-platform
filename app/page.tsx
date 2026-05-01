@@ -147,19 +147,24 @@ export default function Home() {
       </div>
 
       {/* ── Nav ──────────────────────────────────────────────────── */}
-      <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200, background: '#ffffff', borderBottom: '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 40px', height: '72px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <a href="/"><Image src="/Autobuildblack.png" alt="AutoBuild AI" width={200} height={60} style={{ width: '160px', height: 'auto', display: 'block' }} /></a>
-          <button onClick={() => setMenuOpen(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', gap: '10px', background: menuOpen ? 'rgba(0,0,0,0.06)' : '#f7f7f5', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '100px', padding: '8px 16px', cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: '#080808', transition: 'background 0.2s ease' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#080808', borderRadius: '2px', transform: menuOpen ? 'rotate(45deg) translate(4px, 4px)' : 'none', transition: 'transform 0.3s ease' }} />
-              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#080808', borderRadius: '2px', transform: menuOpen ? 'rotate(-45deg) translate(4px, -4px)' : 'none', transition: 'transform 0.3s ease' }} />
-            </div>
+      <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200, background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 40px', height: '72px' }}>
+        <button onClick={() => setMenuOpen(v => !v)}
+          style={{ display: 'flex', alignItems: 'center', gap: 0, background: '#080808', border: 'none', borderRadius: '100px', padding: 0, cursor: 'pointer', overflow: 'hidden', transition: 'opacity 0.2s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}>
+          <span style={{ padding: '7px 12px 7px 10px', display: 'flex', alignItems: 'center' }}>
+            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={120} height={30} style={{ height: '30px', width: 'auto', display: 'block' }} />
+          </span>
+          <span style={{ width: '1px', height: '28px', background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
+          <span style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', color: '#fff', fontSize: '13px', fontWeight: 500 }}>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#fff', borderRadius: '2px', transform: menuOpen ? 'rotate(45deg) translate(4px, 4px)' : 'none', transition: 'transform 0.3s ease' }} />
+              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#fff', borderRadius: '2px', transform: menuOpen ? 'rotate(-45deg) translate(4px, -4px)' : 'none', transition: 'transform 0.3s ease' }} />
+            </span>
             {menuOpen ? 'Close' : 'Menu'}
-          </button>
-        </div>
-        <a href="#early-access"
+          </span>
+        </button>
+        <a href="/early-access"
           style={{ background: '#080808', color: '#fff', borderRadius: '100px', padding: '10px 24px', fontSize: '13px', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap', transition: 'opacity 0.2s' }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.75'; }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}>
@@ -169,12 +174,16 @@ export default function Home() {
 
       {/* ── Hero ─────────────────────────────────────────────────── */}
       <section style={{ position: 'relative', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '160px 48px 100px', overflow: 'hidden', background: '#ffffff' }}>
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.06) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
+        {/* Animated orbs */}
+        <div className="mkt-orb mkt-orb-1" style={{ position: 'absolute', width: '700px', height: '700px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(100,60,220,0.07) 0%, transparent 70%)', top: '-200px', left: '-150px', pointerEvents: 'none' }} />
+        <div className="mkt-orb mkt-orb-2" style={{ position: 'absolute', width: '600px', height: '600px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,140,255,0.06) 0%, transparent 70%)', bottom: '-100px', right: '-100px', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.05) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
 
         <motion.div initial="hidden" animate="visible" variants={fadeUp}
           className="mkt-mono"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '100px', padding: '6px 16px 6px 12px', fontFamily: monoFont, fontSize: '10px', letterSpacing: '0.1em', color: 'rgba(0,0,0,0.38)', marginBottom: '52px', background: '#f7f7f5', position: 'relative' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '100px', padding: '6px 16px 6px 12px', fontFamily: monoFont, fontSize: '10px', letterSpacing: '0.1em', color: 'rgba(0,0,0,0.45)', marginBottom: '48px', background: '#f7f7f5', position: 'relative' }}>
           <span className="mkt-pulse" style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#16a34a', display: 'inline-block' }} />
+          Early Access Now Open
         </motion.div>
 
         <motion.h1 initial="hidden" animate="visible" variants={delay(0.08)}
@@ -206,11 +215,12 @@ export default function Home() {
       </section>
 
       {/* ── Stats bar ────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', background: '#080808' }}>
-        {['47% Average Travel Saved', 'Real-time Bead Analysis', '300+ Layer Monitoring', 'Claude Vision Powered'].map((stat, i) => (
-          <motion.div key={stat} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(i * 0.06)}
-            style={{ padding: '28px 24px', borderRight: i < 3 ? '1px solid rgba(255,255,255,0.07)' : 'none', textAlign: 'center' }}>
-            <div className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '11px', letterSpacing: '0.07em', color: 'rgba(255,255,255,0.55)' }}>{stat}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', background: '#080808', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+        {[['47%','Average Travel Saved'],['< 1s','Alert Response Time'],['300+','Layers Per Print'],['Claude Vision','AI Engine']].map(([val, label], i) => (
+          <motion.div key={val} initial="hidden" whileInView="visible" viewport={{ once: true }} variants={delay(i * 0.07)}
+            style={{ padding: '36px 24px', borderRight: i < 3 ? '1px solid rgba(255,255,255,0.06)' : 'none', textAlign: 'center' }}>
+            <div className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '26px', fontWeight: 700, letterSpacing: '-0.02em', color: 'rgba(255,255,255,0.92)', marginBottom: '6px' }}>{val}</div>
+            <div className="mkt-mono" style={{ fontFamily: monoFont, fontSize: '9px', letterSpacing: '0.14em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>{label}</div>
           </motion.div>
         ))}
       </div>
@@ -336,7 +346,8 @@ export default function Home() {
 
       {/* ── Early Access ─────────────────────────────────────────── */}
       <section id="early-access" style={{ background: '#080808', color: '#fff', padding: '120px 48px', textAlign: 'center', position: 'relative', overflow: 'hidden', borderTop: '1px solid rgba(0,0,0,0.08)' }}>
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 80% 60% at 50% 50%, rgba(80,40,200,0.18) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
         <motion.h2 initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp}
           style={{ fontSize: 'clamp(44px, 7vw, 96px)', fontWeight: 700, letterSpacing: '-0.04em', lineHeight: 1.0, marginBottom: '20px', position: 'relative' }}>
           Be part of what&apos;s next.
@@ -389,6 +400,18 @@ export default function Home() {
       </footer>
 
       <style>{`
+        @keyframes orb-drift-1 {
+          0%,100% { transform: translate(0,0) scale(1); }
+          30%  { transform: translate(60px,-40px) scale(1.06); }
+          60%  { transform: translate(-30px,50px) scale(0.94); }
+        }
+        @keyframes orb-drift-2 {
+          0%,100% { transform: translate(0,0) scale(1); }
+          40%  { transform: translate(-50px,30px) scale(1.04); }
+          70%  { transform: translate(40px,-50px) scale(0.96); }
+        }
+        .mkt-orb-1 { animation: orb-drift-1 20s ease-in-out infinite; }
+        .mkt-orb-2 { animation: orb-drift-2 26s ease-in-out infinite; }
         @media (max-width: 900px) {
           .mkt-slicer-grid  { grid-template-columns: 1fr !important; gap: 48px !important; }
           .mkt-monitor-grid { grid-template-columns: 1fr !important; gap: 48px !important; }
