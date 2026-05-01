@@ -149,17 +149,17 @@ export default function Home() {
       {/* ── Nav ──────────────────────────────────────────────────── */}
       <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200, background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 40px', height: '72px' }}>
         <button onClick={() => setMenuOpen(v => !v)}
-          style={{ display: 'flex', alignItems: 'center', gap: 0, background: '#080808', border: 'none', borderRadius: '100px', padding: 0, cursor: 'pointer', overflow: 'hidden', transition: 'opacity 0.2s' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 0, background: '#f7f7f5', border: '1px solid rgba(0,0,0,0.10)', borderRadius: '100px', padding: 0, cursor: 'pointer', overflow: 'hidden', transition: 'opacity 0.2s' }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}>
           <span style={{ padding: '7px 12px 7px 10px', display: 'flex', alignItems: 'center' }}>
-            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={120} height={30} style={{ height: '30px', width: 'auto', display: 'block' }} />
+            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={120} height={30} style={{ height: '30px', width: 'auto', display: 'block' }} />
           </span>
-          <span style={{ width: '1px', height: '28px', background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
-          <span style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', color: '#fff', fontSize: '13px', fontWeight: 500 }}>
+          <span style={{ width: '1px', height: '28px', background: 'rgba(0,0,0,0.12)', flexShrink: 0 }} />
+          <span style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', color: '#080808', fontSize: '13px', fontWeight: 500 }}>
             <span style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#fff', borderRadius: '2px', transform: menuOpen ? 'rotate(45deg) translate(4px, 4px)' : 'none', transition: 'transform 0.3s ease' }} />
-              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#fff', borderRadius: '2px', transform: menuOpen ? 'rotate(-45deg) translate(4px, -4px)' : 'none', transition: 'transform 0.3s ease' }} />
+              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#080808', borderRadius: '2px', transform: menuOpen ? 'rotate(45deg) translate(4px, 4px)' : 'none', transition: 'transform 0.3s ease' }} />
+              <span style={{ display: 'block', width: '16px', height: '1.5px', background: '#080808', borderRadius: '2px', transform: menuOpen ? 'rotate(-45deg) translate(4px, -4px)' : 'none', transition: 'transform 0.3s ease' }} />
             </span>
             {menuOpen ? 'Close' : 'Menu'}
           </span>
@@ -178,13 +178,6 @@ export default function Home() {
         <div className="mkt-orb mkt-orb-1" style={{ position: 'absolute', width: '700px', height: '700px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(100,60,220,0.07) 0%, transparent 70%)', top: '-200px', left: '-150px', pointerEvents: 'none' }} />
         <div className="mkt-orb mkt-orb-2" style={{ position: 'absolute', width: '600px', height: '600px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,140,255,0.06) 0%, transparent 70%)', bottom: '-100px', right: '-100px', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.05) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
-
-        <motion.div initial="hidden" animate="visible" variants={fadeUp}
-          className="mkt-mono"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '100px', padding: '6px 16px 6px 12px', fontFamily: monoFont, fontSize: '10px', letterSpacing: '0.1em', color: 'rgba(0,0,0,0.45)', marginBottom: '48px', background: '#f7f7f5', position: 'relative' }}>
-          <span className="mkt-pulse" style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#16a34a', display: 'inline-block' }} />
-          Early Access Now Open
-        </motion.div>
 
         <motion.h1 initial="hidden" animate="visible" variants={delay(0.08)}
           style={{ fontSize: 'clamp(52px, 8vw, 110px)', fontWeight: 700, lineHeight: 1.0, letterSpacing: '-0.04em', marginBottom: '28px', maxWidth: '900px', color: '#000', position: 'relative' }}>
