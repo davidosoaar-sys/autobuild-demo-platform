@@ -60,8 +60,8 @@ export default function Home() {
 
   const NAV_LINKS = [
     { label: 'Home',         href: '/' },
-    { label: 'Slicer',       href: '/tools/slicer' },
-    { label: 'Monitor',      href: '/live-monitoring' },
+    { label: 'Slicer',       href: '/slicer' },
+    { label: 'Monitor',      href: '/monitor' },
     { label: 'Early Access', href: '#early-access' },
     { label: 'Contact',      href: '/contact' },
   ];
@@ -196,7 +196,7 @@ export default function Home() {
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}>
             Join the Waitlist
           </a>
-          <a href="/tools/slicer"
+          <a href="/slicer"
             style={{ background: 'transparent', color: '#080808', border: '1px solid rgba(0,0,0,0.18)', borderRadius: '6px', padding: '14px 28px', fontSize: '14px', fontWeight: 500, textDecoration: 'none', display: 'inline-block', transition: 'border-color 0.2s' }}
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#080808'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,0,0,0.18)'; }}>
@@ -231,7 +231,7 @@ export default function Home() {
                 </li>
               ))}
             </ul>
-            <a href="/tools/slicer"
+            <a href="/slicer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'rgba(0,0,0,0.6)', textDecoration: 'none', borderBottom: '1px solid rgba(0,0,0,0.15)', paddingBottom: '2px', transition: 'color 0.2s, border-color 0.2s' }}
               onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.color = '#080808'; el.style.borderColor = '#080808'; }}
               onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = 'rgba(0,0,0,0.6)'; el.style.borderColor = 'rgba(0,0,0,0.15)'; }}>
@@ -297,7 +297,7 @@ export default function Home() {
                 </li>
               ))}
             </ul>
-            <a href="/live-monitoring"
+            <a href="/monitor"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'rgba(0,0,0,0.6)', textDecoration: 'none', borderBottom: '1px solid rgba(0,0,0,0.15)', paddingBottom: '2px', transition: 'color 0.2s, border-color 0.2s' }}
               onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.color = '#080808'; el.style.borderColor = '#080808'; }}
               onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = 'rgba(0,0,0,0.6)'; el.style.borderColor = 'rgba(0,0,0,0.15)'; }}>
@@ -374,7 +374,7 @@ export default function Home() {
       <footer style={{ background: '#080808', borderTop: '1px solid rgba(255,255,255,0.07)', padding: '36px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
         <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={120} height={30} style={{ height: '28px', width: 'auto', display: 'block' }} />
         <ul style={{ display: 'flex', gap: '28px', listStyle: 'none', flexWrap: 'wrap' }}>
-          {[{ label: 'Slicer', href: '/tools/slicer' }, { label: 'Monitor', href: '/live-monitoring' }, { label: 'Terms', href: '/tos' }, { label: 'Privacy', href: '/privacy' }, { label: 'Contact', href: '/contact' }].map(link => (
+          {[{ label: 'Slicer', href: '/slicer' }, { label: 'Monitor', href: '/monitor' }, { label: 'Terms', href: '/tos' }, { label: 'Privacy', href: '/privacy' }, { label: 'Contact', href: '/contact' }].map(link => (
             <li key={link.label}>
               <a href={link.href}
                 style={{ color: 'rgba(255,255,255,0.3)', textDecoration: 'none', fontSize: '12px', letterSpacing: '0.03em', transition: 'color 0.2s' }}
