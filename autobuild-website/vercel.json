@@ -2,5 +2,15 @@
   "version": 2,
   "framework": null,
   "outputDirectory": ".",
-  "cleanUrls": false
+  "cleanUrls": true,
+  "routes": [
+    { "src": "/", "dest": "/index.html" },
+    { "src": "/slicer", "dest": "/slicer.html" },
+    { "src": "/monitor", "dest": "/monitor.html" },
+    { "src": "/early-access", "dest": "/early-access.html" },
+    { "src": "/contact", "dest": "/contact.html" },
+    { "src": "/terms", "dest": "/terms.html" },
+    { "src": "/privacy", "dest": "/privacy.html" },
+    { "src": "/(.*)\\.html", "dest": "/$1.html" }
+  ]
 }
