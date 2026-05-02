@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /tmp/design_extracted)",
+      "Bash(tar -xf /tmp/design -C /tmp/design_extracted)",
+      "Bash(git commit -m ' *)",
+      "Bash(vercel ls *)",
+      "Bash(vercel --prod --yes --name autobuild-website)",
+      "Bash(vercel inspect *)"
+    ]
+  }
+}

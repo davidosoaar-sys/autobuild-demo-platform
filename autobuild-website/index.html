@@ -97,19 +97,44 @@
 </style>
 </head>
 <body>
-<nav>
-  <a href="/" class="nav-logo"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></a>
-  <ul class="nav-links">
-    <li><a href="/slicer">Slicer</a></li>
-    <li><a href="/monitor">Monitor</a></li>
-    <li><a href="/early-access">Early Access</a></li>
-    <li><a href="/contact">Contact</a></li>
+<div class="nav-overlay" id="navOverlay">
+  <div class="nav-overlay-label">(NAVIGATION)</div>
+  <ul class="nav-overlay-links">
+    <li><a href="/" onclick="closeMenu()">Home</a></li>
+    <li><a href="/slicer" onclick="closeMenu()">Slicer</a></li>
+    <li><a href="/monitor" onclick="closeMenu()">Monitor</a></li>
+    <li><a href="/early-access" onclick="closeMenu()">Early Access</a></li>
+    <li><a href="/contact" onclick="closeMenu()">Contact</a></li>
   </ul>
+  <div class="nav-overlay-footer">
+    <ul>
+      <li><a href="/terms" onclick="closeMenu()">Terms</a></li>
+      <li><a href="/privacy" onclick="closeMenu()">Privacy</a></li>
+      <li><a href="/contact" onclick="closeMenu()">Contact</a></li>
+    </ul>
+    <span>© 2026 AutoBuild AI</span>
+  </div>
+</div>
+
+<nav>
+  <button class="nav-pill" id="navPill" onclick="toggleMenu()">
+    <span class="nav-pill-logo"><img src="uploads/Autobuildblack.png" alt="AutoBuild AI" /></span>
+    <span class="nav-pill-divider"></span>
+    <span class="nav-pill-menu">
+      <span class="nav-pill-burger">
+        <span class="burger-line" id="bl1"></span>
+        <span class="burger-line" id="bl2"></span>
+      </span>
+      <span id="navMenuLabel">Menu</span>
+    </span>
+  </button>
   <a href="/early-access" class="nav-cta">Join Waitlist</a>
 </nav>
 
 <section class="hero">
   <div class="dot-grid"></div>
+  <div class="hero-orb hero-orb-1"></div>
+  <div class="hero-orb hero-orb-2"></div>
   <h1 class="hero-headline fade-up" style="transition-delay:.08s">The Intelligence Layer<br><span class="dim">for 3D Concrete Printing</span></h1>
   <p class="hero-sub fade-up" style="transition-delay:.16s">AI-powered path optimization and real-time quality control for the future of construction.</p>
   <div class="hero-btns fade-up" style="transition-delay:.24s">
@@ -119,10 +144,10 @@
 </section>
 
 <div class="stats-bar">
-  <div class="stat-item fade-up"><div class="stat-value">47% Average Travel Saved</div></div>
-  <div class="stat-item fade-up" style="transition-delay:.06s"><div class="stat-value">Real-time Bead Analysis</div></div>
-  <div class="stat-item fade-up" style="transition-delay:.12s"><div class="stat-value">300+ Layer Monitoring</div></div>
-  <div class="stat-item fade-up" style="transition-delay:.18s"><div class="stat-value">Claude Vision Powered</div></div>
+  <div class="stat-item fade-up"><div class="stat-num">47%</div><div class="stat-label">Average Travel Saved</div></div>
+  <div class="stat-item fade-up" style="transition-delay:.06s"><div class="stat-num">&lt; 1s</div><div class="stat-label">Alert Response Time</div></div>
+  <div class="stat-item fade-up" style="transition-delay:.12s"><div class="stat-num">300+</div><div class="stat-label">Layers Per Print</div></div>
+  <div class="stat-item fade-up" style="transition-delay:.18s"><div class="stat-num">Claude Vision</div><div class="stat-label">AI Engine</div></div>
 </div>
 
 <section class="slicer-section">
@@ -216,6 +241,21 @@
 </footer>
 
 <script>
+function toggleMenu() {
+  const open = document.getElementById('navOverlay').classList.toggle('open');
+  document.body.style.overflow = open ? 'hidden' : '';
+  document.getElementById('navMenuLabel').textContent = open ? 'Close' : 'Menu';
+  document.getElementById('bl1').style.transform = open ? 'rotate(45deg) translate(4px, 4px)' : 'none';
+  document.getElementById('bl2').style.transform = open ? 'rotate(-45deg) translate(4px, -4px)' : 'none';
+}
+function closeMenu() {
+  document.getElementById('navOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+  document.getElementById('navMenuLabel').textContent = 'Menu';
+  document.getElementById('bl1').style.transform = 'none';
+  document.getElementById('bl2').style.transform = 'none';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
 function handleEA(e) {
   e.preventDefault();
   document.getElementById('ea-form').style.display = 'none';
