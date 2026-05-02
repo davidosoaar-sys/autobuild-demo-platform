@@ -40,10 +40,10 @@ nav {
 }
 .nav-pill:hover { opacity: 0.85; }
 
-.nav-pill-logo { padding: 7px 12px 7px 10px; display: flex; align-items: center; }
-.nav-pill-logo img { height: 30px; width: auto; display: block; }
+.nav-pill-logo { padding: 8px 14px 8px 12px; display: flex; align-items: center; }
+.nav-pill-logo img { height: 44px; width: auto; display: block; }
 
-.nav-pill-divider { width: 1px; height: 28px; background: rgba(0,0,0,0.12); flex-shrink: 0; }
+.nav-pill-divider { width: 1px; height: 36px; background: rgba(0,0,0,0.12); flex-shrink: 0; }
 
 .nav-pill-menu {
   display: flex; align-items: center; gap: 8px;
