@@ -37,7 +37,7 @@ export default function AppNav({ currentStep }: AppNavProps) {
           </button>
           <div className="h-6 w-px bg-gray-200" />
           <button onClick={() => router.push('/')} className="-my-5">
-            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-36 w-auto" />
+            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-36 w-auto" />
           </button>
           {activeProject && (
             <span className="text-sm font-medium text-gray-900 max-w-[200px] truncate">

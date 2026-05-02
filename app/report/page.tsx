@@ -64,7 +64,7 @@ export default function ReportPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white border border-gray-100 rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
           <div className="bg-black px-6 py-5">
-            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={200} height={200} className="h-16 w-auto mb-3"/>
+            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={200} height={200} className="h-16 w-auto mb-3"/>
             <p className="text-white font-bold text-lg">Before you continue</p>
             <p className="text-white/50 text-xs mt-1">Please review our terms before accessing your print report.</p>
           </div>
@@ -114,7 +114,7 @@ export default function ReportPage() {
             </button>
             <div className="h-6 w-px bg-gray-200 hidden sm:block"/>
             <div className="-my-4 sm:-my-5">
-              <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-20 sm:h-28 w-auto"/>
+              <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-20 sm:h-28 w-auto"/>
             </div>
             <h1 className="text-base sm:text-lg font-semibold text-black">Print Report</h1>
           </div>

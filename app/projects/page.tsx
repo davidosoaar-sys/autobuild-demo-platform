@@ -235,7 +235,7 @@ export default function ProjectsPage() {
       <header className="border-b border-gray-100 bg-white sticky top-0 z-10 overflow-visible">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-1 flex items-center justify-between">
           <button onClick={() => router.push('/')} className="-my-4 sm:-my-6">
-            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto"/>
+            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto"/>
           </button>
           <button onClick={()=>setShowCreate(true)}
             className="px-3 sm:px-4 py-2 bg-black text-white text-xs sm:text-sm font-medium rounded-xl hover:bg-black/90 transition-colors">

@@ -750,7 +750,7 @@ export default function SlicerTool() {
         <header className="border-b border-gray-100 bg-white sticky top-0 z-10 overflow-visible">
           <div className="max-w-[1400px] mx-auto px-6 py-1 flex items-center justify-between">
             <button onClick={() => router.push('/')} className="-my-4 sm:-my-6">
-              <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto" />
+              <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto" />
             </button>
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-black/40">RL Slicer</span>
