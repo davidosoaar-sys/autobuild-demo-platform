@@ -32,7 +32,7 @@ nav {
   font-family: var(--font-head);
 }
 
-.nav-logo img { height: 52px; width: auto; display: block; }
+.nav-logo img { height: 72px; width: auto; display: block; }
 
 .nav-links {
   display: flex; list-style: none; gap: 36px; align-items: center;
