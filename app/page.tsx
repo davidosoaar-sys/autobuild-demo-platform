@@ -144,7 +144,7 @@ export default function Home() {
             <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
               className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
               <div className="bg-black px-6 pt-6 pb-5">
-                <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-20 w-auto mb-4"/>
+                <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-20 w-auto mb-4"/>
                 <p className="text-white font-bold text-lg leading-snug">Welcome to AutoBuild AI</p>
                 <p className="text-white/40 text-xs mt-1">3DCP monitoring and path optimisation platform</p>
               </div>
@@ -206,7 +206,7 @@ export default function Home() {
       <header className="bg-black border-b border-white/10">
         <div className="max-w-5xl mx-auto px-6 py-1 flex items-center justify-between">
           <div className="-my-3">
-            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-20 w-auto"/>
+            <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-20 w-auto"/>
           </div>
           <button onClick={() => router.push('/settings')}
             className="w-9 h-9 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-colors">
