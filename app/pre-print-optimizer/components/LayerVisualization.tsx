@@ -389,9 +389,10 @@ function ModelMeshInner({ geo, obj, opacity, scale, enableTransform, transformMo
   );
 }
 
-function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transformMode, orbitRef }: {
+function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transformMode, orbitRef, onBoundsDetected }: {
   fileUrl: string; fileExt: string; opacity: number; scale: number;
   enableTransform: boolean; transformMode: TransformMode; orbitRef: React.RefObject<any>;
+  onBoundsDetected?: (b: { x: number; y: number; z: number }) => void;
 }) {
   const [geo, setGeo] = useState<THREE.BufferGeometry | null>(null);
   const [obj, setObj] = useState<THREE.Group | null>(null);
@@ -410,6 +411,9 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
           const cx = (box.min.x + box.max.x) / 2;
           const cz = (box.min.z + box.max.z) / 2;
           g.translate(-cx, -box.min.y, -cz);
+          g.computeBoundingBox();
+          const b2 = g.boundingBox!;
+          onBoundsDetected?.({ x: b2.max.x - b2.min.x, y: b2.max.y - b2.min.y, z: b2.max.z - b2.min.z });
           setGeo(g);
         });
       });
@@ -641,7 +645,24 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
 }
 
 
-// ── Camera controller ─────────────────────────────────────────────────────────
+// ── Camera auto-fit on model load ─────────────────────────────────────────────
+
+function CameraAutoFit({ bounds }: { bounds: { x: number; y: number; z: number } | null }) {
+  const { camera } = useThree();
+  const prev = useRef<string>('');
+  useEffect(() => {
+    if (!bounds) return;
+    const key = `${bounds.x.toFixed(2)},${bounds.y.toFixed(2)},${bounds.z.toFixed(2)}`;
+    if (key === prev.current) return;
+    prev.current = key;
+    const size = Math.max(bounds.x, bounds.z, 1);
+    const h    = Math.max(bounds.y, 0.5);
+    camera.position.set(size * 0.9, size * 0.55 + h * 0.4, size * 0.9);
+    camera.lookAt(0, h * 0.25, 0);
+  }, [bounds, camera]);
+  return null;
+}
+
 // ── Camera controller ─────────────────────────────────────────────────────────
 
 function CameraController({ snap, site }: { snap: string|null; site: SiteDimensions }) {
@@ -664,7 +685,8 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
 function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, site, modelScale,
   snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor, nozzleDiameter = 0.025,
   tod = 'noon', showModel = true, showToolpath = true,
-  numLayers = 0, showPathLines = false, isOrtho = false }: {
+  numLayers = 0, showPathLines = false, isOrtho = false,
+  onBoundsDetected, modelBounds }: {
   fileUrl: string|null; fileExt: string; toolpath: Layer[];
   layerHeight: number; animProgress: number; mode: ViewMode;
   site: SiteDimensions; modelScale: number; snap: string|null;
@@ -673,6 +695,8 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
   pathColor?: string; nozzleDiameter?: number; tod?: TimeOfDay;
   showModel?: boolean; showToolpath?: boolean;
   numLayers?: number; showPathLines?: boolean; isOrtho?: boolean;
+  onBoundsDetected?: (b: { x: number; y: number; z: number }) => void;
+  modelBounds?: { x: number; y: number; z: number } | null;
 }) {
   const isEnv = mode === 'environment';
   const isDark = mode === 'dark';
@@ -713,8 +737,11 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
         <ModelLoader fileUrl={fileUrl} fileExt={fileExt}
           opacity={toolpath.length > 0 ? 0.25 : 1.0}
           scale={modelScale} enableTransform={enableTransform}
-          transformMode={transformMode} orbitRef={orbitRef}/>
+          transformMode={transformMode} orbitRef={orbitRef}
+          onBoundsDetected={onBoundsDetected}/>
       )}
+
+      <CameraAutoFit bounds={modelBounds ?? null}/>
 
       {toolpath.length > 0 && showToolpath && (
         <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} progress={animProgress}
@@ -852,6 +879,7 @@ export default function LayerVisualization({
   const [showToolpath,    setShowToolpath]    = useState(true);
   const [isOrtho,         setIsOrtho]         = useState(false);
   const [showPathLines,   setShowPathLines]   = useState(false);
+  const [modelBounds,     setModelBounds]     = useState<{x:number;y:number;z:number}|null>(null);
   const orbitRef = useRef<any>(null);
   const rafRef   = useRef<number|null>(null);
   const lastTRef = useRef<number|null>(null);
@@ -860,7 +888,13 @@ export default function LayerVisualization({
   const setMode    = (m: ViewMode) => { setInternalMode(m); onModeChange?.(m); };
   const modelScale = extScale ?? internalScale;
   const fileExt    = file?.name.split('.').pop()?.toLowerCase() ?? 'stl';
-  const resolvedSite = site ?? { width:12, length:10, slope:0 };
+  const resolvedSite = useMemo(()=>{
+    const base = site ?? { width:12, length:10, slope:0 };
+    if (!modelBounds) return base;
+    const mw = modelBounds.x * modelScale;
+    const ml = modelBounds.z * modelScale;
+    return { ...base, width: Math.max(base.width, mw * 1.25), length: Math.max(base.length, ml * 1.25) };
+  }, [site, modelBounds, modelScale]);
   const totalSegs    = useMemo(()=>toolpath.reduce((a,l)=>a+l.length,0),[toolpath]);
   const animDuration = useMemo(()=>Math.min(Math.max(totalSegs*0.05,5),120),[totalSegs]);
 
@@ -883,7 +917,7 @@ export default function LayerVisualization({
   useEffect(()=>{
     if (!file) return;
     const url = URL.createObjectURL(file);
-    setFileUrl(url); setAnimProgress(0); setIsPlaying(false);
+    setFileUrl(url); setAnimProgress(0); setIsPlaying(false); setModelBounds(null);
     return ()=>URL.revokeObjectURL(url);
   },[file]);
 
@@ -966,7 +1000,8 @@ export default function LayerVisualization({
               animProgress={0} mode={mode} site={resolvedSite} modelScale={modelScale}
               snap={null} enableTransform={false} transformMode="translate"
               orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor} tod={tod}
-              numLayers={numLayers} showPathLines={false} isOrtho={isOrtho}/>
+              numLayers={numLayers} showPathLines={false} isOrtho={isOrtho}
+              onBoundsDetected={setModelBounds} modelBounds={modelBounds}/>
           </Canvas>
           <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg">
             <span className="text-white/40 text-[10px]">Drag · scroll</span>
@@ -991,7 +1026,8 @@ export default function LayerVisualization({
           orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor}
           nozzleDiameter={nozzleDiameter ?? 0.025} tod={tod}
           showModel={showModel} showToolpath={showToolpath}
-          numLayers={numLayers} showPathLines={showPathLines} isOrtho={isOrtho}/>
+          numLayers={numLayers} showPathLines={showPathLines} isOrtho={isOrtho}
+          onBoundsDetected={setModelBounds} modelBounds={modelBounds}/>
       </Canvas>
 
       {/* Top-left controls — single compact row */}
