@@ -273,7 +273,7 @@ function SiteGround({ site, mode, sitePlan, tod }: {
       ))}
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
-        <planeGeometry args={[w * 10, l * 10]} />
+        <planeGeometry args={[100000, 100000]} />
         <meshStandardMaterial color={groundFar} roughness={0.95}/>
       </mesh>
 
@@ -655,10 +655,14 @@ function CameraAutoFit({ bounds }: { bounds: { x: number; y: number; z: number }
     const key = `${bounds.x.toFixed(2)},${bounds.y.toFixed(2)},${bounds.z.toFixed(2)}`;
     if (key === prev.current) return;
     prev.current = key;
-    const size = Math.max(bounds.x, bounds.z, 1);
-    const h    = Math.max(bounds.y, 0.5);
-    camera.position.set(size * 0.9, size * 0.55 + h * 0.4, size * 0.9);
-    camera.lookAt(0, h * 0.25, 0);
+    const fov     = ((camera as THREE.PerspectiveCamera).fov ?? 75) * (Math.PI / 180);
+    const radius  = Math.sqrt(bounds.x ** 2 + bounds.y ** 2 + bounds.z ** 2) / 2;
+    const dist    = (radius / Math.tan(fov / 2)) * 1.6;
+    const h       = Math.max(bounds.y, 0.5);
+    camera.position.set(dist * 0.7, dist * 0.5 + h * 0.3, dist * 0.7);
+    camera.lookAt(0, h * 0.35, 0);
+    (camera as THREE.PerspectiveCamera).far = Math.max(dist * 10, 5000);
+    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
   }, [bounds, camera]);
   return null;
 }
@@ -758,7 +762,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
 
       <CameraController snap={snap} site={site}/>
       <OrbitControls ref={orbitRef} enablePan enableZoom enableRotate
-        maxPolarAngle={Math.PI/1.85} minDistance={1} maxDistance={300}/>
+        maxPolarAngle={Math.PI/1.85} minDistance={0.5}/>
       <GizmoHelper alignment="bottom-left" margin={[72, 72]}>
         <GizmoViewport axisColors={['#ef4444','#22c55e','#3b82f6']} labelColor="white" hideNegativeAxes={false}/>
       </GizmoHelper>
@@ -995,7 +999,7 @@ export default function LayerVisualization({
           </div>
         </div>
         <div className="relative" style={{height:340,background:bg}}>
-          <Canvas shadows gl={{antialias:true}}>
+          <Canvas shadows gl={{antialias:true}} camera={{near:0.1,far:50000}}>
             <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={[]} layerHeight={0.04}
               animProgress={0} mode={mode} site={resolvedSite} modelScale={modelScale}
               snap={null} enableTransform={false} transformMode="translate"
@@ -1019,6 +1023,7 @@ export default function LayerVisualization({
     <div className="absolute inset-0">
       <Canvas shadows
         gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:1.1}}
+        camera={{near:0.1,far:50000}}
         style={{background:bg}}>
         <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={toolpath} layerHeight={layerHeight||0.04}
           animProgress={animProgress} mode={mode} site={resolvedSite} modelScale={modelScale}
