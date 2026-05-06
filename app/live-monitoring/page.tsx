@@ -492,7 +492,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
     setAnalysis(null);
     setError('');
     setRunning(true);
-    onAlert('Claude Vision analysing image…', 'info');
+    onAlert('Analysing image…', 'info');
 
     try {
       // Convert to base64
@@ -582,7 +582,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
             <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
           </label>
         </div>
-        <div className="aspect-video bg-gray-50 flex items-center justify-center relative">
+        <div className="min-h-[480px] bg-gray-50 flex items-center justify-center relative">
           {image
             ? <img src={image} alt="layer" className="w-full h-full object-contain" />
             : (
@@ -593,7 +593,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
                   </svg>
                 </div>
                 <p className="text-xs font-medium text-black/30 mb-1">Upload a concrete layer photo</p>
-                <p className="text-[10px] text-black/20">Claude Vision will assess bead quality, angle deviation, and defects</p>
+                <p className="text-[10px] text-black/20">AI will assess bead quality, angle deviation, and defects</p>
               </div>
             )
           }
@@ -602,7 +602,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
               <div className="text-center">
                 <motion.div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full mx-auto mb-3"
                   animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
-                <p className="text-white text-xs font-semibold">Analysing with Claude Vision…</p>
+                <p className="text-white text-xs font-semibold">Analysing image…</p>
                 <p className="text-white/40 text-[10px] mt-1">Reading bead layers and detecting defects</p>
               </div>
             </div>
@@ -614,7 +614,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
       <div className="bg-black rounded-2xl overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-white/8">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-white/40">Analysis Results</h3>
-          <p className="text-[10px] text-white/20 mt-0.5">Claude Vision · 3DCP quality assessment</p>
+          <p className="text-[10px] text-white/20 mt-0.5">3DCP quality assessment</p>
         </div>
         <div className="p-5">
           {!analysis && !running && !error && (
