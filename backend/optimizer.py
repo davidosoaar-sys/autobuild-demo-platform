@@ -221,7 +221,6 @@ def optimize(
             toolpath.append(ordered_segs)
             total_travel += layer_travel
             naive_travel += naive_l
-            print(f"[travel] Layer {layer_idx}: naive={round(naive_l,1)}mm optimized={round(layer_travel,1)}mm", flush=True)
 
         segs_total_mm = _total_print_mm(ordered_segs) if ordered_segs else 0.0
         layer_time_s  = (segs_total_mm / max(final_speed, 1.0)) + interlayer_s

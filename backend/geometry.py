@@ -161,6 +161,21 @@ def parse_and_slice(
         -b[0][2],
     ])
 
+    # ── Auto unit detection ───────────────────────────────────────────────────
+    # STL/OBJ files are commonly authored in mm. Detect and convert to meters.
+    # Heuristic: if any dimension > 100, assume mm and scale to meters.
+    raw_bounds = mesh.bounds  # [[xmin,ymin,zmin],[xmax,ymax,zmax]]
+    max_dim = max(
+        raw_bounds[1][0] - raw_bounds[0][0],  # x extent
+        raw_bounds[1][1] - raw_bounds[0][1],  # y extent
+        raw_bounds[1][2] - raw_bounds[0][2],  # z extent
+    )
+    if max_dim > 100:
+        print(f"[geometry] Model appears to be in mm (max_dim={max_dim:.1f}) — converting to meters", flush=True)
+        mesh.vertices *= 0.001
+    else:
+        print(f"[geometry] Model appears to be in meters (max_dim={max_dim:.3f}m) — no conversion needed", flush=True)
+
     if abs(print_scale - 1.0) > 1e-6:
         mesh.apply_scale(float(print_scale))
 
@@ -194,6 +209,9 @@ def parse_and_slice(
 
     # ── Layer count ───────────────────────────────────────────────────────────
     total_layers  = max(1, int(total_height / layer_height))
+    print(f"[geometry] total_height={total_height:.3f}m layers={total_layers} layer_height={layer_height*1000:.1f}mm", flush=True)
+    if total_layers > 1000:
+        raise ValueError(f"Unrealistic layer count ({total_layers}) — model may be in wrong units after conversion. Check file.")
     num_layers    = min(total_layers, max_layers) if max_layers else total_layers
     layer_indices = list(range(num_layers))
 
