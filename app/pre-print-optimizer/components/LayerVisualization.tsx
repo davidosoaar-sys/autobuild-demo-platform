@@ -403,6 +403,8 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
       import('three/examples/jsm/loaders/STLLoader.js').then(({ STLLoader }) => {
         new STLLoader().load(fileUrl, g => {
           g.computeVertexNormals();
+          // STL coordinates are in mm; scene units are metres
+          g.scale(0.001, 0.001, 0.001);
           // STL files are Z-up, Three.js is Y-up — rotate geometry before grounding
           g.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
           // Center X/Z, lift bottom to Y=0
