@@ -6,7 +6,7 @@ import { OrbitControls, Line, TransformControls, GizmoHelper, GizmoViewport, Ort
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 
-interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; infill?: boolean; }
+interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; }
 type Layer         = Segment[];
 type ViewMode      = 'environment' | 'dark' | 'light';
 type TimeOfDay     = 'morning' | 'noon' | 'sunset';
@@ -403,8 +403,12 @@ function ModelLoader({ fileUrl, fileExt, opacity, scale, enableTransform, transf
       import('three/examples/jsm/loaders/STLLoader.js').then(({ STLLoader }) => {
         new STLLoader().load(fileUrl, g => {
           g.computeVertexNormals();
-          // STL coordinates are in mm; scene units are metres
-          g.scale(0.001, 0.001, 0.001);
+          // Auto-detect units: STL has no header — infer from bounding box size
+          g.computeBoundingBox();
+          const raw = g.boundingBox!;
+          const maxDim = Math.max(raw.max.x-raw.min.x, raw.max.y-raw.min.y, raw.max.z-raw.min.z);
+          const unitScale = maxDim > 500 ? 0.001 : maxDim > 50 ? 0.01 : 1;
+          if (unitScale !== 1) g.scale(unitScale, unitScale, unitScale);
           // STL files are Z-up, Three.js is Y-up — rotate geometry before grounding
           g.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
           // Center X/Z, lift bottom to Y=0
@@ -495,23 +499,20 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
 }) {
   const allSegs = useMemo(() => {
-    const out: { s:[number,number,number]; e:[number,number,number]; layer: number; infill: boolean }[] = [];
+    const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
     toolpath.forEach((layer, li) => {
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
-        out.push({ s:[seg.x0, y, -seg.y0], e:[seg.x1, y, -seg.y1], layer: li, infill: !!seg.infill });
+        out.push({ s:[seg.x0, y, -seg.y0], e:[seg.x1, y, -seg.y1], layer: li });
       });
     });
     return out;
   }, [toolpath, layerHeight]);
 
-  const beadSegs = useMemo(() => allSegs.filter(s => !s.infill), [allSegs]);
+  const beadSegs = allSegs;
 
-  const beadCounts = useMemo(() => {
-    let c = 0;
-    return allSegs.map(s => { if (!s.infill) c++; return c; });
-  }, [allSegs]);
+  const beadCounts = useMemo(() => allSegs.map((_, i) => i + 1), [allSegs]);
 
   if (allSegs.length === 0) return null;
 
@@ -596,18 +597,6 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
     return geo;
   }, [beadSegs, beadW, beadH]);
 
-  const infillGeo = useMemo(() => {
-    const segs = allSegs.filter(s => s.infill);
-    if (!segs.length) return null;
-    const pts = new Float32Array(segs.length * 6);
-    segs.forEach((s, i) => {
-      pts[i*6+0] = s.s[0]; pts[i*6+1] = s.s[1]; pts[i*6+2] = s.s[2];
-      pts[i*6+3] = s.e[0]; pts[i*6+4] = s.e[1]; pts[i*6+5] = s.e[2];
-    });
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pts, 3));
-    return g;
-  }, [allSegs]);
 
   useEffect(() => {
     if (!fullGeo) return;
@@ -630,11 +619,6 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
             side={THREE.DoubleSide}
           />
         </mesh>
-      )}
-      {infillGeo && (
-        <lineSegments geometry={infillGeo} renderOrder={2}>
-          <lineBasicMaterial color="white" transparent opacity={0.4}/>
-        </lineSegments>
       )}
       <group position={nozzle}>
         <mesh>
