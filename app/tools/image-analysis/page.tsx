@@ -23,7 +23,7 @@ export default function ImageAnalysisPage() {
           </button>
           <div className="h-6 w-px bg-gray-200" />
           <button onClick={() => router.push('/')} className="-my-4">
-            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-14 w-auto" />
+            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-20 w-auto" />
           </button>
         </div>
       </header>

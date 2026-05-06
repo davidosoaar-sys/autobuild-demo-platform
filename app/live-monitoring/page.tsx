@@ -582,7 +582,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
             <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
           </label>
         </div>
-        <div className="min-h-[480px] bg-gray-50 flex items-center justify-center relative">
+        <div className="min-h-[320px] bg-gray-50 flex items-center justify-center relative">
           {image
             ? <img src={image} alt="layer" className="w-full h-full object-contain" />
             : (
