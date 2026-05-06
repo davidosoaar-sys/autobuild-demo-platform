@@ -301,11 +301,22 @@ def _slice_layer(
     # Threshold 0 means all non-empty layers always take fast path, skipping the
     # expensive Shapely buffer+union that was the primary optimize bottleneck.
     if len(shapely_segs) > 0:
-        return _nn_chain([
+        raw = [
             ((float(s.coords[0][0]), float(s.coords[0][1])),
              (float(s.coords[1][0]), float(s.coords[1][1])))
             for s in shapely_segs
-        ])
+        ]
+        # Deduplicate: STL files often contain duplicate triangles which trimesh
+        # slices into identical segments. Normalise each segment by sorting its
+        # endpoints so A→B and B→A hash the same, then keep only first occurrence.
+        seen: set = set()
+        deduped: List[Segment] = []
+        for (x0, y0), (x1, y1) in raw:
+            key = tuple(sorted(((round(x0, 6), round(y0, 6)), (round(x1, 6), round(y1, 6)))))
+            if key not in seen:
+                seen.add(key)
+                deduped.append(((x0, y0), (x1, y1)))
+        return _nn_chain(deduped)
 
     try:
         bead_union = unary_union([
