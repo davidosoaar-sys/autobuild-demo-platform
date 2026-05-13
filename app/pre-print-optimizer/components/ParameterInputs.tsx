@@ -17,13 +17,15 @@ interface Parameters {
 }
 
 interface ParameterInputsProps {
-  parameters:         Parameters;
-  onChange:           (params: Parameters) => void;
-  onWeatherChange?:   (blocks: WeatherBlock[], startHour: number) => void;
-  onCementChange?:    (cement: string) => void;
-  onCityChange?:      (city: string) => void;
-  onStartHourChange?: (hour: number) => void;
-  onInfillChange?:    (pattern: string, density: number) => void;
+  parameters:           Parameters;
+  onChange:             (params: Parameters) => void;
+  onWeatherChange?:     (blocks: WeatherBlock[], startHour: number) => void;
+  onCementChange?:      (cement: string) => void;
+  onCityChange?:        (city: string) => void;
+  onStartHourChange?:   (hour: number) => void;
+  onInfillChange?:      (pattern: string, density: number) => void;
+  slicingMode?:         'geometry' | 'shell';
+  onSlicingModeChange?: (mode: 'geometry' | 'shell') => void;
 }
 
 interface CityResult { name: string; country: string; state: string; display: string; }
@@ -268,8 +270,10 @@ function CitySearch({ onSelect, startHour }: { onSelect: (city: string, weather:
 
 export default function ParameterInputs({
   parameters, onChange, onWeatherChange, onCementChange, onCityChange, onStartHourChange, onInfillChange,
+  slicingMode: slicingModeProp, onSlicingModeChange,
 }: ParameterInputsProps) {
   const [useBlocks,     setUseBlocks]     = useState(false);
+  const [slicingMode,   setSlicingMode]   = useState<'geometry' | 'shell'>(slicingModeProp ?? 'geometry');
   const [startHour,     setStartHour]     = useState(8.0);
   const [blocks,        setBlocks]        = useState<WeatherBlock[]>([newBlock(8)]);
   const [materialId,    setMaterialId]    = useState('sika-733w-3d-us');
@@ -518,6 +522,33 @@ export default function ParameterInputs({
               )}
             </>
           )}
+        </div>
+      </div>
+
+      {/* Slicing Mode */}
+      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-5 pt-5 pb-4 border-b border-gray-50">
+          <p className={labelCls}>Slicing Mode</p>
+        </div>
+        <div className="px-5 py-5 space-y-3">
+          <div className="flex gap-2">
+            {(['geometry', 'shell'] as const).map(mode => (
+              <button key={mode} type="button"
+                onClick={() => { setSlicingMode(mode); onSlicingModeChange?.(mode); }}
+                className={`flex-1 py-2.5 text-xs font-medium rounded-xl border transition-colors ${
+                  slicingMode === mode
+                    ? 'bg-black text-white border-black'
+                    : 'bg-white text-black/50 border-black/10 hover:text-black'
+                }`}>
+                {mode === 'geometry' ? 'Model has infill' : 'Generate infill'}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-black/35 leading-relaxed">
+            {slicingMode === 'geometry'
+              ? 'Your model already contains all print geometry. The slicer traces exactly what is there.'
+              : 'Your model is the outer shape only. The slicer generates zigzag infill automatically.'}
+          </p>
         </div>
       </div>
 

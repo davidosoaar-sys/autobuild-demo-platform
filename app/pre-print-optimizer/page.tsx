@@ -149,6 +149,7 @@ export default function PrePrintOptimizer() {
   const [totalLayers,   setTotalLayers]   = useState(activeProject?.totalLayers || 100);
   const [printSpeed,    setPrintSpeed]    = useState(activeProject?.printSpeed  || 60);
   const [showConfirm,   setShowConfirm]   = useState(false);
+  const [slicingMode,   setSlicingMode]   = useState<'geometry' | 'shell'>('geometry');
 
   useEffect(() => {
     setScanResult(null);
@@ -208,6 +209,7 @@ export default function PrePrintOptimizer() {
       form.append('print_scale',           String(printScale));
       if (city) form.append('city', city);
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
+      form.append('slicing_mode', slicingMode);
 
       const controller = new AbortController();
       const timeoutId  = setTimeout(() => controller.abort(), 20 * 60 * 1000);
@@ -768,6 +770,8 @@ export default function PrePrintOptimizer() {
                   onCementChange={(c:string)=>setParameters(p=>({...p,cementMix:c}))}
                   onCityChange={setCity}
                   onStartHourChange={(h)=>setWeatherStart(h)}
+                  slicingMode={slicingMode}
+                  onSlicingModeChange={setSlicingMode}
                 />
               </div>
               <div>

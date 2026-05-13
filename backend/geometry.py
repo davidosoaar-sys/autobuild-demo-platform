@@ -114,9 +114,10 @@ def parse_and_slice(
     file_bytes:   bytes,
     filename:     str,
     layer_height: float = LAYER_HEIGHT_DEF_M,
-    nozzle_width: float = 0.025,       # metres — set from printer nozzle_diameter_mm / 1000
+    nozzle_width: float = 0.025,
     max_layers:   Optional[int] = None,
     print_scale:  float = 1.0,
+    slicing_mode: str   = 'geometry',
 ) -> Tuple[Geometry, List[dict], dict]:
 
     ext = filename.lower().split(".")[-1]
@@ -186,27 +187,6 @@ def parse_and_slice(
     if total_height < layer_height:
         raise ValueError(f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm")
 
-    # ── Wall-only submesh — removes roof/floor faces ──────────────────────────
-    try:
-        normals   = mesh.face_normals
-        wall_mask = np.abs(normals[:, 2]) < 0.55
-        wall_faces = mesh.faces[wall_mask]
-        wall_mesh  = (
-            trimesh.Trimesh(vertices=mesh.vertices.copy(), faces=wall_faces, process=False)
-            if len(wall_faces) >= 4
-            else mesh
-        )
-    except Exception:
-        wall_mesh = mesh
-
-    # ── Dynamic fast-path threshold from printer nozzle ───────────────────────
-    # nozzle_width is in metres, e.g. 0.025 for 25mm nozzle
-    # Formula: baseline 2000 at 25mm nozzle, scales with nozzle size
-    # This means the buffer+union step ALWAYS runs for all real wall layers
-    # regardless of what nozzle the user configured in Printer Setup
-    nozzle_mm            = nozzle_width * 1000.0
-    FAST_PATH_THRESHOLD  = max(1500, int(2000 * (nozzle_mm / 25.0)))
-
     # ── Layer count ───────────────────────────────────────────────────────────
     total_layers  = max(1, int(total_height / layer_height))
     print(f"[geometry] total_height={total_height:.3f}m layers={total_layers} layer_height={layer_height*1000:.1f}mm", flush=True)
@@ -221,7 +201,7 @@ def parse_and_slice(
 
     for idx, layer_i in enumerate(layer_indices):
         z        = (layer_i + 0.5) * layer_height
-        segments = _slice_layer(wall_mesh, z, nozzle_width, FAST_PATH_THRESHOLD)
+        segments = _slice_layer(mesh, z, nozzle_width, slicing_mode, idx)
         geometry.append(segments)
 
         n        = len(segments)
@@ -269,88 +249,123 @@ def parse_and_slice(
 
 
 def _slice_layer(
-    mesh:                trimesh.Trimesh,
-    z:                   float,
-    nozzle_width:        float,
-    fast_path_threshold: int = 2000,   # passed in from parse_and_slice, based on nozzle
-) -> Layer:
+    mesh,
+    z_height:     float,
+    nozzle_width: float,
+    slicing_mode: str = 'geometry',
+    layer_idx:    int = 0,
+) -> List[Segment]:
+    """
+    Slice the mesh at z_height and return print path segments.
+
+    Mode 'geometry':
+        Trace every closed contour in the cross-section exactly once.
+        Outer contours first (largest area), inner contours second.
+        The model is the authority — no infill is generated.
+
+    Mode 'shell':
+        Trace the outer boundary as the perimeter bead, then generate
+        zigzag infill inside inset by one nozzle width.
+    """
+    MIN_CONTOUR_LENGTH_M = nozzle_width * 4
+
     try:
-        lines = trimesh.intersections.mesh_plane(
-            mesh,
+        section = mesh.section(
+            plane_origin=[0, 0, z_height + 1e-4],
             plane_normal=[0, 0, 1],
-            plane_origin=[0, 0, z],
         )
     except Exception:
         return []
 
-    if lines is None or len(lines) == 0:
+    if section is None:
         return []
-
-    min_len       = nozzle_width * 0.1
-    shapely_segs: List[LineString] = []
-    for seg in lines:
-        x0, y0 = float(seg[0][0]), float(seg[0][1])
-        x1, y1 = float(seg[1][0]), float(seg[1][1])
-        if np.hypot(x1 - x0, y1 - y0) > min_len:
-            shapely_segs.append(LineString([(x0, y0), (x1, y1)]))
-
-    if not shapely_segs:
-        return []
-
-    # Fast path — raw segments, no buffer. Visual gaps handled by beadW on frontend.
-    # Threshold 0 means all non-empty layers always take fast path, skipping the
-    # expensive Shapely buffer+union that was the primary optimize bottleneck.
-    if len(shapely_segs) > 0:
-        raw = [
-            ((float(s.coords[0][0]), float(s.coords[0][1])),
-             (float(s.coords[1][0]), float(s.coords[1][1])))
-            for s in shapely_segs
-        ]
-        # Deduplicate: STL files often contain duplicate triangles which trimesh
-        # slices into identical segments. Normalise each segment by sorting its
-        # endpoints so A→B and B→A hash the same, then keep only first occurrence.
-        seen: set = set()
-        deduped: List[Segment] = []
-        for (x0, y0), (x1, y1) in raw:
-            key = tuple(sorted(((round(x0, 6), round(y0, 6)), (round(x1, 6), round(y1, 6)))))
-            if key not in seen:
-                seen.add(key)
-                deduped.append(((x0, y0), (x1, y1)))
-        return _nn_chain(deduped)
 
     try:
-        bead_union = unary_union([
-            s.buffer(nozzle_width / 2, cap_style=2, join_style=2, resolution=1)
-            for s in shapely_segs
-        ])
+        section_2d, _ = section.to_planar()
     except Exception:
-        return _nn_chain([(
-            (float(s.coords[0][0]), float(s.coords[0][1])),
-            (float(s.coords[1][0]), float(s.coords[1][1])),
-        ) for s in shapely_segs])
-
-    regions  = list(bead_union.geoms) if hasattr(bead_union, 'geoms') else [bead_union]
-    min_area = np.pi * (nozzle_width / 2) ** 2
-    regions  = [r for r in regions if r.geom_type == 'Polygon' and r.area > min_area]
-
-    if not regions:
-        return _nn_chain([(
-            (float(s.coords[0][0]), float(s.coords[0][1])),
-            (float(s.coords[1][0]), float(s.coords[1][1])),
-        ) for s in shapely_segs])
-
-    regions.sort(key=lambda r: r.area, reverse=True)
-
-    raw_segments: List[Segment] = []
-    for region in regions:
-        raw_segments.extend(_walk_ring(region.exterior.coords))
-        for interior in region.interiors:
-            raw_segments.extend(_walk_ring(interior.coords))
-
-    if not raw_segments:
         return []
 
-    return _nn_chain(raw_segments)
+    if section_2d is None or not hasattr(section_2d, 'entities') or not section_2d.entities:
+        return []
+
+    contours = []
+    for entity in section_2d.entities:
+        try:
+            pts = section_2d.vertices[entity.points]
+            if len(pts) < 3:
+                continue
+            perimeter = sum(
+                float(np.hypot(pts[(i + 1) % len(pts)][0] - pts[i][0],
+                               pts[(i + 1) % len(pts)][1] - pts[i][1]))
+                for i in range(len(pts))
+            )
+            if perimeter < MIN_CONTOUR_LENGTH_M:
+                continue
+            area = float(np.abs(np.trapz(pts[:, 1], pts[:, 0])))
+            contours.append({'points': pts, 'perimeter': perimeter, 'area': area})
+        except Exception:
+            continue
+
+    if not contours:
+        return []
+
+    contours.sort(key=lambda c: c['area'], reverse=True)
+
+    def contour_to_segments(pts) -> List[Segment]:
+        segs = []
+        for i in range(len(pts)):
+            start = (float(pts[i][0]),                  float(pts[i][1]))
+            end   = (float(pts[(i + 1) % len(pts)][0]), float(pts[(i + 1) % len(pts)][1]))
+            segs.append((start, end))
+        return segs
+
+    segments: List[Segment] = []
+
+    if slicing_mode == 'geometry':
+        for contour in contours:
+            segments.extend(contour_to_segments(contour['points']))
+
+    elif slicing_mode == 'shell':
+        outer_pts = contours[0]['points']
+        segments.extend(contour_to_segments(outer_pts))
+        x_coords = outer_pts[:, 0]
+        y_coords = outer_pts[:, 1]
+        inner_x = (float(x_coords.min()) + nozzle_width, float(x_coords.max()) - nozzle_width)
+        inner_y = (float(y_coords.min()) + nozzle_width, float(y_coords.max()) - nozzle_width)
+        if (inner_x[1] - inner_x[0]) > nozzle_width * 2 and \
+           (inner_y[1] - inner_y[0]) > nozzle_width * 2:
+            segments.extend(_generate_zigzag_infill(inner_x, inner_y, nozzle_width))
+        for contour in contours[1:]:
+            segments.extend(contour_to_segments(contour['points']))
+
+    print(
+        f"[geometry] layer={layer_idx} z={z_height:.3f}m "
+        f"mode={slicing_mode} contours={len(contours)} segments={len(segments)}",
+        flush=True,
+    )
+    return segments
+
+
+def _generate_zigzag_infill(
+    bounds_x:     tuple,
+    bounds_y:     tuple,
+    nozzle_width: float,
+    max_lines:    int = 300,
+) -> List[Segment]:
+    segments  = []
+    spacing   = nozzle_width
+    x         = bounds_x[0]
+    direction = 1
+    count     = 0
+    while x <= bounds_x[1] and count < max_lines:
+        if direction == 1:
+            segments.append(((x, bounds_y[0]), (x, bounds_y[1])))
+        else:
+            segments.append(((x, bounds_y[1]), (x, bounds_y[0])))
+        x         += spacing
+        direction *= -1
+        count     += 1
+    return segments
 
 
 def _walk_ring(coords) -> List[Segment]:

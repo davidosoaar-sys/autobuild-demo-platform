@@ -266,6 +266,7 @@ async def optimize_endpoint(
     infill_pattern:        str            = Form("none"),
     structure_type:        str            = Form("wall"),
     time_blocks:           str            = Form("[]"),
+    slicing_mode:          str            = Form("geometry"),
 ):
     fname = file.filename or ""
     allowed_exts = (".stl", ".obj", ".stp", ".step", ".dxf", ".ifc")
@@ -309,10 +310,11 @@ async def optimize_endpoint(
         geometry, layer_metas, geo_meta = parse_and_slice(
             file_bytes,
             fname,
-            layer_height = layer_height_m,
-            nozzle_width = nozzle_diameter_mm / 1000.0,
-            max_layers   = max_layers,
-            print_scale  = print_scale,
+            layer_height  = layer_height_m,
+            nozzle_width  = nozzle_diameter_mm / 1000.0,
+            max_layers    = max_layers,
+            print_scale   = print_scale,
+            slicing_mode  = slicing_mode,
         )
     except Exception as e:
         raise HTTPException(422, f"Failed to parse 3D file: {e}")
