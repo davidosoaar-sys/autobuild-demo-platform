@@ -285,7 +285,7 @@ def _slice_layer(
     except Exception:
         return []
 
-    if section_2d is None or not hasattr(section_2d, 'entities') or not section_2d.entities:
+    if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
         return []
 
     contours = []
