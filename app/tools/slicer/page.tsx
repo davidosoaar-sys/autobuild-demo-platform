@@ -378,7 +378,6 @@ export default function SlicerTool() {
 
   // Infill
   const [infillPattern, setInfillPattern] = useState('none');
-  const [slicingMode,   setSlicingMode]   = useState<'geometry' | 'shell'>('geometry');
   const [scanResult,    setScanResult]    = useState<any>(null);
 
   // Time blocks (Task 9)
@@ -430,7 +429,7 @@ export default function SlicerTool() {
       fd.append('wind_speed',           String(forecastWeather?.wind_speed  ?? manualWind));
       // Infill
       fd.append('infill_pattern',       infillPattern);
-      fd.append('slicing_mode',         slicingMode);
+      fd.append('slicing_mode',         'shell');
       // Time blocks
       fd.append('time_blocks',          JSON.stringify(timeBlocks.map(b => ({ start: b.start, end: b.end }))));
 
@@ -802,41 +801,6 @@ export default function SlicerTool() {
               </div>
               <input ref={fileInputRef} type="file" accept=".stl,.obj,.stp,.step" className="hidden"
                 onChange={e => handleFile(e.target.files?.[0] ?? null)} />
-            </div>
-
-            {/* Slicing Mode */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-3">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Slicing Mode</h2>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSlicingMode('geometry')}
-                  className={`flex-1 py-2.5 text-xs font-medium rounded-xl border transition-colors ${
-                    slicingMode === 'geometry'
-                      ? 'bg-black text-white border-black'
-                      : 'bg-white text-black/50 border-black/10 hover:text-black'
-                  }`}
-                >
-                  Model has infill
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSlicingMode('shell')}
-                  className={`flex-1 py-2.5 text-xs font-medium rounded-xl border transition-colors ${
-                    slicingMode === 'shell'
-                      ? 'bg-black text-white border-black'
-                      : 'bg-white text-black/50 border-black/10 hover:text-black'
-                  }`}
-                >
-                  Generate infill
-                </button>
-              </div>
-              <p className="text-[10px] text-black/35 leading-relaxed">
-                {slicingMode === 'geometry'
-                  ? 'Your model already contains all print geometry — outer walls, inner walls, and any designed infill. The slicer traces exactly what is there.'
-                  : 'Your model is the outer shape only. The slicer extracts the wall boundaries and generates zigzag infill automatically inside them.'
-                }
-              </p>
             </div>
 
             {/* Printer */}
