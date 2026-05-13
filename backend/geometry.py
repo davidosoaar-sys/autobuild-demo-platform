@@ -255,26 +255,15 @@ def _slice_layer(
     slicing_mode: str = 'geometry',
     layer_idx:    int = 0,
 ) -> List[Segment]:
-    """
-    Slice the mesh at z_height and return print path segments.
-
-    Mode 'geometry':
-        Trace every closed contour in the cross-section exactly once.
-        Outer contours first (largest area), inner contours second.
-        The model is the authority — no infill is generated.
-
-    Mode 'shell':
-        Trace the outer boundary as the perimeter bead, then generate
-        zigzag infill inside inset by one nozzle width.
-    """
-    MIN_CONTOUR_LENGTH_M = nozzle_width * 4
+    z_sample = float(z_height) + 1e-5
 
     try:
         section = mesh.section(
-            plane_origin=[0, 0, z_height + 1e-4],
+            plane_origin=[0, 0, z_sample],
             plane_normal=[0, 0, 1],
         )
-    except Exception:
+    except Exception as e:
+        print(f"[geometry] layer={layer_idx} section failed: {e}", flush=True)
         return []
 
     if section is None:
@@ -282,28 +271,56 @@ def _slice_layer(
 
     try:
         section_2d, _ = section.to_planar()
-    except Exception:
+    except Exception as e:
+        print(f"[geometry] layer={layer_idx} to_planar failed: {e}", flush=True)
         return []
 
-    if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
+    if section_2d is None:
         return []
 
+    if not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
+        return []
+
+    MIN_PERIM = float(nozzle_width) * 4.0
     contours = []
+
     for entity in section_2d.entities:
         try:
-            pts = section_2d.vertices[entity.points]
-            if len(pts) < 3:
+            indices = entity.points
+            pts_raw = section_2d.vertices[indices]
+            n = len(pts_raw)
+
+            if n < 3:
                 continue
-            perimeter = sum(
-                float(np.hypot(pts[(i + 1) % len(pts)][0] - pts[i][0],
-                               pts[(i + 1) % len(pts)][1] - pts[i][1]))
-                for i in range(len(pts))
-            )
-            if perimeter < MIN_CONTOUR_LENGTH_M:
+
+            # Pure Python float perimeter — no NumPy in boolean context
+            perim = 0.0
+            for i in range(n):
+                dx = float(pts_raw[(i + 1) % n][0]) - float(pts_raw[i][0])
+                dy = float(pts_raw[(i + 1) % n][1]) - float(pts_raw[i][1])
+                perim += (dx * dx + dy * dy) ** 0.5
+
+            if perim < MIN_PERIM:
                 continue
-            area = float(np.abs(np.trapz(pts[:, 1], pts[:, 0])))
-            contours.append({'points': pts, 'perimeter': perimeter, 'area': area})
-        except Exception:
+
+            # Shoelace formula — pure Python floats, no NumPy in boolean context
+            area = 0.0
+            for i in range(n):
+                j = (i + 1) % n
+                area += float(pts_raw[i][0]) * float(pts_raw[j][1])
+                area -= float(pts_raw[j][0]) * float(pts_raw[i][1])
+            area = abs(area) / 2.0
+
+            # Store as plain Python float tuples — NOT numpy arrays
+            points_list = [(float(pts_raw[i][0]), float(pts_raw[i][1])) for i in range(n)]
+
+            contours.append({
+                'points':    points_list,
+                'perimeter': perim,
+                'area':      area,
+            })
+        except Exception as e:
+            print(f"[geometry] layer={layer_idx} contour error: {e}", flush=True)
             continue
 
     if not contours:
@@ -311,12 +328,11 @@ def _slice_layer(
 
     contours.sort(key=lambda c: c['area'], reverse=True)
 
-    def contour_to_segments(pts) -> List[Segment]:
+    def contour_to_segments(points_list) -> List[Segment]:
         segs = []
-        for i in range(len(pts)):
-            start = (float(pts[i][0]),                  float(pts[i][1]))
-            end   = (float(pts[(i + 1) % len(pts)][0]), float(pts[(i + 1) % len(pts)][1]))
-            segs.append((start, end))
+        m = len(points_list)
+        for i in range(m):
+            segs.append((points_list[i], points_list[(i + 1) % m]))
         return segs
 
     segments: List[Segment] = []
@@ -326,17 +342,20 @@ def _slice_layer(
             segments.extend(contour_to_segments(contour['points']))
 
     elif slicing_mode == 'shell':
-        outer_pts = contours[0]['points']
-        segments.extend(contour_to_segments(outer_pts))
-        x_coords = outer_pts[:, 0]
-        y_coords = outer_pts[:, 1]
-        inner_x = (float(x_coords.min()) + nozzle_width, float(x_coords.max()) - nozzle_width)
-        inner_y = (float(y_coords.min()) + nozzle_width, float(y_coords.max()) - nozzle_width)
-        if (inner_x[1] - inner_x[0]) > nozzle_width * 2 and \
-           (inner_y[1] - inner_y[0]) > nozzle_width * 2:
-            segments.extend(_generate_zigzag_infill(inner_x, inner_y, nozzle_width))
-        for contour in contours[1:]:
-            segments.extend(contour_to_segments(contour['points']))
+        for contour in contours:
+            pts = contour['points']
+            segments.extend(contour_to_segments(pts))
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            x_min = min(xs) + float(nozzle_width)
+            x_max = max(xs) - float(nozzle_width)
+            y_min = min(ys) + float(nozzle_width)
+            y_max = max(ys) - float(nozzle_width)
+            if (x_max - x_min) > float(nozzle_width) * 2.0 and \
+               (y_max - y_min) > float(nozzle_width) * 2.0:
+                segments.extend(
+                    _generate_zigzag_infill((x_min, x_max), (y_min, y_max), nozzle_width)
+                )
 
     print(
         f"[geometry] layer={layer_idx} z={z_height:.3f}m "
@@ -353,18 +372,23 @@ def _generate_zigzag_infill(
     max_lines:    int = 300,
 ) -> List[Segment]:
     segments  = []
-    spacing   = nozzle_width
-    x         = bounds_x[0]
+    spacing   = float(nozzle_width)
+    x         = float(bounds_x[0])
+    x_max     = float(bounds_x[1])
+    y_min     = float(bounds_y[0])
+    y_max     = float(bounds_y[1])
     direction = 1
     count     = 0
-    while x <= bounds_x[1] and count < max_lines:
+
+    while x <= x_max and count < max_lines:
         if direction == 1:
-            segments.append(((x, bounds_y[0]), (x, bounds_y[1])))
+            segments.append(((x, y_min), (x, y_max)))
         else:
-            segments.append(((x, bounds_y[1]), (x, bounds_y[0])))
+            segments.append(((x, y_max), (x, y_min)))
         x         += spacing
         direction *= -1
         count     += 1
+
     return segments
 
 

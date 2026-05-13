@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Line, TransformControls, GizmoHelper, GizmoViewport, OrthographicCamera } from '@react-three/drei';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -670,6 +670,25 @@ function CameraController({ snap, site }: { snap: string|null; site: SiteDimensi
   return null;
 }
 
+// ── Smooth background color transition ───────────────────────────────────────
+
+function SmoothBackground({ targetHex }: { targetHex: string }) {
+  const { gl } = useThree();
+  const curColor = useRef(new THREE.Color(targetHex));
+  const tgtColor = useRef(new THREE.Color(targetHex));
+
+  useEffect(() => {
+    tgtColor.current.set(targetHex);
+  }, [targetHex]);
+
+  useFrame(() => {
+    curColor.current.lerp(tgtColor.current, 0.08);
+    gl.setClearColor(curColor.current, 1);
+  });
+
+  return null;
+}
+
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
 function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, site, modelScale,
@@ -984,8 +1003,9 @@ export default function LayerVisualization({
             </button>
           </div>
         </div>
-        <div className="relative" style={{height:340,background:bg}}>
+        <div className="relative" style={{height:340,background:bg,transition:'background-color 0.4s ease'}}>
           <Canvas shadows gl={{antialias:true}} camera={{near:0.1,far:50000}}>
+            <SmoothBackground targetHex={bg} />
             <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={[]} layerHeight={0.04}
               animProgress={0} mode={mode} site={resolvedSite} modelScale={modelScale}
               snap={null} enableTransform={false} transformMode="translate"
@@ -1010,7 +1030,8 @@ export default function LayerVisualization({
       <Canvas shadows
         gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:1.1}}
         camera={{near:0.1,far:50000}}
-        style={{background:bg}}>
+        style={{background:bg,transition:'background-color 0.4s ease'}}>
+        <SmoothBackground targetHex={bg} />
         <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={toolpath} layerHeight={layerHeight||0.04}
           animProgress={animProgress} mode={mode} site={resolvedSite} modelScale={modelScale}
           snap={snap} enableTransform={enableTransform} transformMode={transformMode}
