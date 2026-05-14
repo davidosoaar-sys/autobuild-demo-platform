@@ -109,7 +109,11 @@ function TempWidget() {
 
 export default function StandaloneMonitor() {
   const router   = useRouter();
-  const startRef = useRef(Date.now());
+  const startRef   = useRef(Date.now());
+  const sessionRef = useRef({
+    beadScans: 0,
+    alerts:    [] as AlertEntry[],
+  });
   const [elapsed,     setElapsed]     = useState(0);
   const [cameras,     setCameras]     = useState<Camera[]>([]);
   const [beadLog,     setBeadLog]     = useState<BeadAnalysis[]>([]);
@@ -127,6 +131,22 @@ export default function StandaloneMonitor() {
     return h > 0 ? `${h}h ${m}m` : `${m}m ${String(s).padStart(2, '0')}s`;
   };
 
+  const handleEndSession = () => {
+    const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
+    const duration = h > 0 ? `${h}h ${m}m` : `${m}m ${String(s).padStart(2, '0')}s`;
+    const report = {
+      generatedAt: new Date().toISOString(),
+      duration,
+      beadScans:   sessionRef.current.beadScans,
+      totalAlerts: alertLog.filter(a => a.level !== 'info').length,
+      alerts:      alertLog,
+    };
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('standalone_monitor_report', JSON.stringify(report));
+    }
+    router.push('/tools/monitor/report');
+  };
+
   const addAlert = useCallback((msg: string, level: 'info' | 'warn' | 'error' = 'info') => {
     const time = new Date().toLocaleTimeString();
     setAlertLog(prev => [{ time, msg, level }, ...prev.slice(0, 49)]);
@@ -134,11 +154,15 @@ export default function StandaloneMonitor() {
 
   const handleBeadLog = useCallback((analysis: BeadAnalysis) => {
     setBeadLog(prev => [analysis, ...prev.slice(0, 99)]);
+    sessionRef.current.beadScans += 1;
     const level: 'info' | 'warn' | 'error' = analysis.severity === 'high' ? 'error' : analysis.severity === 'medium' ? 'warn' : 'info';
     const msg = analysis.verdict === 'unclear'
       ? `Bead unclear — ${analysis.cameraLabel}`
       : `[${analysis.cameraLabel}] ${analysis.verdict}${analysis.angle_deviation !== 0 ? ` ${analysis.angle_deviation > 0 ? '+' : ''}${analysis.angle_deviation.toFixed(1)}°` : ''}${analysis.defect_type !== 'none' ? ` · ${analysis.defect_type}` : ''}`;
     addAlert(msg, level);
+    if (analysis.severity === 'high') {
+      sessionRef.current.alerts.push({ time: analysis.timestamp, msg: `[Bead] ${analysis.description}`, level: 'error' });
+    }
   }, [addAlert]);
 
   const handleBeadAlert = useCallback((analysis: BeadAnalysis) => setActiveAlert(analysis), []);
@@ -171,6 +195,10 @@ export default function StandaloneMonitor() {
               ))}
             </div>
             <span className="text-2xl font-bold font-mono text-black tracking-tight">{fmtElapsed()}</span>
+            <button onClick={handleEndSession}
+              className="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-colors">
+              End Session
+            </button>
           </div>
         </div>
       </header>

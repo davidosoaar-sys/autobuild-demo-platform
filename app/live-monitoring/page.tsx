@@ -760,6 +760,7 @@ export default function LiveMonitoring() {
   const [activeAlert, setActiveAlert] = useState<BeadAnalysis | null>(null);
   const [controls,    setControls]    = useState<PrinterControl>({ printSpeed: 60, extrusionRate: 100, pumpSpeed: 80, extruderSpeed: 100, paused: false });
   const [cameras,     setCameras]     = useState<Camera[]>([]);
+  const [showSystemLog, setShowSystemLog] = useState(true);
 
   const [sensors, setSensors] = useState<SensorReading[]>(() => {
     const cond = (activeProject as any)?.report?.conditions;
@@ -979,6 +980,11 @@ export default function LiveMonitoring() {
               </button>
             ))}
             <div className="w-px h-4 bg-gray-200" />
+            <button onClick={() => setShowSystemLog(v => !v)}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl transition-all ${showSystemLog ? 'bg-black text-white' : 'text-black/40 hover:text-black hover:bg-gray-100'}`}>
+              Log
+            </button>
+            <div className="w-px h-4 bg-gray-200" />
             <button onClick={() => updateControl('paused', !controls.paused)}
               className="px-2.5 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
               {controls.paused ? 'Resume' : 'Pause'}
@@ -1025,19 +1031,6 @@ export default function LiveMonitoring() {
                 </div>
 
                 {beadLog.length > 0 && <BeadEventLog entries={beadLog} />}
-
-                <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">System Log</h3>
-                  <div className="space-y-1 max-h-28 overflow-y-auto">
-                    {alertLog.length === 0 && <p className="text-xs text-black/25 text-center py-3">No events</p>}
-                    {alertLog.map((a, i) => (
-                      <div key={i} className={`flex gap-2 px-2 py-1 rounded-lg text-[11px] ${a.level === 'error' ? 'bg-red-50 text-red-700' : a.level === 'warn' ? 'bg-amber-50 text-amber-700' : 'bg-gray-50 text-black/50'}`}>
-                        <span className="font-mono opacity-50 flex-shrink-0">{a.time}</span>
-                        <span className="truncate">{a.msg}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               <div className="space-y-4">
@@ -1188,6 +1181,43 @@ export default function LiveMonitoring() {
 
         </AnimatePresence>
       </div>
+
+      {/* System Log sidebar */}
+      <AnimatePresence>
+        {showSystemLog && (
+          <motion.div
+            initial={{ x: 280 }} animate={{ x: 0 }} exit={{ x: 280 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            className="fixed top-[108px] right-0 bottom-0 w-[280px] z-30">
+            <div className="h-full bg-black/90 backdrop-blur-md border-l border-white/10 flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-white/40">System Log</h3>
+                <div className="flex items-center gap-2">
+                  {alertLog.filter(a => a.level !== 'info').length > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold leading-none">
+                      {alertLog.filter(a => a.level !== 'info').length}
+                    </span>
+                  )}
+                  <button onClick={() => setShowSystemLog(false)} className="text-white/30 hover:text-white text-lg leading-none">×</button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                {alertLog.length === 0 && <p className="text-xs text-white/25 text-center py-6">No events yet</p>}
+                {alertLog.map((a, i) => (
+                  <div key={i} className={`flex gap-2 px-2 py-1.5 rounded-lg text-[11px] ${
+                    a.level === 'error' ? 'bg-red-500/20 text-red-300'
+                    : a.level === 'warn' ? 'bg-amber-500/20 text-amber-300'
+                    : 'bg-white/5 text-white/50'
+                  }`}>
+                    <span className="font-mono opacity-50 flex-shrink-0 text-[10px]">{a.time}</span>
+                    <span className="break-words min-w-0">{a.msg}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {showConfirm && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">

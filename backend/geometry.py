@@ -345,17 +345,13 @@ def _slice_layer(
         for contour in contours:
             pts = contour['points']
             segments.extend(contour_to_segments(pts))
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            x_min = min(xs) + float(nozzle_width)
-            x_max = max(xs) - float(nozzle_width)
-            y_min = min(ys) + float(nozzle_width)
-            y_max = max(ys) - float(nozzle_width)
-            if (x_max - x_min) > float(nozzle_width) * 2.0 and \
-               (y_max - y_min) > float(nozzle_width) * 2.0:
-                segments.extend(
-                    _generate_zigzag_infill((x_min, x_max), (y_min, y_max), nozzle_width)
+            segments.extend(
+                _generate_web_connectors(
+                    outer_points      = pts,
+                    nozzle_width      = nozzle_width,
+                    connector_spacing = nozzle_width * 3.0,
                 )
+            )
 
     print(
         f"[geometry] layer={layer_idx} z={z_height:.3f}m "
@@ -365,29 +361,87 @@ def _slice_layer(
     return segments
 
 
-def _generate_zigzag_infill(
-    bounds_x:     tuple,
-    bounds_y:     tuple,
-    nozzle_width: float,
-    max_lines:    int = 300,
+def _generate_web_connectors(
+    outer_points:      list,
+    nozzle_width:      float,
+    connector_spacing: float = None,
 ) -> List[Segment]:
-    segments  = []
-    spacing   = float(nozzle_width)
-    x         = float(bounds_x[0])
-    x_max     = float(bounds_x[1])
-    y_min     = float(bounds_y[0])
-    y_max     = float(bounds_y[1])
-    direction = 1
-    count     = 0
+    """
+    Web wall connector pattern for shell mode.
 
-    while x <= x_max and count < max_lines:
-        if direction == 1:
-            segments.append(((x, y_min), (x, y_max)))
-        else:
-            segments.append(((x, y_max), (x, y_min)))
-        x         += spacing
-        direction *= -1
-        count     += 1
+    Generates:
+    1. Inner perimeter bead (outer offset inward by nozzle_width)
+    2. Short perpendicular tie segments joining outer to inner at regular intervals
+
+    Each connector acts as a concrete tie wall between the two shells.
+    Structurally superior to zigzag for load-bearing concrete walls.
+    """
+    if connector_spacing is None:
+        connector_spacing = float(nozzle_width) * 3.0
+
+    nozzle_w = float(nozzle_width)
+    spacing  = float(connector_spacing)
+    segments: List[Segment] = []
+    n = len(outer_points)
+
+    if n < 3:
+        return segments
+
+    # ── Step 1: inward offset via centroid direction ─────────────────────────
+    cx = sum(p[0] for p in outer_points) / n
+    cy = sum(p[1] for p in outer_points) / n
+
+    inner_points: list = []
+    for px, py in outer_points:
+        dx   = float(cx) - float(px)
+        dy   = float(cy) - float(py)
+        dist = (dx * dx + dy * dy) ** 0.5
+        if dist < nozzle_w:
+            inner_points.append((float(px), float(py)))
+            continue
+        ratio   = nozzle_w / dist
+        inner_x = float(px) + dx * ratio
+        inner_y = float(py) + dy * ratio
+        inner_points.append((inner_x, inner_y))
+
+    # ── Step 2: trace inner perimeter ────────────────────────────────────────
+    ni = len(inner_points)
+    for i in range(ni):
+        segments.append((inner_points[i], inner_points[(i + 1) % ni]))
+
+    # ── Step 3: perpendicular connector ties at regular intervals ────────────
+    accumulated_dist  = 0.0
+    next_connector_at = spacing
+
+    for i in range(n):
+        p1 = outer_points[i]
+        p2 = outer_points[(i + 1) % n]
+
+        dx      = float(p2[0]) - float(p1[0])
+        dy      = float(p2[1]) - float(p1[1])
+        seg_len = (dx * dx + dy * dy) ** 0.5
+        if seg_len < 1e-6:
+            continue
+
+        while accumulated_dist + seg_len >= next_connector_at:
+            t = (next_connector_at - accumulated_dist) / seg_len
+            t = max(0.0, min(1.0, t))
+
+            outer_x = float(p1[0]) + t * dx
+            outer_y = float(p1[1]) + t * dy
+
+            # Corresponding inner point at the same parameter position
+            inner_i = int(t * float(ni)) % ni
+            inner_x = float(inner_points[inner_i][0])
+            inner_y = float(inner_points[inner_i][1])
+
+            conn_len = ((outer_x - inner_x) ** 2 + (outer_y - inner_y) ** 2) ** 0.5
+            if conn_len > nozzle_w * 0.5:
+                segments.append(((outer_x, outer_y), (inner_x, inner_y)))
+
+            next_connector_at += spacing
+
+        accumulated_dist += seg_len
 
     return segments
 
