@@ -177,6 +177,17 @@ def parse_and_slice(
     if abs(print_scale - 1.0) > 1e-6:
         mesh.apply_scale(float(print_scale))
 
+    # Diagnostic: count disconnected components — tells us if mesh.split() approach will work
+    try:
+        components   = mesh.split(only_watertight=False)
+        n_components = len(components)
+        print(f"[geometry] mesh has {n_components} connected component(s) — each should map to one print element", flush=True)
+        for ci, comp in enumerate(components):
+            cb = comp.bounds
+            print(f"[geometry]   component[{ci}] triangles={len(comp.faces)} bounds_x=({cb[0][0]:.3f},{cb[1][0]:.3f}) bounds_y=({cb[0][1]:.3f},{cb[1][1]:.3f}) bounds_z=({cb[0][2]:.3f},{cb[1][2]:.3f})", flush=True)
+    except Exception as e:
+        print(f"[geometry] mesh.split() diagnostic failed: {e}", flush=True)
+
     bounds       = mesh.bounds
     total_height = float(bounds[1][2])
     layer_height = float(np.clip(layer_height, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M))
