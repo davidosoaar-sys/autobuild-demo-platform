@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 import requests
 
-from geometry   import parse_and_slice, generate_infill_segments
+from geometry   import parse_and_slice
 from optimizer  import optimize
 from gcode      import toolpath_to_gcode, format_print_time
 from weather    import (
@@ -262,8 +262,7 @@ async def optimize_endpoint(
     print_speed:           Optional[float] = Form(None),
     # Scale factor
     print_scale:           float          = Form(1.0),
-    # Infill / structure / time blocks
-    infill_pattern:        str            = Form("none"),
+    # Structure / time blocks
     structure_type:        str            = Form("wall"),
     time_blocks:           str            = Form("[]"),
 ):
@@ -372,21 +371,6 @@ async def optimize_endpoint(
     except Exception as e:
         raise HTTPException(500, f"Optimisation failed: {e}")
 
-    # ── Infill injection ──────────────────────────────────────────────────────
-    perimeter_counts = [len(layer) for layer in toolpath]
-    if infill_pattern != "none":
-        bx = tuple(geo_meta["bounds_x"])
-        by = tuple(geo_meta["bounds_y"])
-        for layer_idx, layer_segs in enumerate(toolpath):
-            z = layer_metas[layer_idx]["z_height_m"] if layer_idx < len(layer_metas) else 0.0
-            infill = generate_infill_segments(
-                bounds_x=bx, bounds_y=by, z_height=z,
-                pattern=infill_pattern,
-                nozzle_diameter_mm=nozzle_diameter_mm,
-            )
-            print(f"[infill] Generated {len(infill)} segments for layer {layer_idx}", flush=True)
-            layer_segs.extend(infill)
-
     # ── Parse time blocks ─────────────────────────────────────────────────────
     try:
         parsed_time_blocks = json.loads(time_blocks) if time_blocks else []
@@ -414,7 +398,7 @@ async def optimize_endpoint(
     import math as _math
     GAP_THRESHOLD_M = 0.002
 
-    def serialise_layer(segs, infill_start=None):
+    def serialise_layer(segs):
         out = []
         for i, s in enumerate(segs):
             if i > 0:
@@ -422,19 +406,10 @@ async def optimize_endpoint(
                 gap  = _math.hypot(s[0][0] - prev[1][0], s[0][1] - prev[1][1])
                 if gap > GAP_THRESHOLD_M:
                     out.append({"gap": True})
-            entry = {"x0": s[0][0], "y0": s[0][1], "x1": s[1][0], "y1": s[1][1]}
-            if infill_start is not None and i >= infill_start:
-                entry["infill"] = True
-            out.append(entry)
+            out.append({"x0": s[0][0], "y0": s[0][1], "x1": s[1][0], "y1": s[1][1]})
         return out
 
-    toolpath_json = [
-        serialise_layer(
-            layer,
-            infill_start=perimeter_counts[li] if infill_pattern != "none" else None,
-        )
-        for li, layer in enumerate(toolpath)
-    ]
+    toolpath_json = [serialise_layer(layer) for layer in toolpath]
     with open(f"{RESULTS_DIR}/{result_id}.json", "w") as f:
         json.dump({
             "toolpath":     toolpath_json,

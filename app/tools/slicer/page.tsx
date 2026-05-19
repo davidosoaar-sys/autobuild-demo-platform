@@ -376,8 +376,6 @@ export default function SlicerTool() {
   const [cementId,  setCementId]  = useState('sika-733w-3d-us');
   const [customMix, setCustomMix] = useState<CustomMix>(DEFAULT_CUSTOM);
 
-  // Infill
-  const [infillPattern, setInfillPattern] = useState('none');
   const [scanResult,    setScanResult]    = useState<any>(null);
 
   // Time blocks (Task 9)
@@ -427,13 +425,9 @@ export default function SlicerTool() {
       fd.append('temperature',          String(forecastWeather?.temperature ?? manualTemp));
       fd.append('humidity',             String(forecastWeather?.humidity    ?? manualHumidity));
       fd.append('wind_speed',           String(forecastWeather?.wind_speed  ?? manualWind));
-      // Infill
-      fd.append('infill_pattern',       infillPattern);
       fd.append('slicing_mode',         'shell');
       // Time blocks
       fd.append('time_blocks',          JSON.stringify(timeBlocks.map(b => ({ start: b.start, end: b.end }))));
-
-      console.log('Sending infill:', infillPattern);
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -844,19 +838,6 @@ export default function SlicerTool() {
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Infill — Task 8 */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Infill Pattern</h2>
-              <div className="flex gap-2">
-                {(['none', 'zigzag', 'hexagonal'] as const).map(p => (
-                  <button key={p} onClick={() => setInfillPattern(p)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${infillPattern === p ? 'bg-black text-white' : 'bg-gray-100 text-black/50 hover:text-black'}`}>
-                    {p === 'none' ? 'None' : p.charAt(0).toUpperCase() + p.slice(1)}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Weather */}

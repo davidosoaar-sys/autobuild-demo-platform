@@ -18,11 +18,8 @@ FAST_PATH_THRESHOLD is computed dynamically from nozzle_width:
 """
 
 import io
-import math
 import numpy as np
 import trimesh
-from shapely.geometry import LineString
-from shapely.ops import unary_union
 from typing import List, Optional, Tuple
 
 from sika733 import (
@@ -342,16 +339,16 @@ def _slice_layer(
             segments.extend(contour_to_segments(contour['points']))
 
     elif slicing_mode == 'shell':
-        for contour in contours:
-            pts = contour['points']
-            segments.extend(contour_to_segments(pts))
-            segments.extend(
-                _generate_web_connectors(
-                    outer_points      = pts,
-                    nozzle_width      = nozzle_width,
-                    connector_spacing = nozzle_width * 3.0,
-                )
-            )
+        # Trace outer boundary only — no infill generated
+        # Clean perimeter bead per layer
+        # Infill will come in a future update using continuous path logic
+        outer = contours[0]  # largest contour = outer boundary
+        segments.extend(contour_to_segments(outer['points']))
+
+        # If additional disconnected sections exist at this height
+        # (separate rooms, columns) trace each one too
+        for contour in contours[1:]:
+            segments.extend(contour_to_segments(contour['points']))
 
     print(
         f"[geometry] layer={layer_idx} z={z_height:.3f}m "
@@ -360,90 +357,6 @@ def _slice_layer(
     )
     return segments
 
-
-def _generate_web_connectors(
-    outer_points:      list,
-    nozzle_width:      float,
-    connector_spacing: float = None,
-) -> List[Segment]:
-    """
-    Web wall connector pattern for shell mode.
-
-    Generates:
-    1. Inner perimeter bead (outer offset inward by nozzle_width)
-    2. Short perpendicular tie segments joining outer to inner at regular intervals
-
-    Each connector acts as a concrete tie wall between the two shells.
-    Structurally superior to zigzag for load-bearing concrete walls.
-    """
-    if connector_spacing is None:
-        connector_spacing = float(nozzle_width) * 3.0
-
-    nozzle_w = float(nozzle_width)
-    spacing  = float(connector_spacing)
-    segments: List[Segment] = []
-    n = len(outer_points)
-
-    if n < 3:
-        return segments
-
-    # ── Step 1: inward offset via centroid direction ─────────────────────────
-    cx = sum(p[0] for p in outer_points) / n
-    cy = sum(p[1] for p in outer_points) / n
-
-    inner_points: list = []
-    for px, py in outer_points:
-        dx   = float(cx) - float(px)
-        dy   = float(cy) - float(py)
-        dist = (dx * dx + dy * dy) ** 0.5
-        if dist < nozzle_w:
-            inner_points.append((float(px), float(py)))
-            continue
-        ratio   = nozzle_w / dist
-        inner_x = float(px) + dx * ratio
-        inner_y = float(py) + dy * ratio
-        inner_points.append((inner_x, inner_y))
-
-    # ── Step 2: trace inner perimeter ────────────────────────────────────────
-    ni = len(inner_points)
-    for i in range(ni):
-        segments.append((inner_points[i], inner_points[(i + 1) % ni]))
-
-    # ── Step 3: perpendicular connector ties at regular intervals ────────────
-    accumulated_dist  = 0.0
-    next_connector_at = spacing
-
-    for i in range(n):
-        p1 = outer_points[i]
-        p2 = outer_points[(i + 1) % n]
-
-        dx      = float(p2[0]) - float(p1[0])
-        dy      = float(p2[1]) - float(p1[1])
-        seg_len = (dx * dx + dy * dy) ** 0.5
-        if seg_len < 1e-6:
-            continue
-
-        while accumulated_dist + seg_len >= next_connector_at:
-            t = (next_connector_at - accumulated_dist) / seg_len
-            t = max(0.0, min(1.0, t))
-
-            outer_x = float(p1[0]) + t * dx
-            outer_y = float(p1[1]) + t * dy
-
-            # Corresponding inner point at the same parameter position
-            inner_i = int(t * float(ni)) % ni
-            inner_x = float(inner_points[inner_i][0])
-            inner_y = float(inner_points[inner_i][1])
-
-            conn_len = ((outer_x - inner_x) ** 2 + (outer_y - inner_y) ** 2) ** 0.5
-            if conn_len > nozzle_w * 0.5:
-                segments.append(((outer_x, outer_y), (inner_x, inner_y)))
-
-            next_connector_at += spacing
-
-        accumulated_dist += seg_len
-
-    return segments
 
 
 def _walk_ring(coords) -> List[Segment]:
@@ -506,87 +419,3 @@ def _seg_len(p0: Tuple[float, float], p1: Tuple[float, float]) -> float:
     return float(np.hypot(p1[0] - p0[0], p1[1] - p0[1]))
 
 
-# ── Infill generation ─────────────────────────────────────────────────────────
-
-def generate_infill_segments(
-    bounds_x:           Tuple[float, float],
-    bounds_y:           Tuple[float, float],
-    z_height:           float,
-    pattern:            str,
-    nozzle_diameter_mm: float,
-) -> List[Segment]:
-    """Return infill segments inset inside the perimeter beads."""
-    bead_w  = nozzle_diameter_mm / 1000.0
-    inner_x = (bounds_x[0] + bead_w, bounds_x[1] - bead_w)
-    inner_y = (bounds_y[0] + bead_w, bounds_y[1] - bead_w)
-    if inner_x[1] - inner_x[0] < bead_w or inner_y[1] - inner_y[0] < bead_w:
-        return []
-    spacing = bead_w
-    if pattern == "zigzag":
-        return _generate_zigzag(inner_x, inner_y, spacing)
-    elif pattern == "hexagonal":
-        return _generate_hexagonal(inner_x, inner_y, spacing)
-    return []
-
-
-def _generate_zigzag(
-    bounds_x: Tuple[float, float],
-    bounds_y: Tuple[float, float],
-    spacing:  float,
-) -> List[Segment]:
-    x_min, x_max = bounds_x
-    y_min, y_max = bounds_y
-    max_lines    = 300
-    estimated_lines = int((x_max - x_min) / spacing) if spacing > 0 else 0
-    if estimated_lines > max_lines:
-        print(f"[infill] zigzag: capping {estimated_lines} → {max_lines} lines", flush=True)
-        spacing = (x_max - x_min) / max_lines
-    segs: List[Segment] = []
-    x       = x_min
-    forward = True
-    while x <= x_max:
-        if forward:
-            segs.append(((x, y_min), (x, y_max)))
-        else:
-            segs.append(((x, y_max), (x, y_min)))
-        forward = not forward
-        x      += spacing
-    return segs
-
-
-def _generate_hexagonal(
-    bounds_x: Tuple[float, float],
-    bounds_y: Tuple[float, float],
-    spacing:  float,
-) -> List[Segment]:
-    r            = spacing
-    x_min, x_max = bounds_x
-    y_min, y_max = bounds_y
-    max_segments = 1800
-    est_cols = max(1, int((x_max - x_min) / (r * 3.0)) + 1)
-    est_rows = max(1, int((y_max - y_min) / (r * math.sqrt(3))) + 1)
-    est_segs = est_rows * est_cols * 6
-    if est_segs > max_segments:
-        scale = math.sqrt(est_segs / max_segments)
-        print(f"[infill] hexagonal: ~{est_segs} segs → scaling r by {scale:.2f}", flush=True)
-        r *= scale
-    segs: List[Segment] = []
-    row = 0
-    y   = y_min + r
-    while y - r <= y_max:
-        x_offset = r * 1.5 * (row % 2)
-        x        = x_min + r + x_offset
-        while x - r <= x_max:
-            segs.extend(_hexagon_at(x, y, r))
-            x += r * 3.0
-        y   += r * math.sqrt(3)
-        row += 1
-    return segs
-
-
-def _hexagon_at(cx: float, cy: float, r: float) -> List[Segment]:
-    pts = [
-        (cx + r * math.cos(math.pi / 3 * i), cy + r * math.sin(math.pi / 3 * i))
-        for i in range(6)
-    ]
-    return [(pts[i], pts[(i + 1) % 6]) for i in range(6)]
