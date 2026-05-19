@@ -312,10 +312,18 @@ def _slice_layer(
             # Store as plain Python float tuples — NOT numpy arrays
             points_list = [(float(pts_raw[i][0]), float(pts_raw[i][1])) for i in range(n)]
 
+            # Detect thin one-bead-wide paths (wall faces, connectors).
+            # effective_width = 2*area/perimeter — equals actual width for thin rectangles.
+            # If width < nozzle_width*3, this contour is a single print bead traced as
+            # a closed loop (both sides). We'll collapse it to a centerline open path.
+            effective_width = (2.0 * area / perim) if perim > 1e-9 else 0.0
+            is_thin = effective_width < float(nozzle_width) * 3.0
+
             contours.append({
                 'points':    points_list,
                 'perimeter': perim,
                 'area':      area,
+                'is_thin':   is_thin,
             })
         except Exception as e:
             print(f"[geometry] layer={layer_idx} contour error: {e}", flush=True)
@@ -326,30 +334,43 @@ def _slice_layer(
 
     contours.sort(key=lambda c: c['area'], reverse=True)
 
-    def contour_to_segments(points_list) -> List[Segment]:
+    def contour_to_segments(points_list, closed=True) -> List[Segment]:
         segs = []
         m = len(points_list)
-        for i in range(m):
+        end = m if closed else m - 1
+        for i in range(end):
             segs.append((points_list[i], points_list[(i + 1) % m]))
         return segs
+
+    def centerline_of_contour(points_list):
+        """Collapse a thin closed contour to its open centerline path."""
+        n = len(points_list)
+        half = n // 2
+        if half < 2:
+            return points_list
+        side1 = points_list[:half]
+        side2 = list(reversed(points_list[half:]))
+        k = min(len(side1), len(side2))
+        return [
+            ((side1[i][0] + side2[i][0]) / 2.0,
+             (side1[i][1] + side2[i][1]) / 2.0)
+            for i in range(k)
+        ]
+
+    def contour_segs(c) -> List[Segment]:
+        if c['is_thin']:
+            return contour_to_segments(centerline_of_contour(c['points']), closed=False)
+        return contour_to_segments(c['points'], closed=True)
 
     segments: List[Segment] = []
 
     if slicing_mode == 'geometry':
         for contour in contours:
-            segments.extend(contour_to_segments(contour['points']))
+            segments.extend(contour_segs(contour))
 
     elif slicing_mode == 'shell':
-        # Trace outer boundary only — no infill generated
-        # Clean perimeter bead per layer
-        # Infill will come in a future update using continuous path logic
-        outer = contours[0]  # largest contour = outer boundary
-        segments.extend(contour_to_segments(outer['points']))
-
-        # If additional disconnected sections exist at this height
-        # (separate rooms, columns) trace each one too
-        for contour in contours[1:]:
-            segments.extend(contour_to_segments(contour['points']))
+        for contour in contours:
+            segments.extend(contour_to_segments(contour['points'], closed=True))
 
     print(
         f"[geometry] layer={layer_idx} z={z_height:.3f}m "

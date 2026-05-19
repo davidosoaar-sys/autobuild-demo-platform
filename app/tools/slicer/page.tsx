@@ -858,8 +858,8 @@ export default function SlicerTool() {
               </div>
               <p className="text-[11px] text-black/40 leading-relaxed">
                 {slicingMode === 'geometry'
-                  ? 'Your model contains all print geometry. The slicer traces every contour exactly once — walls, shells, and any paths built into the model.'
-                  : 'Your model is a solid shape. The slicer traces the outer boundary at each layer as a clean continuous perimeter bead.'}
+                  ? 'Mode A — collapses each bead-wide element to a single centerline path. A rectangular wall with zigzag infill gives 5 clean paths (4 sides + 1 zigzag). No cavities.'
+                  : 'Mode B — traces both surfaces of every element as-is. The same wall gives 10 paths with visible cavities between the paired lines of each element.'}
               </p>
             </div>
 
