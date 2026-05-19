@@ -253,7 +253,52 @@ def _slice_layer(
     layer_idx:    int = 0,
 ) -> List[Segment]:
     z_sample = float(z_height) + 1e-5
+    MIN_LEN  = float(nozzle_width) * 0.1
 
+    # ── Geometry mode: raw triangle intersections = actual concrete surfaces ──
+    if slicing_mode == 'geometry':
+        try:
+            lines = trimesh.intersections.mesh_plane(
+                mesh,
+                plane_normal=[0, 0, 1],
+                plane_origin=[0, 0, z_sample],
+            )
+        except Exception as e:
+            print(f"[geometry] layer={layer_idx} mesh_plane failed: {e}", flush=True)
+            return []
+
+        if lines is None or len(lines) == 0:
+            return []
+
+        # Project to 2D and filter sub-nozzle slivers
+        segs: List[Segment] = []
+        for line in lines:
+            p0 = (float(line[0][0]), float(line[0][1]))
+            p1 = (float(line[1][0]), float(line[1][1]))
+            if _seg_len(p0, p1) >= MIN_LEN:
+                segs.append((p0, p1))
+
+        # Deduplicate coincident segments (same endpoints within tolerance)
+        tol = float(nozzle_width) * 0.01
+        unique: List[Segment] = []
+        for s in segs:
+            is_dup = False
+            for u in unique:
+                if (_seg_len(s[0], u[0]) < tol and _seg_len(s[1], u[1]) < tol) or \
+                   (_seg_len(s[0], u[1]) < tol and _seg_len(s[1], u[0]) < tol):
+                    is_dup = True
+                    break
+            if not is_dup:
+                unique.append(s)
+
+        print(
+            f"[geometry] layer={layer_idx} z={z_height:.3f}m "
+            f"mode=geometry raw={len(lines)} segments={len(unique)}",
+            flush=True,
+        )
+        return unique
+
+    # ── Shell mode: section contours = closed loops (both sides of each element) ──
     try:
         section = mesh.section(
             plane_origin=[0, 0, z_sample],
@@ -279,18 +324,16 @@ def _slice_layer(
         return []
 
     MIN_PERIM = float(nozzle_width) * 4.0
-    contours = []
+    contours  = []
 
     for entity in section_2d.entities:
         try:
             indices = entity.points
             pts_raw = section_2d.vertices[indices]
             n = len(pts_raw)
-
             if n < 3:
                 continue
 
-            # Pure Python float perimeter — no NumPy in boolean context
             perim = 0.0
             for i in range(n):
                 dx = float(pts_raw[(i + 1) % n][0]) - float(pts_raw[i][0])
@@ -300,31 +343,8 @@ def _slice_layer(
             if perim < MIN_PERIM:
                 continue
 
-            # Shoelace formula — pure Python floats, no NumPy in boolean context
-            area = 0.0
-            for i in range(n):
-                j = (i + 1) % n
-                area += float(pts_raw[i][0]) * float(pts_raw[j][1])
-                area -= float(pts_raw[j][0]) * float(pts_raw[i][1])
-            area = abs(area) / 2.0
-
-            # Store as plain Python float tuples — NOT numpy arrays
             points_list = [(float(pts_raw[i][0]), float(pts_raw[i][1])) for i in range(n)]
-
-            # Detect thin one-bead-wide paths (wall faces, connectors).
-            # effective_width = 2*area/perimeter — equals actual width for thin rectangles.
-            # If width < nozzle_width*3, this contour is a single print bead traced as
-            # a closed loop (both sides). We'll collapse it to a centerline open path.
-            effective_width = (2.0 * area / perim) if perim > 1e-9 else 0.0
-            is_thin = effective_width < float(nozzle_width) * 3.0
-            print(f"[geometry] layer={layer_idx} contour: n={n} perim={perim:.4f} area={area:.6f} eff_w={effective_width:.4f} nozzle={nozzle_width:.4f} is_thin={is_thin}", flush=True)
-
-            contours.append({
-                'points':    points_list,
-                'perimeter': perim,
-                'area':      area,
-                'is_thin':   is_thin,
-            })
+            contours.append({'points': points_list, 'perimeter': perim})
         except Exception as e:
             print(f"[geometry] layer={layer_idx} contour error: {e}", flush=True)
             continue
@@ -332,49 +352,21 @@ def _slice_layer(
     if not contours:
         return []
 
-    contours.sort(key=lambda c: c['area'], reverse=True)
-
     def contour_to_segments(points_list, closed=True) -> List[Segment]:
         segs = []
-        m = len(points_list)
-        end = m if closed else m - 1
+        m    = len(points_list)
+        end  = m if closed else m - 1
         for i in range(end):
             segs.append((points_list[i], points_list[(i + 1) % m]))
         return segs
 
-    def centerline_of_contour(points_list):
-        """Collapse a thin closed contour to its open centerline path."""
-        n = len(points_list)
-        half = n // 2
-        if half < 2:
-            return points_list
-        side1 = points_list[:half]
-        side2 = list(reversed(points_list[half:]))
-        k = min(len(side1), len(side2))
-        return [
-            ((side1[i][0] + side2[i][0]) / 2.0,
-             (side1[i][1] + side2[i][1]) / 2.0)
-            for i in range(k)
-        ]
-
-    def contour_segs(c) -> List[Segment]:
-        if c['is_thin']:
-            return contour_to_segments(centerline_of_contour(c['points']), closed=False)
-        return contour_to_segments(c['points'], closed=True)
-
     segments: List[Segment] = []
-
-    if slicing_mode == 'geometry':
-        for contour in contours:
-            segments.extend(contour_segs(contour))
-
-    elif slicing_mode == 'shell':
-        for contour in contours:
-            segments.extend(contour_to_segments(contour['points'], closed=True))
+    for contour in contours:
+        segments.extend(contour_to_segments(contour['points'], closed=True))
 
     print(
         f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-        f"mode={slicing_mode} contours={len(contours)} segments={len(segments)}",
+        f"mode=shell contours={len(contours)} segments={len(segments)}",
         flush=True,
     )
     return segments
