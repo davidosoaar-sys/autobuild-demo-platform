@@ -275,73 +275,76 @@ def _slice_layer(
         if raw is None:
             return []
 
-        lines, face_idx = (raw if isinstance(raw, tuple) and len(raw) == 2
-                           else (raw, None))
+        lines = raw[0] if isinstance(raw, tuple) and len(raw) == 2 else raw
 
         if lines is None or len(lines) == 0:
             return []
 
-        # Project to 2D, filter slivers, collect face normals (XY only)
-        segs_2d:  List[Segment]                = []
-        norms_2d: List[Optional[Tuple[float, float]]] = []
-
-        for i, line in enumerate(lines):
+        # Project to 2D and filter slivers
+        segs_2d: List[Segment] = []
+        for line in lines:
             p0 = (float(line[0][0]), float(line[0][1]))
             p1 = (float(line[1][0]), float(line[1][1]))
-            if _seg_len(p0, p1) < MIN_LEN:
-                continue
-            segs_2d.append((p0, p1))
-            if face_idx is not None:
-                n = mesh.face_normals[int(face_idx[i])]
-                norms_2d.append((float(n[0]), float(n[1])))
-            else:
-                norms_2d.append(None)
+            if _seg_len(p0, p1) >= MIN_LEN:
+                segs_2d.append((p0, p1))
 
         if not segs_2d:
             return []
 
-        # Pair inner/outer faces of the same element and average to centerline.
-        # A valid pair must satisfy all three:
-        #   1. Opposite face normals: n1·n2 < -0.5  (inner vs outer surface)
-        #   2. Close midpoints: distance < nozzle_width * 3
-        #   3. Roughly parallel: |dir1·dir2| > 0.85
+        # Pair inner/outer faces of the same concrete element → centerline.
+        # Key insight: inner and outer faces are separated by exactly nozzle_width
+        # in the direction PERPENDICULAR to the element. Euclidean midpoint distance
+        # fails when triangles on opposite faces have different parallel offsets (the
+        # outer face triangle at X=[0,0.3m] pairs with the inner face triangle at
+        # X=[0.15m,0.45m] — midpoints are 0.15m apart but perp distance is 0.025m).
+        # Using perpendicular distance makes pairing robust to any X/Y offset.
         n_segs     = len(segs_2d)
         paired     = [False] * n_segs
         merge_dist = float(nozzle_width) * 3.0
+        min_perp   = float(nozzle_width) * 0.1   # exclude collinear neighbours
         centerlines: List[Segment] = []
 
         for i in range(n_segs):
             if paired[i]:
                 continue
-            s1 = segs_2d[i]
-            dx1 = s1[1][0] - s1[0][0]
-            dy1 = s1[1][1] - s1[0][1]
+            s1   = segs_2d[i]
+            dx1  = s1[1][0] - s1[0][0]
+            dy1  = s1[1][1] - s1[0][1]
             len1 = (dx1*dx1 + dy1*dy1) ** 0.5
             if len1 < 1e-9:
                 paired[i] = True
                 continue
-            mid1 = ((s1[0][0]+s1[1][0]) * 0.5, (s1[0][1]+s1[1][1]) * 0.5)
+            # Unit vectors: parallel and perpendicular to s1
+            par_x  =  dx1 / len1;  par_y  =  dy1 / len1
+            perp_x = -dy1 / len1;  perp_y =  dx1 / len1
+            mid1   = ((s1[0][0]+s1[1][0]) * 0.5, (s1[0][1]+s1[1][1]) * 0.5)
             best_j, best_d = -1, float('inf')
 
             for j in range(i + 1, n_segs):
                 if paired[j]:
                     continue
-                # Condition 1: close midpoints (inner/outer faces are ~nozzle_width apart)
                 s2   = segs_2d[j]
-                mid2 = ((s2[0][0]+s2[1][0]) * 0.5, (s2[0][1]+s2[1][1]) * 0.5)
-                d    = _seg_len(mid1, mid2)
-                if d > merge_dist:
-                    continue
-                # Condition 2: roughly parallel (face segs and connector segs are orthogonal)
-                dx2 = s2[1][0] - s2[0][0]
-                dy2 = s2[1][1] - s2[0][1]
+                dx2  = s2[1][0] - s2[0][0]
+                dy2  = s2[1][1] - s2[0][1]
                 len2 = (dx2*dx2 + dy2*dy2) ** 0.5
                 if len2 < 1e-9:
                     continue
+                # Must be roughly parallel
                 if abs((dx1*dx2 + dy1*dy2) / (len1*len2)) < 0.85:
                     continue
-                if d < best_d:
-                    best_d, best_j = d, j
+                mid2   = ((s2[0][0]+s2[1][0]) * 0.5, (s2[0][1]+s2[1][1]) * 0.5)
+                dmx    = mid2[0] - mid1[0]
+                dmy    = mid2[1] - mid1[1]
+                # Perpendicular separation: this is the inner/outer face gap
+                perp_d = abs(dmx * perp_x + dmy * perp_y)
+                if perp_d < min_perp or perp_d > merge_dist:
+                    continue
+                # Parallel offset: segments must overlap along the element axis
+                par_d  = abs(dmx * par_x + dmy * par_y)
+                if par_d > max(len1, len2) * 1.5:
+                    continue
+                if perp_d < best_d:
+                    best_d, best_j = perp_d, j
 
             if best_j >= 0:
                 s2  = segs_2d[best_j]
