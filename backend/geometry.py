@@ -314,7 +314,6 @@ def _slice_layer(
             if paired[i]:
                 continue
             s1 = segs_2d[i]
-            n1 = norms_2d[i]
             dx1 = s1[1][0] - s1[0][0]
             dy1 = s1[1][1] - s1[0][1]
             len1 = (dx1*dx1 + dy1*dy1) ** 0.5
@@ -327,18 +326,13 @@ def _slice_layer(
             for j in range(i + 1, n_segs):
                 if paired[j]:
                     continue
-                n2 = norms_2d[j]
-                # Condition 1: opposite normals
-                if n1 is not None and n2 is not None:
-                    if n1[0]*n2[0] + n1[1]*n2[1] > -0.5:
-                        continue
-                # Condition 2: close midpoints
+                # Condition 1: close midpoints (inner/outer faces are ~nozzle_width apart)
                 s2   = segs_2d[j]
                 mid2 = ((s2[0][0]+s2[1][0]) * 0.5, (s2[0][1]+s2[1][1]) * 0.5)
                 d    = _seg_len(mid1, mid2)
                 if d > merge_dist:
                     continue
-                # Condition 3: roughly parallel
+                # Condition 2: roughly parallel (face segs and connector segs are orthogonal)
                 dx2 = s2[1][0] - s2[0][0]
                 dy2 = s2[1][1] - s2[0][1]
                 len2 = (dx2*dx2 + dy2*dy2) ** 0.5
