@@ -262,6 +262,8 @@ async def optimize_endpoint(
     print_speed:           Optional[float] = Form(None),
     # Scale factor
     print_scale:           float          = Form(1.0),
+    # Slicing mode
+    slicing_mode:          str            = Form("geometry"),
     # Structure / time blocks
     structure_type:        str            = Form("wall"),
     time_blocks:           str            = Form("[]"),
@@ -312,7 +314,7 @@ async def optimize_endpoint(
             nozzle_width  = nozzle_diameter_mm / 1000.0,
             max_layers    = max_layers,
             print_scale   = print_scale,
-            slicing_mode  = 'shell',
+            slicing_mode  = slicing_mode,
         )
     except Exception as e:
         raise HTTPException(422, f"Failed to parse 3D file: {e}")

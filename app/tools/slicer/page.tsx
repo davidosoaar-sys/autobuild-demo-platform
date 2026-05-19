@@ -378,6 +378,9 @@ export default function SlicerTool() {
 
   const [scanResult,    setScanResult]    = useState<any>(null);
 
+  // Slicing mode
+  const [slicingMode, setSlicingMode] = useState<'geometry' | 'shell'>('geometry');
+
   // Time blocks (Task 9)
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([newBlock()]);
 
@@ -425,7 +428,7 @@ export default function SlicerTool() {
       fd.append('temperature',          String(forecastWeather?.temperature ?? manualTemp));
       fd.append('humidity',             String(forecastWeather?.humidity    ?? manualHumidity));
       fd.append('wind_speed',           String(forecastWeather?.wind_speed  ?? manualWind));
-      fd.append('slicing_mode',         'shell');
+      fd.append('slicing_mode',         slicingMode);
       // Time blocks
       fd.append('time_blocks',          JSON.stringify(timeBlocks.map(b => ({ start: b.start, end: b.end }))));
       const res = await fetch(`${API}/optimize`, { method: 'POST', body: fd });
@@ -838,6 +841,26 @@ export default function SlicerTool() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Slice by Shell or Geometry */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Slice by Shell or Geometry</h2>
+              <div className="flex gap-2">
+                {(['geometry', 'shell'] as const).map(mode => (
+                  <button key={mode} onClick={() => setSlicingMode(mode)}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors capitalize ${
+                      slicingMode === mode ? 'bg-black text-white' : 'bg-gray-100 text-black/50 hover:text-black'
+                    }`}>
+                    {mode}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-black/40 leading-relaxed">
+                {slicingMode === 'geometry'
+                  ? 'Your model contains all print geometry. The slicer traces every contour exactly once — walls, shells, and any paths built into the model.'
+                  : 'Your model is a solid shape. The slicer traces the outer boundary at each layer as a clean continuous perimeter bead.'}
+              </p>
             </div>
 
             {/* Weather */}

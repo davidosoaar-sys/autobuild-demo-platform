@@ -269,6 +269,7 @@ function CitySearch({ onSelect, startHour }: { onSelect: (city: string, weather:
 
 export default function ParameterInputs({
   parameters, onChange, onWeatherChange, onCementChange, onCityChange, onStartHourChange,
+  slicingMode, onSlicingModeChange,
 }: ParameterInputsProps) {
   const [useBlocks,     setUseBlocks]     = useState(false);
   const [startHour,     setStartHour]     = useState(8.0);
@@ -483,6 +484,28 @@ export default function ParameterInputs({
           </div>
         </div>
       </div>
+
+      {/* Slice by Shell or Geometry */}
+      {onSlicingModeChange && (
+        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+          <p className={labelCls}>Slice by Shell or Geometry</p>
+          <div className="flex gap-2">
+            {(['geometry', 'shell'] as const).map(mode => (
+              <button key={mode} onClick={() => onSlicingModeChange(mode)}
+                className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors capitalize ${
+                  slicingMode === mode ? 'bg-black text-white' : 'bg-gray-100 text-black/50 hover:text-black'
+                }`}>
+                {mode}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-black/40 leading-relaxed">
+            {slicingMode === 'geometry'
+              ? 'Your model contains all print geometry. The slicer traces every contour exactly once — walls, shells, and any paths built into the model.'
+              : 'Your model is a solid shape. The slicer traces the outer boundary at each layer as a clean continuous perimeter bead.'}
+          </p>
+        </div>
+      )}
 
     </div>
   );
