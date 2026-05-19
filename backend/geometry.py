@@ -146,7 +146,6 @@ def parse_and_slice(
         mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
 
     try:
-        mesh.merge_vertices()
         trimesh.repair.fix_normals(mesh)
         trimesh.repair.fix_winding(mesh)
     except Exception:
