@@ -317,6 +317,7 @@ def _slice_layer(
             # a closed loop (both sides). We'll collapse it to a centerline open path.
             effective_width = (2.0 * area / perim) if perim > 1e-9 else 0.0
             is_thin = effective_width < float(nozzle_width) * 3.0
+            print(f"[geometry] layer={layer_idx} contour: n={n} perim={perim:.4f} area={area:.6f} eff_w={effective_width:.4f} nozzle={nozzle_width:.4f} is_thin={is_thin}", flush=True)
 
             contours.append({
                 'points':    points_list,
