@@ -255,48 +255,125 @@ def _slice_layer(
     z_sample = float(z_height) + 1e-5
     MIN_LEN  = float(nozzle_width) * 0.1
 
-    # ── Geometry mode: raw triangle intersections = actual concrete surfaces ──
+    # ── Geometry mode: collapse inner/outer face pairs to centerlines ──────────
+    # mesh_plane() returns one segment per triangle face crossing the plane.
+    # Each concrete element has two faces (inner + outer surface), so we get two
+    # nearly-parallel segments per element. We pair them by opposite face normals
+    # and average their endpoints to produce one centerline segment per element.
     if slicing_mode == 'geometry':
         try:
-            lines = trimesh.intersections.mesh_plane(
+            raw = trimesh.intersections.mesh_plane(
                 mesh,
                 plane_normal=[0, 0, 1],
                 plane_origin=[0, 0, z_sample],
+                return_faces=True,
             )
         except Exception as e:
             print(f"[geometry] layer={layer_idx} mesh_plane failed: {e}", flush=True)
             return []
 
+        if raw is None:
+            return []
+
+        lines, face_idx = (raw if isinstance(raw, tuple) and len(raw) == 2
+                           else (raw, None))
+
         if lines is None or len(lines) == 0:
             return []
 
-        # Project to 2D and filter sub-nozzle slivers
-        segs: List[Segment] = []
-        for line in lines:
+        # Project to 2D, filter slivers, collect face normals (XY only)
+        segs_2d:  List[Segment]                = []
+        norms_2d: List[Optional[Tuple[float, float]]] = []
+
+        for i, line in enumerate(lines):
             p0 = (float(line[0][0]), float(line[0][1]))
             p1 = (float(line[1][0]), float(line[1][1]))
-            if _seg_len(p0, p1) >= MIN_LEN:
-                segs.append((p0, p1))
+            if _seg_len(p0, p1) < MIN_LEN:
+                continue
+            segs_2d.append((p0, p1))
+            if face_idx is not None:
+                n = mesh.face_normals[int(face_idx[i])]
+                norms_2d.append((float(n[0]), float(n[1])))
+            else:
+                norms_2d.append(None)
 
-        # Deduplicate coincident segments (same endpoints within tolerance)
-        tol = float(nozzle_width) * 0.01
-        unique: List[Segment] = []
-        for s in segs:
-            is_dup = False
-            for u in unique:
-                if (_seg_len(s[0], u[0]) < tol and _seg_len(s[1], u[1]) < tol) or \
-                   (_seg_len(s[0], u[1]) < tol and _seg_len(s[1], u[0]) < tol):
-                    is_dup = True
-                    break
-            if not is_dup:
-                unique.append(s)
+        if not segs_2d:
+            return []
+
+        # Pair inner/outer faces of the same element and average to centerline.
+        # A valid pair must satisfy all three:
+        #   1. Opposite face normals: n1·n2 < -0.5  (inner vs outer surface)
+        #   2. Close midpoints: distance < nozzle_width * 3
+        #   3. Roughly parallel: |dir1·dir2| > 0.85
+        n_segs     = len(segs_2d)
+        paired     = [False] * n_segs
+        merge_dist = float(nozzle_width) * 3.0
+        centerlines: List[Segment] = []
+
+        for i in range(n_segs):
+            if paired[i]:
+                continue
+            s1 = segs_2d[i]
+            n1 = norms_2d[i]
+            dx1 = s1[1][0] - s1[0][0]
+            dy1 = s1[1][1] - s1[0][1]
+            len1 = (dx1*dx1 + dy1*dy1) ** 0.5
+            if len1 < 1e-9:
+                paired[i] = True
+                continue
+            mid1 = ((s1[0][0]+s1[1][0]) * 0.5, (s1[0][1]+s1[1][1]) * 0.5)
+            best_j, best_d = -1, float('inf')
+
+            for j in range(i + 1, n_segs):
+                if paired[j]:
+                    continue
+                n2 = norms_2d[j]
+                # Condition 1: opposite normals
+                if n1 is not None and n2 is not None:
+                    if n1[0]*n2[0] + n1[1]*n2[1] > -0.5:
+                        continue
+                # Condition 2: close midpoints
+                s2   = segs_2d[j]
+                mid2 = ((s2[0][0]+s2[1][0]) * 0.5, (s2[0][1]+s2[1][1]) * 0.5)
+                d    = _seg_len(mid1, mid2)
+                if d > merge_dist:
+                    continue
+                # Condition 3: roughly parallel
+                dx2 = s2[1][0] - s2[0][0]
+                dy2 = s2[1][1] - s2[0][1]
+                len2 = (dx2*dx2 + dy2*dy2) ** 0.5
+                if len2 < 1e-9:
+                    continue
+                if abs((dx1*dx2 + dy1*dy2) / (len1*len2)) < 0.85:
+                    continue
+                if d < best_d:
+                    best_d, best_j = d, j
+
+            if best_j >= 0:
+                s2  = segs_2d[best_j]
+                dx2 = s2[1][0] - s2[0][0]
+                dy2 = s2[1][1] - s2[0][1]
+                # Align s2 direction with s1 before averaging
+                if dx1*dx2 + dy1*dy2 < 0:
+                    s2 = (s2[1], s2[0])
+                cl = (
+                    ((s1[0][0]+s2[0][0]) * 0.5, (s1[0][1]+s2[0][1]) * 0.5),
+                    ((s1[1][0]+s2[1][0]) * 0.5, (s1[1][1]+s2[1][1]) * 0.5),
+                )
+                if _seg_len(cl[0], cl[1]) >= MIN_LEN:
+                    centerlines.append(cl)
+                paired[i] = True
+                paired[best_j] = True
+            else:
+                centerlines.append(s1)
+                paired[i] = True
 
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"mode=geometry raw={len(lines)} segments={len(unique)}",
+            f"mode=geometry raw={len(lines)} segs={len(segs_2d)} centerlines={len(centerlines)}",
             flush=True,
         )
-        return unique
+        return centerlines
 
     # ── Shell mode: section contours = closed loops (both sides of each element) ──
     try:
