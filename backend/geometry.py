@@ -281,33 +281,69 @@ def _slice_layer(
             try:
                 indices = entity.points
                 pts_raw = section_2d.vertices[indices]
-                if len(pts_raw) < 2:
-                    continue
-
-                # Filter tiny contours (noise / degenerate triangles)
-                perim = 0.0
                 n = len(pts_raw)
-                for i in range(n):
-                    dx = float(pts_raw[(i+1) % n][0]) - float(pts_raw[i][0])
-                    dy = float(pts_raw[(i+1) % n][1]) - float(pts_raw[i][1])
-                    perim += (dx*dx + dy*dy) ** 0.5
-                if perim < MIN_PERIM:
+                if n < 3:
                     continue
 
-                pts      = np.array([[float(p[0]), float(p[1])] for p in pts_raw])
-                center   = pts.mean(axis=0)
-                centered = pts - center
+                # Build segments of this contour
+                contour_segs = []
+                for i in range(n):
+                    p0 = (float(pts_raw[i][0]),          float(pts_raw[i][1]))
+                    p1 = (float(pts_raw[(i+1)%n][0]),    float(pts_raw[(i+1)%n][1]))
+                    l  = _seg_len(p0, p1)
+                    if l >= MIN_LEN:
+                        contour_segs.append((p0, p1, l))
 
-                # PCA: principal axis = longest dimension of this contour
-                cov  = centered.T @ centered
-                _, vecs = np.linalg.eigh(cov)
-                axis = vecs[:, -1]
+                if len(contour_segs) < 2:
+                    continue
 
-                proj = centered @ axis
-                p0   = center + proj.min() * axis
-                p1   = center + proj.max() * axis
+                # Sort longest-first; the two longest parallel segments are the two
+                # long sides of the thin print-element cross-section rectangle.
+                contour_segs.sort(key=lambda s: -s[2])
 
-                cl = ((float(p0[0]), float(p0[1])), (float(p1[0]), float(p1[1])))
+                # Find the best parallel partner for the longest segment
+                s1, _, _ = contour_segs[0]
+                dx1 = s1[1][0]-s1[0][0];  dy1 = s1[1][1]-s1[0][1]
+                len1 = (dx1*dx1+dy1*dy1)**0.5
+                if len1 < 1e-9:
+                    continue
+                perp_x = -dy1/len1;  perp_y = dx1/len1
+                mid1   = ((s1[0][0]+s1[1][0])*0.5, (s1[0][1]+s1[1][1])*0.5)
+
+                best_j, best_d = -1, float('inf')
+                for j in range(1, len(contour_segs)):
+                    s2, _, l2 = contour_segs[j]
+                    if l2 < contour_segs[0][2] * 0.25:
+                        break  # remaining segs too short to be the other long side
+                    dx2 = s2[1][0]-s2[0][0];  dy2 = s2[1][1]-s2[0][1]
+                    len2 = (dx2*dx2+dy2*dy2)**0.5
+                    if len2 < 1e-9:
+                        continue
+                    if abs((dx1*dx2+dy1*dy2)/(len1*len2)) < 0.85:
+                        continue  # not parallel
+                    mid2 = ((s2[0][0]+s2[1][0])*0.5, (s2[0][1]+s2[1][1])*0.5)
+                    dm   = (mid2[0]-mid1[0], mid2[1]-mid1[1])
+                    perp_d = abs(dm[0]*perp_x + dm[1]*perp_y)
+                    if perp_d < 1e-6:
+                        continue  # same line
+                    if perp_d < best_d:
+                        best_d, best_j = perp_d, j
+
+                if best_j < 0:
+                    # No parallel partner — use longest segment as fallback
+                    if _seg_len(s1[0], s1[1]) >= MIN_LEN:
+                        centerlines.append((s1[0], s1[1]))
+                    continue
+
+                s2, _, _ = contour_segs[best_j]
+                dx2 = s2[1][0]-s2[0][0];  dy2 = s2[1][1]-s2[0][1]
+                if dx1*dx2+dy1*dy2 < 0:
+                    s2 = (s2[1], s2[0])
+
+                cl = (
+                    ((s1[0][0]+s2[0][0])*0.5, (s1[0][1]+s2[0][1])*0.5),
+                    ((s1[1][0]+s2[1][0])*0.5, (s1[1][1]+s2[1][1])*0.5),
+                )
                 if _seg_len(cl[0], cl[1]) >= MIN_LEN:
                     centerlines.append(cl)
             except Exception:
