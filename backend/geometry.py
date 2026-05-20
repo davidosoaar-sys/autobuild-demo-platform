@@ -314,6 +314,9 @@ def _slice_layer(
             if _seg_len(cl[0], cl[1]) >= MIN_LEN:
                 centerlines.append(cl)
 
+        # Chain segments into one continuous print path via nearest-neighbour sort
+        centerlines = _chain_path(centerlines)
+
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
             f"mode=geometry components={len(comps)} centerlines={len(centerlines)}",
@@ -394,6 +397,27 @@ def _slice_layer(
     )
     return segments
 
+
+
+def _chain_path(segs: List[Segment]) -> List[Segment]:
+    """Order segments into a single continuous print path via nearest-neighbour."""
+    if len(segs) <= 1:
+        return segs
+    # Start from the segment whose first endpoint is furthest left (wall start)
+    segs = sorted(segs, key=lambda s: min(s[0][0], s[1][0]))
+    ordered   = [segs[0]]
+    remaining = list(segs[1:])
+    while remaining:
+        cur = ordered[-1][1]
+        best_i, best_d, flip = 0, float('inf'), False
+        for i, s in enumerate(remaining):
+            d0 = (s[0][0]-cur[0])**2 + (s[0][1]-cur[1])**2
+            d1 = (s[1][0]-cur[0])**2 + (s[1][1]-cur[1])**2
+            if d0 < best_d: best_d, best_i, flip = d0, i, False
+            if d1 < best_d: best_d, best_i, flip = d1, i, True
+        s = remaining.pop(best_i)
+        ordered.append((s[1], s[0]) if flip else s)
+    return ordered
 
 
 def _walk_ring(coords) -> List[Segment]:
