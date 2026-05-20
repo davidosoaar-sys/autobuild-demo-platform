@@ -177,23 +177,21 @@ def parse_and_slice(
     if abs(print_scale - 1.0) > 1e-6:
         mesh.apply_scale(float(print_scale))
 
-    # Diagnostic: count disconnected components — tells us if mesh.split() approach will work
-    try:
-        components   = mesh.split(only_watertight=False)
-        n_components = len(components)
-        print(f"[geometry] mesh has {n_components} connected component(s) — each should map to one print element", flush=True)
-        for ci, comp in enumerate(components):
-            cb = comp.bounds
-            print(f"[geometry]   component[{ci}] triangles={len(comp.faces)} bounds_x=({cb[0][0]:.3f},{cb[1][0]:.3f}) bounds_y=({cb[0][1]:.3f},{cb[1][1]:.3f}) bounds_z=({cb[0][2]:.3f},{cb[1][2]:.3f})", flush=True)
-    except Exception as e:
-        print(f"[geometry] mesh.split() diagnostic failed: {e}", flush=True)
-
     bounds       = mesh.bounds
     total_height = float(bounds[1][2])
     layer_height = float(np.clip(layer_height, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M))
 
     if total_height < layer_height:
         raise ValueError(f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm")
+
+    # ── Split into components once for geometry mode ──────────────────────────
+    mesh_components = None
+    if slicing_mode == 'geometry':
+        try:
+            mesh_components = mesh.split(only_watertight=False)
+            print(f"[geometry] split into {len(mesh_components)} components", flush=True)
+        except Exception as e:
+            print(f"[geometry] mesh.split() failed, using full mesh: {e}", flush=True)
 
     # ── Layer count ───────────────────────────────────────────────────────────
     total_layers  = max(1, int(total_height / layer_height))
@@ -209,7 +207,7 @@ def parse_and_slice(
 
     for idx, layer_i in enumerate(layer_indices):
         z        = (layer_i + 0.5) * layer_height
-        segments = _slice_layer(mesh, z, nozzle_width, slicing_mode, idx)
+        segments = _slice_layer(mesh, z, nozzle_width, slicing_mode, idx, mesh_components)
         geometry.append(segments)
 
         n        = len(segments)
@@ -260,125 +258,65 @@ def _slice_layer(
     mesh,
     z_height:     float,
     nozzle_width: float,
-    slicing_mode: str = 'geometry',
-    layer_idx:    int = 0,
+    slicing_mode: str   = 'geometry',
+    layer_idx:    int   = 0,
+    components:   list  = None,
 ) -> List[Segment]:
     z_sample = float(z_height) + 1e-5
     MIN_LEN  = float(nozzle_width) * 0.1
 
-    # ── Geometry mode: collapse inner/outer face pairs to centerlines ──────────
-    # mesh_plane() returns one segment per triangle face crossing the plane.
-    # Each concrete element has two faces (inner + outer surface), so we get two
-    # nearly-parallel segments per element. We pair them by opposite face normals
-    # and average their endpoints to produce one centerline segment per element.
+    # ── Geometry mode: one centerline per mesh component via PCA ─────────────
+    # Each concrete element is a separate disconnected mesh component (proved by
+    # shell mode returning 18 contours). We slice each component independently
+    # and fit a centerline to its cross-section points using PCA — no inner/outer
+    # pairing needed.
     if slicing_mode == 'geometry':
-        try:
-            raw = trimesh.intersections.mesh_plane(
-                mesh,
-                plane_normal=[0, 0, 1],
-                plane_origin=[0, 0, z_sample],
-                return_faces=True,
-            )
-        except Exception as e:
-            print(f"[geometry] layer={layer_idx} mesh_plane failed: {e}", flush=True)
-            return []
-
-        if raw is None:
-            return []
-
-        lines = raw[0] if isinstance(raw, tuple) and len(raw) == 2 else raw
-
-        if lines is None or len(lines) == 0:
-            return []
-
-        # Project to 2D and filter slivers
-        segs_2d: List[Segment] = []
-        for line in lines:
-            p0 = (float(line[0][0]), float(line[0][1]))
-            p1 = (float(line[1][0]), float(line[1][1]))
-            if _seg_len(p0, p1) >= MIN_LEN:
-                segs_2d.append((p0, p1))
-
-        if not segs_2d:
-            return []
-
-        # Pair inner/outer faces of the same concrete element → centerline.
-        # Key insight: inner and outer faces are separated by exactly nozzle_width
-        # in the direction PERPENDICULAR to the element. Euclidean midpoint distance
-        # fails when triangles on opposite faces have different parallel offsets (the
-        # outer face triangle at X=[0,0.3m] pairs with the inner face triangle at
-        # X=[0.15m,0.45m] — midpoints are 0.15m apart but perp distance is 0.025m).
-        # Using perpendicular distance makes pairing robust to any X/Y offset.
-        n_segs     = len(segs_2d)
-        paired     = [False] * n_segs
-        merge_dist = float(nozzle_width) * 3.0
-        min_perp   = float(nozzle_width) * 0.1   # exclude collinear neighbours
+        comps = components if components is not None else [mesh]
         centerlines: List[Segment] = []
 
-        for i in range(n_segs):
-            if paired[i]:
-                continue
-            s1   = segs_2d[i]
-            dx1  = s1[1][0] - s1[0][0]
-            dy1  = s1[1][1] - s1[0][1]
-            len1 = (dx1*dx1 + dy1*dy1) ** 0.5
-            if len1 < 1e-9:
-                paired[i] = True
-                continue
-            # Unit vectors: parallel and perpendicular to s1
-            par_x  =  dx1 / len1;  par_y  =  dy1 / len1
-            perp_x = -dy1 / len1;  perp_y =  dx1 / len1
-            mid1   = ((s1[0][0]+s1[1][0]) * 0.5, (s1[0][1]+s1[1][1]) * 0.5)
-            best_j, best_d = -1, float('inf')
-
-            for j in range(i + 1, n_segs):
-                if paired[j]:
-                    continue
-                s2   = segs_2d[j]
-                dx2  = s2[1][0] - s2[0][0]
-                dy2  = s2[1][1] - s2[0][1]
-                len2 = (dx2*dx2 + dy2*dy2) ** 0.5
-                if len2 < 1e-9:
-                    continue
-                # Must be roughly parallel
-                if abs((dx1*dx2 + dy1*dy2) / (len1*len2)) < 0.85:
-                    continue
-                mid2   = ((s2[0][0]+s2[1][0]) * 0.5, (s2[0][1]+s2[1][1]) * 0.5)
-                dmx    = mid2[0] - mid1[0]
-                dmy    = mid2[1] - mid1[1]
-                # Perpendicular separation: this is the inner/outer face gap
-                perp_d = abs(dmx * perp_x + dmy * perp_y)
-                if perp_d < min_perp or perp_d > merge_dist:
-                    continue
-                # Parallel offset: segments must overlap along the element axis
-                par_d  = abs(dmx * par_x + dmy * par_y)
-                if par_d > max(len1, len2) * 1.5:
-                    continue
-                if perp_d < best_d:
-                    best_d, best_j = perp_d, j
-
-            if best_j >= 0:
-                s2  = segs_2d[best_j]
-                dx2 = s2[1][0] - s2[0][0]
-                dy2 = s2[1][1] - s2[0][1]
-                # Align s2 direction with s1 before averaging
-                if dx1*dx2 + dy1*dy2 < 0:
-                    s2 = (s2[1], s2[0])
-                cl = (
-                    ((s1[0][0]+s2[0][0]) * 0.5, (s1[0][1]+s2[0][1]) * 0.5),
-                    ((s1[1][0]+s2[1][0]) * 0.5, (s1[1][1]+s2[1][1]) * 0.5),
+        for comp in comps:
+            try:
+                raw = trimesh.intersections.mesh_plane(
+                    comp, plane_normal=[0, 0, 1], plane_origin=[0, 0, z_sample],
                 )
-                if _seg_len(cl[0], cl[1]) >= MIN_LEN:
-                    centerlines.append(cl)
-                paired[i] = True
-                paired[best_j] = True
-            else:
-                centerlines.append(s1)
-                paired[i] = True
+            except Exception:
+                continue
+
+            if raw is None or (hasattr(raw, '__len__') and len(raw) == 0):
+                continue
+            lines = raw[0] if isinstance(raw, tuple) else raw
+            if lines is None or len(lines) == 0:
+                continue
+
+            # Collect all 2D cross-section points from this component
+            pts = []
+            for seg in lines:
+                pts.append([float(seg[0][0]), float(seg[0][1])])
+                pts.append([float(seg[1][0]), float(seg[1][1])])
+            if len(pts) < 2:
+                continue
+
+            pts_arr  = np.array(pts, dtype=float)
+            center   = pts_arr.mean(axis=0)
+            centered = pts_arr - center
+
+            # PCA: largest eigenvector = principal axis of the cross-section
+            cov  = centered.T @ centered
+            _, vecs = np.linalg.eigh(cov)
+            axis = vecs[:, -1]  # eigenvector with largest eigenvalue
+
+            # Span along principal axis → centerline endpoints
+            proj = centered @ axis
+            p0   = center + proj.min() * axis
+            p1   = center + proj.max() * axis
+
+            cl = ((float(p0[0]), float(p0[1])), (float(p1[0]), float(p1[1])))
+            if _seg_len(cl[0], cl[1]) >= MIN_LEN:
+                centerlines.append(cl)
 
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"mode=geometry raw={len(lines)} segs={len(segs_2d)} centerlines={len(centerlines)}",
+            f"mode=geometry components={len(comps)} centerlines={len(centerlines)}",
             flush=True,
         )
         return centerlines
