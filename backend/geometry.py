@@ -184,15 +184,6 @@ def parse_and_slice(
     if total_height < layer_height:
         raise ValueError(f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm")
 
-    # ── Split into components once for geometry mode ──────────────────────────
-    mesh_components = None
-    if slicing_mode == 'geometry':
-        try:
-            mesh_components = mesh.split(only_watertight=False)
-            print(f"[geometry] split into {len(mesh_components)} components", flush=True)
-        except Exception as e:
-            print(f"[geometry] mesh.split() failed, using full mesh: {e}", flush=True)
-
     # ── Layer count ───────────────────────────────────────────────────────────
     total_layers  = max(1, int(total_height / layer_height))
     print(f"[geometry] total_height={total_height:.3f}m layers={total_layers} layer_height={layer_height*1000:.1f}mm", flush=True)
@@ -207,7 +198,7 @@ def parse_and_slice(
 
     for idx, layer_i in enumerate(layer_indices):
         z        = (layer_i + 0.5) * layer_height
-        segments = _slice_layer(mesh, z, nozzle_width, slicing_mode, idx, mesh_components)
+        segments = _slice_layer(mesh, z, nozzle_width, slicing_mode, idx)
         geometry.append(segments)
 
         n        = len(segments)
@@ -258,68 +249,75 @@ def _slice_layer(
     mesh,
     z_height:     float,
     nozzle_width: float,
-    slicing_mode: str   = 'geometry',
-    layer_idx:    int   = 0,
-    components:   list  = None,
+    slicing_mode: str = 'geometry',
+    layer_idx:    int = 0,
 ) -> List[Segment]:
     z_sample = float(z_height) + 1e-5
     MIN_LEN  = float(nozzle_width) * 0.1
+    MIN_PERIM = float(nozzle_width) * 4.0
 
-    # ── Geometry mode: one centerline per mesh component via PCA ─────────────
-    # Each concrete element is a separate disconnected mesh component (proved by
-    # shell mode returning 18 contours). We slice each component independently
-    # and fit a centerline to its cross-section points using PCA — no inner/outer
-    # pairing needed.
+    # ── Geometry mode: PCA centerline per section contour ────────────────────
+    # section() reliably finds N separate closed contours (one per print element)
+    # even when the mesh is fully connected. We PCA each contour independently
+    # to extract its print centerline — no inner/outer pairing needed.
     if slicing_mode == 'geometry':
-        comps = components if components is not None else [mesh]
+        try:
+            section = mesh.section(plane_origin=[0, 0, z_sample], plane_normal=[0, 0, 1])
+        except Exception as e:
+            print(f"[geometry] layer={layer_idx} section failed: {e}", flush=True)
+            return []
+        if section is None:
+            return []
+        try:
+            section_2d, _ = section.to_planar()
+        except Exception:
+            return []
+        if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
+            return []
+
         centerlines: List[Segment] = []
 
-        for comp in comps:
+        for entity in section_2d.entities:
             try:
-                raw = trimesh.intersections.mesh_plane(
-                    comp, plane_normal=[0, 0, 1], plane_origin=[0, 0, z_sample],
-                )
+                indices = entity.points
+                pts_raw = section_2d.vertices[indices]
+                if len(pts_raw) < 2:
+                    continue
+
+                # Filter tiny contours (noise / degenerate triangles)
+                perim = 0.0
+                n = len(pts_raw)
+                for i in range(n):
+                    dx = float(pts_raw[(i+1) % n][0]) - float(pts_raw[i][0])
+                    dy = float(pts_raw[(i+1) % n][1]) - float(pts_raw[i][1])
+                    perim += (dx*dx + dy*dy) ** 0.5
+                if perim < MIN_PERIM:
+                    continue
+
+                pts      = np.array([[float(p[0]), float(p[1])] for p in pts_raw])
+                center   = pts.mean(axis=0)
+                centered = pts - center
+
+                # PCA: principal axis = longest dimension of this contour
+                cov  = centered.T @ centered
+                _, vecs = np.linalg.eigh(cov)
+                axis = vecs[:, -1]
+
+                proj = centered @ axis
+                p0   = center + proj.min() * axis
+                p1   = center + proj.max() * axis
+
+                cl = ((float(p0[0]), float(p0[1])), (float(p1[0]), float(p1[1])))
+                if _seg_len(cl[0], cl[1]) >= MIN_LEN:
+                    centerlines.append(cl)
             except Exception:
                 continue
 
-            if raw is None or (hasattr(raw, '__len__') and len(raw) == 0):
-                continue
-            lines = raw[0] if isinstance(raw, tuple) else raw
-            if lines is None or len(lines) == 0:
-                continue
-
-            # Collect all 2D cross-section points from this component
-            pts = []
-            for seg in lines:
-                pts.append([float(seg[0][0]), float(seg[0][1])])
-                pts.append([float(seg[1][0]), float(seg[1][1])])
-            if len(pts) < 2:
-                continue
-
-            pts_arr  = np.array(pts, dtype=float)
-            center   = pts_arr.mean(axis=0)
-            centered = pts_arr - center
-
-            # PCA: largest eigenvector = principal axis of the cross-section
-            cov  = centered.T @ centered
-            _, vecs = np.linalg.eigh(cov)
-            axis = vecs[:, -1]  # eigenvector with largest eigenvalue
-
-            # Span along principal axis → centerline endpoints
-            proj = centered @ axis
-            p0   = center + proj.min() * axis
-            p1   = center + proj.max() * axis
-
-            cl = ((float(p0[0]), float(p0[1])), (float(p1[0]), float(p1[1])))
-            if _seg_len(cl[0], cl[1]) >= MIN_LEN:
-                centerlines.append(cl)
-
-        # Chain segments into one continuous print path via nearest-neighbour sort
         centerlines = _chain_path(centerlines)
 
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"mode=geometry components={len(comps)} centerlines={len(centerlines)}",
+            f"mode=geometry contours={len(section_2d.entities)} centerlines={len(centerlines)}",
             flush=True,
         )
         return centerlines
