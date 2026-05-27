@@ -185,9 +185,6 @@
     <li><a href="#waitlist">Early Access</a></li>
   </ul>
   <a href="#waitlist" class="nav-cta">Join Waitlist</a>
-  <button class="nav-hamburger" id="nav-hamburger" aria-label="Menu">
-    <span></span><span></span><span></span>
-  </button>
 </nav>
 
 <!-- HERO -->
@@ -392,7 +389,8 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
       e.preventDefault();
       target.scrollIntoView({ behavior: 'smooth' });
       document.getElementById('nav-links').classList.remove('is-open');
-      document.getElementById('nav-hamburger').classList.remove('is-open');
+      const hb = document.querySelector('.nav-hamburger');
+      if (hb) hb.classList.remove('is-open');
     }
   });
 });

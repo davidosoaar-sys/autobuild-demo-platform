@@ -145,12 +145,12 @@ footer {
 
 /* MOBILE */
 @media (max-width: 768px) {
-  nav { padding: 0 20px; height: 56px; }
-  .nav-logo img { height: 26px; }
+  nav { padding: 0 20px; height: 72px; }
+  .nav-logo img { height: 52px; }
   .nav-cta { display: none; }
   .nav-links {
     display: none;
-    position: fixed; top: 56px; left: 0; right: 0; z-index: 199;
+    position: fixed; top: 72px; left: 0; right: 0; z-index: 199;
     background: #000; flex-direction: column; gap: 0;
     padding: 4px 0 20px; border-top: 1px solid rgba(255,255,255,0.07);
     margin-left: 0;
