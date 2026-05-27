@@ -3,240 +3,387 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AutoBuild AI — The Intelligence Layer for 3D Concrete Printing</title>
+<title>AutoBuild — Intelligent Software for 3D Concrete Printing</title>
+<link rel="icon" href="favicon.ico" />
 <link rel="stylesheet" href="shared.css" />
 <style>
-.hero {
-  position: relative; min-height: 100vh;
-  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
-  padding: 180px 80px 100px; overflow: hidden; background: #000;
+
+/* NAV — transparent over hero, dark when scrolled */
+#main-nav {
+  background: transparent;
+  border-bottom: none;
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
+#main-nav .nav-links a { color: rgba(0,0,0,0.65); font-size: 15px; font-weight: 600; }
+#main-nav .nav-links a:hover,
+#main-nav .nav-links a.active { color: #000; }
+#main-nav .nav-cta { color: rgba(0,0,0,0.5); font-size: 15px; font-weight: 600; }
+#main-nav .nav-cta:hover { color: #000; }
+#main-nav .nav-hamburger span { background: rgba(0,0,0,0.65); }
+
+#main-nav.scrolled {
+  background: rgba(0,0,0,0.92);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  backdrop-filter: blur(8px);
+}
+#main-nav.scrolled .nav-links a { color: rgba(255,255,255,0.55); }
+#main-nav.scrolled .nav-links a:hover,
+#main-nav.scrolled .nav-links a.active { color: #fff; }
+#main-nav.scrolled .nav-cta { color: rgba(255,255,255,0.4); }
+#main-nav.scrolled .nav-cta:hover { color: #fff; }
+#main-nav.scrolled .nav-hamburger span { background: rgba(255,255,255,0.65); }
+
+/* HERO */
+.hero {
+  min-height: 100vh;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start;
+  text-align: left; padding: 72px 80px 100px;
+  background: url('uploads/autobuild-bg.png') center/cover no-repeat;
+  position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.38) 50%, rgba(0,0,0,0.15) 100%);
+  z-index: 0;
+}
+.hero > * { position: relative; z-index: 1; }
 .hero-headline {
-  font-size: clamp(36px,5.5vw,72px); font-weight: 400; line-height: 1.1;
-  letter-spacing: -0.02em; margin-bottom: 20px; max-width: 680px; color: #fff;
+  font-size: clamp(44px, 6.5vw, 92px); font-weight: 500;
+  line-height: 1.0; letter-spacing: -0.04em; color: #fff;
+  max-width: 800px; margin-bottom: 24px;
 }
 .hero-sub {
-  max-width: 480px; font-size: 16px; font-weight: 400; line-height: 1.7;
-  color: rgba(255,255,255,0.5); margin-bottom: 40px;
+  font-size: 17px; font-weight: 300; line-height: 1.75;
+  color: rgba(255,255,255,0.55); max-width: 500px;
 }
-.hero-btns { display: flex; gap: 12px; flex-wrap: wrap; }
-.btn-white {
-  background: #fff; color: #000;
-  border: none; border-radius: 6px; padding: 13px 26px;
-  font-family: var(--font-head); font-size: 13px; font-weight: 500;
-  cursor: pointer; text-decoration: none; display: inline-block;
-  transition: opacity 0.2s; letter-spacing: 0.02em;
+
+/* AUTOBUILD VALUE */
+.explainer { padding: 120px 48px; background: var(--white); border-bottom: 1px solid var(--border); }
+.explainer-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 100px; align-items: center; }
+.explainer-headline { font-size: clamp(30px,3.5vw,50px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.06; margin-bottom: 20px; }
+.explainer-body { font-size: 15px; font-weight: 300; line-height: 1.85; color: rgba(0,0,0,0.48); }
+.explainer-body p + p { margin-top: 16px; }
+.explainer-quote {
+  border-left: 2px solid rgba(0,0,0,0.12); padding-left: 24px; margin-top: 32px;
+  font-size: 16px; font-weight: 400; line-height: 1.7; color: rgba(0,0,0,0.55); font-style: italic;
 }
-.btn-white:hover { opacity: 0.85; }
-.btn-outline-white {
-  background: transparent; color: rgba(255,255,255,0.7);
-  border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 13px 26px;
-  font-family: var(--font-head); font-size: 13px; font-weight: 500;
-  cursor: pointer; text-decoration: none; display: inline-block;
-  transition: border-color 0.2s, color 0.2s; letter-spacing: 0.02em;
+
+/* SLICER FEATURE */
+.slicer-feat { padding: 120px 48px; background: var(--off); border-bottom: 1px solid var(--border); }
+.slicer-feat-inner { max-width: 1100px; margin: 0 auto; }
+.slicer-feat-top { margin-bottom: 64px; max-width: 680px; }
+.feat-headline { font-size: clamp(32px,4vw,58px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.04; margin-bottom: 16px; }
+.feat-desc { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(0,0,0,0.45); }
+
+/* STEPS */
+.steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }
+.step-card {
+  background: var(--white); border-radius: 16px; overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.07);
+  box-shadow: 0 1px 12px rgba(0,0,0,0.05);
+  transition: transform 0.35s ease, box-shadow 0.35s ease;
 }
-.btn-outline-white:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
+.step-card:hover { transform: translateY(-8px); box-shadow: 0 28px 64px rgba(0,0,0,0.1); }
+.step-img-wrap { overflow: hidden; }
+.step-img {
+  width: 100%; height: auto; display: block;
+  transition: transform 0.4s ease;
+}
+.step-card:hover .step-img { transform: scale(1.02); }
+.step-body { padding: 28px 28px 36px; }
+.step-num {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em;
+  color: rgba(0,0,0,0.2); margin-bottom: 14px; text-transform: uppercase;
+}
+.step-name { font-size: 18px; font-weight: 500; letter-spacing: -0.01em; margin-bottom: 10px; line-height: 1.2; }
+.step-text { font-size: 14px; font-weight: 300; line-height: 1.75; color: rgba(0,0,0,0.45); }
 
-.stats-bar { display: grid; grid-template-columns: repeat(4,1fr); background: var(--black); }
-.stat-item { padding: 28px 24px; border-right: 1px solid rgba(255,255,255,0.07); text-align: center; }
-.stat-item:last-child { border-right: none; }
-.stat-value { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.07em; color: rgba(255,255,255,0.55); }
+/* MONITOR FEATURE */
+.monitor-feat { padding: 120px 48px; background: var(--black); }
+.monitor-feat-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1.15fr 1fr; gap: 80px; align-items: center; }
+.monitor-img-wrap { border-radius: 14px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.07); }
+.monitor-img-wrap img { display: block; width: 100%; height: auto; }
+.monitor-right .section-label { color: rgba(255,255,255,0.25); }
+.monitor-headline { font-size: clamp(30px,3.5vw,50px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.05; color: var(--white); margin-bottom: 16px; }
+.monitor-desc { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(255,255,255,0.38); margin-bottom: 32px; }
+.monitor-bullets { list-style: none; display: flex; flex-direction: column; gap: 16px; }
+.monitor-bullets li { display: flex; gap: 14px; font-size: 13px; font-weight: 300; line-height: 1.6; color: rgba(255,255,255,0.45); align-items: flex-start; }
+.bullet-line { width: 16px; height: 1px; background: rgba(255,255,255,0.2); margin-top: 9px; flex-shrink: 0; }
 
-.slicer-section { padding: 120px 48px; background: var(--white); border-top: 1px solid var(--border); }
-.slicer-inner { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1.2fr; gap: 80px; align-items: center; }
-.slicer-headline { font-size: clamp(32px,4vw,54px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.05; margin-bottom: 20px; }
-.slicer-desc { font-size: 15px; font-weight: 300; line-height: 1.75; color: rgba(0,0,0,0.42); margin-bottom: 28px; max-width: 380px; }
-.bullets { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-bottom: 36px; }
-.bullets li { display: flex; align-items: center; gap: 12px; font-size: 14px; color: rgba(0,0,0,0.45); }
-.bullets li::before { content: ''; width: 3px; height: 3px; border-radius: 50%; background: rgba(0,0,0,0.3); flex-shrink: 0; }
-.learn-more { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.6); text-decoration: none; border-bottom: 1px solid rgba(0,0,0,0.15); padding-bottom: 2px; transition: color 0.2s, border-color 0.2s; }
-.learn-more:hover { color: var(--black); border-color: var(--black); }
-.slicer-visual { position: relative; }
-.slicer-img-wrap { border-radius: 14px; overflow: hidden; box-shadow: 0 48px 100px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.06); transform: perspective(1200px) rotateY(-4deg) rotateX(2deg); transition: transform 0.7s ease; }
-.slicer-img-wrap:hover { transform: perspective(1200px) rotateY(-1deg) rotateX(0); }
-.slicer-img-wrap img { display: block; width: 100%; height: auto; }
+/* WAITLIST */
+.waitlist { background: var(--black); color: var(--white); padding: 140px 48px; text-align: center; position: relative; overflow: hidden; border-top: 1px solid rgba(255,255,255,0.06); }
+.waitlist .dot-grid { background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px); }
+.wl-headline { font-size: clamp(44px,7vw,100px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 20px; position: relative; }
+.wl-desc { font-size: 16px; font-weight: 300; color: rgba(255,255,255,0.38); max-width: 400px; margin: 0 auto 48px; line-height: 1.8; position: relative; }
+.wl-form {
+  max-width: 420px; margin: 0 auto 20px; position: relative;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.wl-form input {
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px; padding: 14px 16px;
+  font-family: var(--font-head); font-size: 14px; color: #fff;
+  outline: none; transition: border-color 0.2s; width: 100%;
+}
+.wl-form input::placeholder { color: rgba(255,255,255,0.22); }
+.wl-form input:focus { border-color: rgba(255,255,255,0.35); }
+.wl-interest { margin: 6px 0; }
+.wl-interest-label {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.15em;
+  text-transform: uppercase; color: rgba(255,255,255,0.25); margin-bottom: 12px;
+}
+.wl-pills { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.wl-pill input[type="radio"] { display: none; }
+.wl-pill span {
+  display: block; padding: 9px 22px;
+  border: 1px solid rgba(255,255,255,0.15); border-radius: 100px;
+  font-size: 13px; font-weight: 400; color: rgba(255,255,255,0.4);
+  cursor: pointer; transition: all 0.2s; user-select: none;
+}
+.wl-pill input:checked + span { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.45); color: #fff; }
+.wl-pill span:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.7); }
+.wl-form .btn-white { width: 100%; text-align: center; margin-top: 4px; padding: 16px; font-size: 14px; border-radius: 8px; }
+.wl-tos { font-size: 11px; color: rgba(255,255,255,0.15); font-family: var(--font-mono); position: relative; }
+.wl-tos a { color: rgba(255,255,255,0.28); }
+.wl-success { display: none; color: rgba(255,255,255,0.6); font-size: 16px; position: relative; margin-bottom: 16px; }
+.wl-success.visible { display: block; }
 
-.monitor-section { padding: 120px 48px; background: var(--off); border-top: 1px solid var(--border); }
-.monitor-inner { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center; }
-.monitor-headline { font-size: clamp(32px,4vw,54px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.05; margin-bottom: 20px; }
-.monitor-desc { font-size: 15px; font-weight: 300; line-height: 1.75; color: rgba(0,0,0,0.42); margin-bottom: 28px; max-width: 380px; }
-.monitor-card { background: var(--black); border-radius: 14px; padding: 28px; font-family: var(--font-mono); box-shadow: 0 40px 80px rgba(0,0,0,0.12); }
-.mc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.mc-label { font-size: 9px; letter-spacing: 0.18em; color: rgba(255,255,255,0.2); }
-.mc-live { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: 0.12em; color: rgba(255,255,255,0.35); }
-.mc-live-dot { width: 5px; height: 5px; border-radius: 50%; background: #16a34a; animation: pulse 2s infinite; }
-.camera-box { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 20px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 14px; }
-.cam-top { font-size: 9px; letter-spacing: 0.15em; color: rgba(255,255,255,0.18); }
-.cam-cross { display: flex; justify-content: center; padding: 8px 0; }
-.cam-bottom { display: flex; justify-content: space-between; align-items: center; }
-.cam-verdict { font-size: 12px; color: rgba(255,255,255,0.75); }
-.cam-tag { font-size: 8px; letter-spacing: 0.1em; border: 1px solid rgba(255,255,255,0.1); padding: 3px 8px; border-radius: 3px; color: rgba(255,255,255,0.3); }
-.mc-stat { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-.mc-stat:last-child { border-bottom: none; }
-.mc-sname { font-size: 10px; color: rgba(255,255,255,0.25); }
-.mc-sval { font-size: 11px; color: rgba(255,255,255,0.75); }
-
-.hiw { padding: 120px 48px; background: var(--white); border-top: 1px solid var(--border); }
-.hiw-inner { max-width: 1100px; margin: 0 auto; }
-.hiw-headline { font-size: clamp(32px,5vw,68px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 80px; max-width: 680px; }
-.steps-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-.step-cell { background: var(--white); padding: 52px 44px; position: relative; overflow: hidden; transition: background 0.2s; }
-.step-cell:hover { background: var(--off); }
-.step-bg-num { position: absolute; right: -8px; bottom: -20px; font-size: 130px; font-weight: 700; color: rgba(0,0,0,0.03); font-family: var(--font-mono); pointer-events: none; user-select: none; line-height: 1; }
-.step-icon-ring { width: 48px; height: 48px; border: 1px solid rgba(0,0,0,0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; margin-bottom: 28px; color: rgba(0,0,0,0.4); }
-.step-title { font-size: 18px; font-weight: 500; margin-bottom: 10px; }
-.step-desc { font-size: 14px; font-weight: 300; line-height: 1.65; color: rgba(0,0,0,0.42); }
-
-.ea-teaser { background: var(--black); color: var(--white); padding: 120px 48px; text-align: center; position: relative; overflow: hidden; border-top: 1px solid var(--border); }
-.ea-teaser .dot-grid { background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px); }
-.ea-headline { font-size: clamp(44px,7vw,96px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 20px; position: relative; }
-.ea-desc { font-size: 16px; font-weight: 300; color: rgba(255,255,255,0.4); max-width: 420px; margin: 0 auto 44px; line-height: 1.7; position: relative; }
-.ea-form { display: flex; gap: 10px; max-width: 420px; margin: 0 auto 16px; flex-wrap: wrap; justify-content: center; position: relative; }
-.ea-form input { flex: 1; min-width: 200px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 14px 18px; font-family: var(--font-head); font-size: 14px; color: var(--white); outline: none; transition: border-color 0.2s; }
-.ea-form input::placeholder { color: rgba(255,255,255,0.22); }
-.ea-form input:focus { border-color: rgba(255,255,255,0.3); }
-.ea-tos { font-size: 11px; color: rgba(255,255,255,0.18); font-family: var(--font-mono); position: relative; }
-.ea-tos a { color: rgba(255,255,255,0.3); }
-.ea-success { display: none; color: rgba(255,255,255,0.65); font-size: 16px; position: relative; }
-.ea-success.visible { display: block; }
-
-@media (max-width: 900px) {
-  .slicer-inner, .monitor-inner { grid-template-columns: 1fr; gap: 48px; }
-  .steps-grid { grid-template-columns: 1fr; }
-  .slicer-section, .monitor-section, .hiw, .ea-teaser { padding: 80px 24px; }
-  .stats-bar { grid-template-columns: 1fr 1fr; }
-  .stat-item { border-bottom: 1px solid rgba(255,255,255,0.06); border-right: none; }
+/* RESPONSIVE */
+@media (max-width: 960px) {
+  .explainer-inner { grid-template-columns: 1fr; gap: 48px; }
+  .steps { grid-template-columns: 1fr; }
+  .monitor-feat-inner { grid-template-columns: 1fr; gap: 48px; }
+  .explainer, .slicer-feat, .monitor-feat, .waitlist { padding: 80px 24px; }
+  .hero { padding: 72px 40px 80px; }
+}
+@media (max-width: 640px) {
+  .hero { padding: 56px 24px 64px; }
+  .hero-headline { font-size: clamp(36px,10vw,52px); }
+  .hero-sub { font-size: 15px; }
+  .wl-row { grid-template-columns: 1fr; }
 }
 </style>
 </head>
 <body>
-<nav>
-  <a href="/" class="nav-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild AI" /></a>
-  <ul class="nav-links">
-    <li><a href="/slicer">Slicer</a></li>
-    <li><a href="/monitor">Monitor</a></li>
-    <li><a href="/early-access">Early Access</a></li>
-    <li><a href="/contact">Contact</a></li>
+
+<nav id="main-nav">
+  <a href="#hero" class="nav-logo"><img src="uploads/Autobuildblack.png" alt="AutoBuild" id="nav-logo-img" /></a>
+  <ul class="nav-links" id="nav-links">
+    <li><a href="#slicer">Slicer</a></li>
+    <li><a href="#monitor">Monitor</a></li>
+    <li><a href="#waitlist">Early Access</a></li>
   </ul>
-  <a href="/early-access" class="nav-cta">Join Waitlist</a>
+  <a href="#waitlist" class="nav-cta">Join Waitlist</a>
+  <button class="nav-hamburger" id="nav-hamburger" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
 </nav>
 
-<section class="hero">
-  <h1 class="hero-headline fade-up" style="transition-delay:.08s">The Intelligence Layer<br>for 3D Concrete Printing</h1>
-  <p class="hero-sub fade-up" style="transition-delay:.16s">AI-powered path optimization and real-time quality control for the future of construction.</p>
-  <div class="hero-btns fade-up" style="transition-delay:.24s">
-    <a href="/early-access" class="btn-white">Join the Waitlist</a>
-    <a href="/slicer" class="btn-outline-white">See How It Works</a>
-  </div>
+<!-- HERO -->
+<section class="hero" id="hero">
+  <h1 class="hero-headline fade-up">
+    Plan Every Print.<br>Control Every Layer.
+  </h1>
+  <p class="hero-sub fade-up" style="transition-delay:.1s">
+    AutoBuild gives construction teams the intelligent software layer to plan, optimise, and monitor 3D concrete prints. Less waste, fewer errors, more confidence on every build.
+  </p>
 </section>
 
-<div class="stats-bar">
-  <div class="stat-item fade-up"><div class="stat-num">47%</div><div class="stat-label">Average Travel Saved</div></div>
-  <div class="stat-item fade-up" style="transition-delay:.06s"><div class="stat-num">&lt; 1s</div><div class="stat-label">Alert Response Time</div></div>
-  <div class="stat-item fade-up" style="transition-delay:.12s"><div class="stat-num">300+</div><div class="stat-label">Layers Per Print</div></div>
-  <div class="stat-item fade-up" style="transition-delay:.18s"><div class="stat-num">Claude Vision</div><div class="stat-label">AI Engine</div></div>
-</div>
-
-<section class="slicer-section">
-  <div class="slicer-inner">
+<!-- AUTOBUILD VALUE -->
+<section class="explainer" id="autobuild">
+  <div class="explainer-inner">
     <div class="fade-up">
-      <div class="section-label">RL Slicer</div>
-      <h2 class="slicer-headline">A strategy.<br>Not just a path.</h2>
-      <p class="slicer-desc">Our reinforcement-learning slicer considers your material, environment, and build conditions before generating a single line of G-code.</p>
-      <ul class="bullets">
-        <li>Live weather and material open time awareness</li>
-        <li>RL-optimized travel paths — not just shortest distance</li>
-        <li>Pot life warnings before you ever hit export</li>
-      </ul>
-      <a href="/slicer" class="learn-more">Learn more →</a>
-    </div>
-    <div class="slicer-visual fade-up" style="transition-delay:.12s">
-      <div class="slicer-img-wrap">
-        <img src="uploads/pasted-1776999543166-0.png" alt="AutoBuild AI RL Slicer" />
+      <div class="section-label">AutoBuild</div>
+      <h2 class="explainer-headline">The intelligence layer your 3DCP project is missing.</h2>
+      <div class="explainer-body">
+        <p>Robotic concrete printing can cut labour costs, eliminate formwork, and compress build programmes. But the results depend entirely on how well the process is managed. Right now, most teams are doing that manually.</p>
+        <p>AutoBuild is the software that sits between your design file and your printer. It plans the path, checks your conditions, and watches every layer so your team can focus on building, not firefighting.</p>
       </div>
-    </div>
-  </div>
-</section>
-
-<section class="monitor-section">
-  <div class="monitor-inner">
-    <div class="monitor-card fade-up">
-      <div class="mc-header"><div class="mc-label">Bead Analysis</div><div class="mc-live"><span class="mc-live-dot"></span>LIVE</div></div>
-      <div class="camera-box">
-        <div class="cam-top">CAMERA FEED — LAYER 47</div>
-        <div class="cam-cross">
-          <svg width="72" height="72" viewBox="0 0 72 72" fill="none">
-            <circle cx="36" cy="36" r="26" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-            <line x1="36" y1="4" x2="36" y2="68" stroke="rgba(255,255,255,0.07)" stroke-width="0.5"/>
-            <line x1="4" y1="36" x2="68" y2="36" stroke="rgba(255,255,255,0.07)" stroke-width="0.5"/>
-            <circle cx="36" cy="36" r="2.5" fill="rgba(255,255,255,0.3)"/>
-          </svg>
-        </div>
-        <div class="cam-bottom"><span class="cam-verdict">STRAIGHT +0.8°</span><span class="cam-tag">WITHIN TOLERANCE</span></div>
-      </div>
-      <div class="mc-stat"><span class="mc-sname">Deviation Avg.</span><span class="mc-sval">+0.4°</span></div>
-      <div class="mc-stat"><span class="mc-sname">Alerts Fired</span><span class="mc-sval">0</span></div>
-      <div class="mc-stat"><span class="mc-sname">Frames Analysed</span><span class="mc-sval">8,421</span></div>
+      <blockquote class="explainer-quote">The difference between a good print and a costly one usually comes down to planning and real-time visibility. Not the printer itself.</blockquote>
     </div>
     <div class="fade-up" style="transition-delay:.12s">
-      <div class="section-label">Live Monitor</div>
-      <h2 class="monitor-headline">The extra set of eyes that never blinks.</h2>
-      <p class="monitor-desc">Claude Vision analyses every frame of your print in real time — measuring deviation, logging events, and alerting you the moment something goes wrong.</p>
-      <ul class="bullets">
-        <li>Frame-by-frame bead deviation measurement</li>
-        <li>Instant alerts for critical deviations</li>
-        <li>Fully automated, timestamped event log</li>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;">
+        <div style="background:var(--off);padding:32px 28px;">
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.1em;color:rgba(0,0,0,0.3);margin-bottom:12px;text-transform:uppercase">Plan</div>
+          <div style="font-size:14px;font-weight:300;line-height:1.65;color:rgba(0,0,0,0.5)">AutoBuild generates your print path, checks your weather window, and validates your mix timing before you start.</div>
+        </div>
+        <div style="background:var(--off);padding:32px 28px;">
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.1em;color:rgba(0,0,0,0.3);margin-bottom:12px;text-transform:uppercase">Monitor</div>
+          <div style="font-size:14px;font-weight:300;line-height:1.65;color:rgba(0,0,0,0.5)">AutoBuild watches every layer as it's printed, flags deviations instantly, and logs everything for sign-off.</div>
+        </div>
+        <div style="background:var(--off);padding:32px 28px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.1em;color:rgba(0,0,0,0.3);margin-bottom:12px;text-transform:uppercase">Export</div>
+          <div style="font-size:14px;font-weight:300;line-height:1.65;color:rgba(0,0,0,0.5)">G-code with pot life warnings built in. Layer visualisation. Risk flags. All before the printer starts.</div>
+        </div>
+        <div style="background:var(--off);padding:32px 28px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.1em;color:rgba(0,0,0,0.3);margin-bottom:12px;text-transform:uppercase">Record</div>
+          <div style="font-size:14px;font-weight:300;line-height:1.65;color:rgba(0,0,0,0.5)">Timestamped quality logs and deviation reports for every session, ready for compliance and handover.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SLICER -->
+<section class="slicer-feat" id="slicer">
+  <div class="slicer-feat-inner">
+    <div class="slicer-feat-top fade-up">
+      <div class="section-label">AutoBuild Slicer</div>
+      <h2 class="feat-headline">From model to print path in minutes.</h2>
+      <p class="feat-desc">Upload your model, set your conditions, and AutoBuild generates an optimised print path. Your concrete mix, weather data, and build timing are all factored in automatically.</p>
+    </div>
+    <div class="steps">
+      <div class="step-card fade-up">
+        <div class="step-img-wrap"><img class="step-img" src="uploads/step-1.png" alt="Step 1 — Upload your model" /></div>
+        <div class="step-body">
+          <div class="step-num">Step 01</div>
+          <h3 class="step-name">Upload your model</h3>
+          <p class="step-text">Drop in your STL file. AutoBuild reads the geometry, detects units, and prepares it for slicing with no manual setup required.</p>
+        </div>
+      </div>
+      <div class="step-card fade-up" style="transition-delay:.1s">
+        <div class="step-img-wrap"><img class="step-img" src="uploads/step-2.png" alt="Step 2 — Set your conditions" /></div>
+        <div class="step-body">
+          <div class="step-num">Step 02</div>
+          <h3 class="step-name">Set your conditions</h3>
+          <p class="step-text">Choose your mix, enter your location, and set your start time. AutoBuild pulls live weather and calculates your usable print window.</p>
+        </div>
+      </div>
+      <div class="step-card fade-up" style="transition-delay:.2s">
+        <div class="step-img-wrap"><img class="step-img" src="uploads/step-3.png" alt="Step 3 — Export and print" /></div>
+        <div class="step-body">
+          <div class="step-num">Step 03</div>
+          <h3 class="step-name">Export and print</h3>
+          <p class="step-text">Get your optimised G-code with risk flags and a full layer visualisation. Everything reviewed before the printer moves.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MONITOR -->
+<section class="monitor-feat" id="monitor">
+  <div class="monitor-feat-inner">
+    <div class="fade-up">
+      <div class="monitor-img-wrap">
+        <img src="uploads/autobuild-monitor.png" alt="AutoBuild Live Monitor" />
+      </div>
+    </div>
+    <div class="monitor-right fade-up" style="transition-delay:.12s">
+      <div class="section-label">AutoBuild Monitor</div>
+      <h2 class="monitor-headline">Every layer, watched.</h2>
+      <p class="monitor-desc">AutoBuild connects to your site camera and analyses every layer as it's printed. Problems are flagged as they happen, not after the concrete sets.</p>
+      <ul class="monitor-bullets">
+        <li>
+          <span class="bullet-line"></span>
+          <span><strong style="font-weight:500;color:rgba(255,255,255,0.7)">Frame-by-frame deviation tracking.</strong> Measures bead placement against your intended path on every layer.</span>
+        </li>
+        <li>
+          <span class="bullet-line"></span>
+          <span><strong style="font-weight:500;color:rgba(255,255,255,0.7)">Instant alerts.</strong> Your team is notified the moment something drifts, not at the end of the shift.</span>
+        </li>
+        <li>
+          <span class="bullet-line"></span>
+          <span><strong style="font-weight:500;color:rgba(255,255,255,0.7)">Automated quality logs.</strong> Timestamped records from every session, ready for sign-off and compliance.</span>
+        </li>
       </ul>
-      <a href="/monitor" class="learn-more">Learn more →</a>
     </div>
   </div>
 </section>
 
-<section class="hiw">
-  <div class="hiw-inner">
-    <h2 class="hiw-headline fade-up">From model to monitor<br>in minutes.</h2>
-    <div class="steps-grid">
-      <div class="step-cell fade-up"><div class="step-bg-num">01</div><div class="step-icon-ring">↑</div><h3 class="step-title">Upload</h3><p class="step-desc">Drop in your STL or OBJ. Set your material, location, and start time.</p></div>
-      <div class="step-cell fade-up" style="transition-delay:.1s"><div class="step-bg-num">02</div><div class="step-icon-ring">⚙</div><h3 class="step-title">Optimize</h3><p class="step-desc">The RL slicer computes an environment-aware print strategy in seconds.</p></div>
-      <div class="step-cell fade-up" style="transition-delay:.2s"><div class="step-bg-num">03</div><div class="step-icon-ring">◉</div><h3 class="step-title">Monitor</h3><p class="step-desc">Connect your camera. AI watches every layer and logs every deviation.</p></div>
-    </div>
-  </div>
-</section>
-
-<section class="ea-teaser">
+<!-- WAITLIST -->
+<section class="waitlist" id="waitlist">
   <div class="dot-grid"></div>
-  <h2 class="ea-headline fade-up">Be part of what's next.</h2>
-  <p class="ea-desc fade-up" style="transition-delay:.08s">We're opening early access to a select group of 3DCP operators, researchers, and construction companies.</p>
-  <form class="ea-form fade-up" style="transition-delay:.16s" id="ea-form" onsubmit="handleEA(event)">
-    <input type="email" placeholder="your@email.com" required />
+  <h2 class="wl-headline fade-up">Be part of<br>what's next.</h2>
+  <p class="wl-desc fade-up" style="transition-delay:.08s">Early access is open to a select group of operators, contractors, and construction companies. Tell us a bit about yourself and we'll be in touch.</p>
+  <form class="wl-form fade-up" style="transition-delay:.16s" id="wl-form" onsubmit="handleWaitlist(event)">
+    <input type="text" name="name" placeholder="Your name" required />
+    <input type="text" name="company" placeholder="Company" required />
+    <input type="text" name="role" placeholder="Your role (e.g. Project Manager)" />
+    <input type="email" name="email" placeholder="your@email.com" required />
+    <div class="wl-interest">
+      <div class="wl-interest-label">I'm interested in</div>
+      <div class="wl-pills">
+        <label class="wl-pill">
+          <input type="radio" name="interest" value="slicer" />
+          <span>Slicer</span>
+        </label>
+        <label class="wl-pill">
+          <input type="radio" name="interest" value="monitor" />
+          <span>Live Monitor</span>
+        </label>
+        <label class="wl-pill">
+          <input type="radio" name="interest" value="both" checked />
+          <span>Both</span>
+        </label>
+      </div>
+    </div>
     <button type="submit" class="btn-white">Join Waitlist</button>
   </form>
-  <div class="ea-success" id="ea-success">You're on the list. We'll be in touch!</div>
-  <p class="ea-tos fade-up" style="transition-delay:.22s">By joining you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+  <div class="wl-success" id="wl-success">You're on the list. We'll be in touch soon.</div>
+  <p class="wl-tos fade-up" style="transition-delay:.22s">By joining you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
 </section>
 
 <footer>
-  <div class="footer-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild AI" /></div>
+  <div class="footer-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild" /></div>
   <ul class="footer-links">
-    <li><a href="/slicer">Slicer</a></li>
-    <li><a href="/monitor">Monitor</a></li>
+    <li><a href="#slicer">Slicer</a></li>
+    <li><a href="#monitor">Monitor</a></li>
     <li><a href="/terms">Terms</a></li>
     <li><a href="/privacy">Privacy</a></li>
-    <li><a href="/contact">Contact</a></li>
+    <li><a href="mailto:autobuild3dcp@gmail.com">autobuild3dcp@gmail.com</a></li>
   </ul>
-  <span class="footer-copy">© 2026 AutoBuild AI</span>
+  <span class="footer-copy">© 2026 AutoBuild</span>
 </footer>
 
+<script src="shared.js"></script>
 <script>
-function handleEA(e) {
+const mainNav = document.getElementById('main-nav');
+const logoImg = document.getElementById('nav-logo-img');
+window.addEventListener('scroll', () => {
+  const scrolled = window.scrollY > 80;
+  mainNav.classList.toggle('scrolled', scrolled);
+  logoImg.src = scrolled ? 'uploads/Autobuildwhite.png' : 'uploads/Autobuildblack.png';
+}, { passive: true });
+
+function handleWaitlist(e) {
   e.preventDefault();
-  document.getElementById('ea-form').style.display = 'none';
-  document.getElementById('ea-success').classList.add('visible');
+  document.getElementById('wl-form').style.display = 'none';
+  document.getElementById('wl-success').classList.add('visible');
 }
-const obs = new IntersectionObserver(entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }), { threshold: .08 });
+
+const obs = new IntersectionObserver(
+  entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }),
+  { threshold: 0.07 }
+);
 document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
-document.querySelectorAll('.hero .fade-up, .stats-bar .fade-up').forEach(el => {
-  setTimeout(() => el.classList.add('visible'), parseFloat(el.style.transitionDelay || 0) * 1000 + 80);
+
+document.querySelectorAll('.hero .fade-up').forEach(el => {
+  setTimeout(() => el.classList.add('visible'), parseFloat(el.style.transitionDelay || 0) * 1000 + 60);
+});
+
+const sections = ['hero','slicer','monitor','waitlist'];
+const navLinks = document.querySelectorAll('.nav-links a');
+const secObs = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+    }
+  });
+}, { rootMargin: '-40% 0px -40% 0px' });
+sections.forEach(id => { const el = document.getElementById(id); if (el) secObs.observe(el); });
+
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) {
+      e.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth' });
+      document.getElementById('nav-links').classList.remove('is-open');
+      document.getElementById('nav-hamburger').classList.remove('is-open');
+    }
+  });
 });
 </script>
 </body>

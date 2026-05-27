@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Privacy Policy — AutoBuild AI</title>
+<link rel="icon" href="favicon.ico" />
 <link rel="stylesheet" href="shared.css" />
 <style>
 .hero {
@@ -153,5 +154,6 @@
 const obs = new IntersectionObserver(entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }), { threshold: .08 });
 document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
 </script>
+<script src="shared.js"></script>
 </body>
 </html>

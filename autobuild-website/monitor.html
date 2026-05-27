@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Live Monitor — AutoBuild AI</title>
+<link rel="icon" href="favicon.ico" />
 <link rel="stylesheet" href="shared.css" />
 <style>
 .hero {
@@ -43,12 +44,59 @@
 .c-desc { font-size: 15px; font-weight: 300; line-height: 1.75; color: rgba(0,0,0,0.42); }
 .pull-quote { border-left: 1px solid rgba(0,0,0,0.12); padding-left: 32px; font-size: 19px; font-weight: 500; line-height: 1.55; color: rgba(0,0,0,0.7); letter-spacing: -0.01em; }
 
+.monitor-showcase { padding: 0 80px 100px; background: var(--white); }
+
+.caps-intro { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 0; }
+.cap-cell { background: var(--white); padding: 48px 44px; transition: background 0.2s; }
+.cap-cell:hover { background: var(--off); }
+.cap-num { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; color: rgba(0,0,0,0.2); margin-bottom: 20px; }
+.cap-title { font-size: 20px; font-weight: 500; margin-bottom: 12px; }
+.cap-desc { font-size: 14px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.42); }
+
+.pp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: start; }
+.pp-steps { display: flex; flex-direction: column; gap: 0; }
+.pp-step { display: grid; grid-template-columns: 44px 1fr; gap: 20px; padding: 28px 0; border-bottom: 1px solid var(--border); align-items: start; }
+.pp-step:last-child { border-bottom: none; }
+.pp-step-idx { font-family: var(--font-mono); font-size: 10px; color: rgba(0,0,0,0.18); padding-top: 4px; letter-spacing: 0.1em; }
+.pp-step-title { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+.pp-step-desc { font-size: 14px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.42); }
+.pp-card { background: var(--black); border-radius: 14px; padding: 36px; font-family: var(--font-mono); box-shadow: 0 40px 80px rgba(0,0,0,0.1); position: sticky; top: 100px; }
+.pp-card-head { font-size: 9px; letter-spacing: 0.18em; color: rgba(255,255,255,0.2); margin-bottom: 24px; }
+.pp-result { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.pp-result:last-child { border-bottom: none; }
+.pp-rl { font-size: 10px; color: rgba(255,255,255,0.28); }
+.pp-rv { font-size: 13px; color: rgba(255,255,255,0.75); }
+.pp-rv.good { color: #4ade80; }
+.pp-rv.warn { color: #facc15; }
+.pp-rv.big { font-size: 22px; color: var(--white); }
+
 @media (max-width: 900px) {
+  .hero { min-height: auto; padding: 136px 32px 64px; }
+  .monitor-showcase { padding: 0 24px 72px; }
+  .monitor-showcase > div { grid-template-columns: 1fr !important; gap: 36px !important; }
   .monitors-cols { grid-template-columns: 1fr; }
   .consistency-grid { grid-template-columns: 1fr; gap: 48px; }
-  .section-pad { padding: 80px 24px; }
+  .caps-intro { grid-template-columns: 1fr; }
+  .pp-steps { max-width: 100% !important; }
+  .section-pad { padding: 72px 24px; }
   .feature-row { flex-direction: column; align-items: flex-start; gap: 6px; }
   .feature-desc { text-align: left; }
+}
+@media (max-width: 640px) {
+  .hero { padding: 88px 20px 52px; text-align: left; align-items: flex-start; }
+  .hero-headline { font-size: clamp(28px,8vw,42px); }
+  .hero-sub { font-size: 15px; }
+  .section-pad { padding: 52px 20px; }
+  .section-title { font-size: clamp(24px,7vw,36px); margin-bottom: 36px; }
+  .monitor-col { padding: 28px 20px; }
+  .step-item { grid-template-columns: 36px 1fr; gap: 16px; padding: 24px 0; }
+  .cap-cell { padding: 32px 24px; }
+  .feature-row { padding: 18px 0; }
+  .feature-name { font-size: 14px; }
+  .c-headline { font-size: clamp(24px,7vw,36px); }
+  .pull-quote { font-size: 16px; padding-left: 20px; }
+  .pp-step { gap: 16px; padding: 22px 0; }
+  .pp-step-title { font-size: 15px; }
 }
 </style>
 </head>
@@ -68,7 +116,38 @@
   <div class="dot-grid"></div>
   <div class="section-label fade-up">Live Monitor</div>
   <h1 class="hero-headline fade-up" style="transition-delay:.08s">The extra set of eyes<br>that never blinks.</h1>
-  <p class="hero-sub fade-up" style="transition-delay:.16s">Claude Vision analyses every frame of your concrete print in real time. Bead deviation. Surface quality. Layer integrity. All logged automatically.</p>
+  <p class="hero-sub fade-up" style="transition-delay:.16s">Our AI analyses every frame of your concrete print in real time. Bead deviation. Surface quality. Layer integrity. All logged automatically.</p>
+</section>
+
+<section class="monitor-showcase">
+  <div style="max-width:1200px; margin:0 auto; display:grid; grid-template-columns:1fr 1fr; gap:80px; align-items:center;">
+    <div class="slicer-img-wrap fade-up" style="transform:none; box-shadow: 0 40px 80px rgba(0,0,0,0.10), 0 8px 24px rgba(0,0,0,0.06);">
+      <img src="uploads/autobuild-monitor.png" alt="AutoBuild AI Live Monitor" style="display:block; width:100%; height:auto;" />
+    </div>
+    <div class="fade-up" style="transition-delay:.1s">
+      <div class="section-label">Live Monitor</div>
+      <h2 style="font-size:clamp(28px,3.5vw,46px); font-weight:500; letter-spacing:-0.03em; line-height:1.06; margin-bottom:16px;">Your print,<br>under constant watch.</h2>
+      <p style="font-size:15px; font-weight:300; line-height:1.75; color:rgba(0,0,0,0.42);">Connect any camera to your print head and our AI watches every frame — measuring bead angles, checking surface uniformity, and logging every event with a timestamp the moment it happens.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section-pad" style="padding-top:80px; padding-bottom:80px;">
+  <div class="inner">
+    <div class="section-label fade-up" style="margin-bottom:28px">Two tools. One pipeline.</div>
+    <div class="caps-intro fade-up" style="transition-delay:.08s">
+      <div class="cap-cell">
+        <div class="cap-num">01 — LIVE MONITOR</div>
+        <h3 class="cap-title">Watch every layer as it prints.</h3>
+        <p class="cap-desc">Connect any camera to your print head and our AI watches continuously — measuring bead deviation, checking surface uniformity, and logging every event in real time. Alerts fire the instant something critical is detected.</p>
+      </div>
+      <div class="cap-cell">
+        <div class="cap-num">02 — POST-PROCESSING</div>
+        <h3 class="cap-title">Score individual beads after the print.</h3>
+        <p class="cap-desc">Upload a photograph of any printed bead and our vision system returns a quality score with annotated findings. Surface inconsistencies, voids, bonding failures — flagged and documented before sign-off.</p>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section class="section-pad">
@@ -87,7 +166,7 @@
     <h2 class="section-title fade-up">How it works.</h2>
     <div class="steps-list">
       <div class="step-item fade-up"><span class="step-idx">01</span><div><div class="step-body-title">Connect your camera</div><p class="step-body-desc">Any standard camera works. Point it at your print head and connect through the Monitor interface — no special hardware required.</p></div></div>
-      <div class="step-item fade-up" style="transition-delay:.08s"><span class="step-idx">02</span><div><div class="step-body-title">AI analyses every frame</div><p class="step-body-desc">Claude Vision processes your video feed continuously, running deviation detection and surface analysis on each frame as it arrives.</p></div></div>
+      <div class="step-item fade-up" style="transition-delay:.08s"><span class="step-idx">02</span><div><div class="step-body-title">AI analyses every frame</div><p class="step-body-desc">Our vision engine processes your video feed continuously, running deviation detection and surface analysis on each frame as it arrives.</p></div></div>
       <div class="step-item fade-up" style="transition-delay:.16s"><span class="step-idx">03</span><div><div class="step-body-title">Alerts fire instantly</div><p class="step-body-desc">Critical deviations trigger immediate alerts. You know about a problem the moment it happens — not when you review footage later.</p></div></div>
       <div class="step-item fade-up" style="transition-delay:.24s"><span class="step-idx">04</span><div><div class="step-body-title">Everything logged automatically</div><p class="step-body-desc">Every event is timestamped and saved. When the print ends, a complete quality report is generated — no manual documentation needed.</p></div></div>
     </div>
@@ -98,7 +177,7 @@
   <div class="inner" style="max-width:900px">
     <h2 class="section-title fade-up" style="margin-bottom:48px">What's included.</h2>
     <div class="feature-rows">
-      <div class="feature-row fade-up"><span class="feature-name">Claude Vision real-time analysis</span><span class="feature-desc">Frame-by-frame AI — no buffering, no delay</span></div>
+      <div class="feature-row fade-up"><span class="feature-name">Real-time AI analysis</span><span class="feature-desc">Frame-by-frame vision — no buffering, no delay</span></div>
       <div class="feature-row fade-up"><span class="feature-name">Angle deviation measurement and logging</span><span class="feature-desc">Precise bead angle recorded for every layer</span></div>
       <div class="feature-row fade-up"><span class="feature-name">Instant alerts for high severity detections</span><span class="feature-desc">Configurable thresholds — notified when it matters</span></div>
       <div class="feature-row fade-up"><span class="feature-name">Fully automated timestamped event log</span><span class="feature-desc">Every detection saved with exact time and layer</span></div>
@@ -123,6 +202,43 @@
   </div>
 </section>
 
+<section class="section-pad">
+  <div class="inner">
+    <div class="section-label fade-up">Post-Processing Analysis</div>
+    <h2 class="section-title fade-up" style="transition-delay:.06s; max-width:680px">Inspect every bead.<br>Before it becomes a problem.</h2>
+    <div class="pp-steps" style="max-width:680px">
+      <div class="pp-step fade-up">
+        <span class="pp-step-idx">01</span>
+        <div>
+          <div class="pp-step-title">Upload a bead photograph</div>
+          <p class="pp-step-desc">Take a photo of any printed bead — phone, site camera, or inspection rig. Upload directly through the Post-Processing interface. No special hardware required.</p>
+        </div>
+      </div>
+      <div class="pp-step fade-up" style="transition-delay:.08s">
+        <span class="pp-step-idx">02</span>
+        <div>
+          <div class="pp-step-title">AI scores the quality</div>
+          <p class="pp-step-desc">Our vision system analyses the image for surface consistency, geometry, voids, and bonding anomalies. Each assessment returns a numerical quality score alongside annotated findings.</p>
+        </div>
+      </div>
+      <div class="pp-step fade-up" style="transition-delay:.16s">
+        <span class="pp-step-idx">03</span>
+        <div>
+          <div class="pp-step-title">Defects flagged by category</div>
+          <p class="pp-step-desc">Surface cracks, air pockets, delamination, and geometric deviation are classified separately — so you know exactly what type of issue you're looking at, not just that something is wrong.</p>
+        </div>
+      </div>
+      <div class="pp-step fade-up" style="transition-delay:.24s">
+        <span class="pp-step-idx">04</span>
+        <div>
+          <div class="pp-step-title">Document and sign off</div>
+          <p class="pp-step-desc">Every result is saved with the original image and timestamp. Your inspection log builds automatically — giving you an auditable record of every bead assessment across the full project.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <footer>
   <div class="footer-logo"><img src="uploads/Autobuildwhite.png" alt="AutoBuild AI" /></div>
   <ul class="footer-links">
@@ -135,6 +251,7 @@
   <span class="footer-copy">© 2026 AutoBuild AI</span>
 </footer>
 
+<script src="shared.js"></script>
 <script>
 const obs = new IntersectionObserver(entries => entries.forEach(x => { if (x.isIntersecting) x.target.classList.add('visible'); }), { threshold: .08 });
 document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));

@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>RL Slicer — AutoBuild AI</title>
+<link rel="icon" href="favicon.ico" />
 <link rel="stylesheet" href="shared.css" />
 <style>
 .hero {
@@ -13,10 +14,15 @@
 }
 .hero-headline { font-size: clamp(44px,7vw,96px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 24px; max-width: 860px; }
 .hero-sub { font-size: 16px; font-weight: 300; color: rgba(0,0,0,0.42); max-width: 460px; line-height: 1.75; }
-.hero-visual { margin-top: 72px; width: 100%; max-width: 960px; }
-.hero-visual-img { border-radius: 16px; overflow: hidden; box-shadow: 0 60px 120px rgba(0,0,0,0.13), 0 12px 32px rgba(0,0,0,0.07); border: 1px solid rgba(0,0,0,0.06); transform: perspective(1400px) rotateX(3deg); transition: transform 0.8s ease; }
-.hero-visual-img:hover { transform: perspective(1400px) rotateX(0); }
-.hero-visual-img img { display: block; width: 100%; height: auto; }
+
+.steps-visual { display: flex; flex-direction: column; gap: 0; }
+.step-row { display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; padding: 64px 0; border-bottom: 1px solid var(--border); }
+.step-row:last-child { border-bottom: none; }
+.step-img { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 20px 60px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04); }
+.step-img img { display: block; width: 100%; height: auto; }
+.step-num { font-family: var(--font-mono); font-size: 10px; color: rgba(0,0,0,0.2); letter-spacing: 0.16em; margin-bottom: 16px; }
+.step-title-lg { font-size: 22px; font-weight: 500; margin-bottom: 12px; }
+.step-body { font-size: 14px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.42); }
 
 .section-pad { padding: 120px 48px; border-top: 1px solid var(--border); }
 .inner { max-width: 1100px; margin: 0 auto; }
@@ -46,10 +52,26 @@
 .feature-desc { font-size: 11px; color: rgba(0,0,0,0.35); max-width: 360px; text-align: right; font-family: var(--font-mono); }
 
 @media (max-width: 900px) {
+  .hero { padding: 136px 32px 64px; min-height: auto; }
+  .step-row { grid-template-columns: 1fr; gap: 24px; padding: 44px 0; }
+  .step-row .step-img { order: 2; }
   .how-cols, .diff-grid { grid-template-columns: 1fr; }
-  .section-pad { padding: 80px 24px; }
+  .section-pad { padding: 72px 24px; }
+  .section-title { margin-bottom: 48px; }
   .feature-row { flex-direction: column; align-items: flex-start; gap: 6px; }
   .feature-desc { text-align: left; }
+}
+@media (max-width: 640px) {
+  .hero { padding: 96px 20px 56px; }
+  .hero-headline { font-size: clamp(32px,8vw,52px); }
+  .hero-sub { font-size: 15px; max-width: 100%; }
+  .section-pad { padding: 52px 20px; }
+  .section-title { font-size: clamp(24px,7vw,36px); margin-bottom: 36px; }
+  .step-row { padding: 32px 0; gap: 20px; }
+  .step-title-lg { font-size: 19px; }
+  .diff-card { padding: 24px; }
+  .feature-row { padding: 18px 0; }
+  .feature-name { font-size: 14px; }
 }
 </style>
 </head>
@@ -70,43 +92,53 @@
   <div class="section-label fade-up">RL Slicer</div>
   <h1 class="hero-headline fade-up" style="transition-delay:.08s">Upload your model.<br>Get a smarter build.</h1>
   <p class="hero-sub fade-up" style="transition-delay:.16s">The only slicer that factors in your material, environment, and build conditions before computing a single path.</p>
-  <div class="hero-visual fade-up" style="transition-delay:.28s">
-    <div class="hero-visual-img">
-      <img src="uploads/pasted-1776999543166-0.png" alt="AutoBuild AI RL Slicer interface" />
-    </div>
-  </div>
 </section>
 
 <section class="section-pad">
   <div class="inner">
     <h2 class="section-title fade-up">How it works.</h2>
-    <div class="how-cols">
-      <div class="how-col fade-up"><div class="how-num">01 — UPLOAD</div><h3 class="how-title">Your model</h3><p class="how-desc">Drop in any STL or OBJ. The slicer parses your geometry and prepares it for environment-aware path computation.</p></div>
-      <div class="how-col fade-up" style="transition-delay:.1s"><div class="how-num">02 — CONDITIONS</div><h3 class="how-title">Set your environment</h3><p class="how-desc">Enter your city, material mix, and planned start time. Live weather, open time, and pot life margins computed automatically.</p></div>
-      <div class="how-col fade-up" style="transition-delay:.2s"><div class="how-num">03 — STRATEGY</div><h3 class="how-title">Get your G-code</h3><p class="how-desc">Receive an optimized print strategy with travel savings, a full summary, and pot life warning if conditions are tight.</p></div>
+    <div class="steps-visual">
+      <div class="step-row fade-up">
+        <div>
+          <div class="step-num">01 — UPLOAD</div>
+          <h3 class="step-title-lg">Your model</h3>
+          <p class="step-body">Drop in any STL or OBJ. The slicer parses your geometry and prepares it for environment-aware path computation.</p>
+        </div>
+        <div class="step-img">
+          <img src="uploads/step-1.png" alt="Upload your model" />
+        </div>
+      </div>
+      <div class="step-row fade-up">
+        <div class="step-img">
+          <img src="uploads/step-2.png" alt="Set your environment" />
+        </div>
+        <div>
+          <div class="step-num">02 — CONDITIONS</div>
+          <h3 class="step-title-lg">Set your environment</h3>
+          <p class="step-body">Enter your city, material mix, and planned start time. Live weather, open time, and pot life margins computed automatically.</p>
+        </div>
+      </div>
+      <div class="step-row fade-up">
+        <div>
+          <div class="step-num">03 — STRATEGY</div>
+          <h3 class="step-title-lg">Get your G-code</h3>
+          <p class="step-body">Receive an optimized print strategy with travel savings, a full summary, and pot life warning if conditions are tight.</p>
+        </div>
+        <div class="step-img">
+          <img src="uploads/step-3.png" alt="Get your G-code" />
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
 <section class="section-pad" style="background:var(--off)">
-  <div class="inner">
-    <div class="diff-grid">
-      <div class="diff-content fade-up">
-        <div class="section-label">Why it matters</div>
-        <h2 class="section-title" style="margin-bottom:20px">Traditional slicers<br>don't know your site.</h2>
-        <p>Standard slicers compute paths purely from geometry. They don't know your material's open time. They don't know if it's 34°C and humid.</p>
-        <p>AutoBuild AI's RL slicer is trained on real print conditions — minimizing travel, avoiding pot life violations, and producing G-code ready for the real world.</p>
-      </div>
-      <div class="diff-card fade-up" style="transition-delay:.12s">
-        <div class="diff-card-head">Results Panel · Last Run</div>
-        <div class="diff-stat"><span class="diff-sl">Travel Saved</span><span class="diff-sv big">47%</span></div>
-        <div class="diff-stat"><span class="diff-sl">Est. Print Time</span><span class="diff-sv">4h 32m</span></div>
-        <div class="diff-stat"><span class="diff-sl">Layers</span><span class="diff-sv">284</span></div>
-        <div class="diff-stat"><span class="diff-sl">Material</span><span class="diff-sv">CC-40 Mix</span></div>
-        <div class="diff-stat"><span class="diff-sl">Temp / Humidity</span><span class="diff-sv">28°C / 62%</span></div>
-        <div class="diff-stat"><span class="diff-sl">Pot Life Margin</span><span class="diff-sv">+22 min ✓</span></div>
-        <div class="diff-stat"><span class="diff-sl">Computed in</span><span class="diff-sv">8.2s</span></div>
-      </div>
+  <div class="inner" style="max-width:760px">
+    <div class="diff-content fade-up">
+      <div class="section-label">Why it matters</div>
+      <h2 class="section-title" style="margin-bottom:20px">Traditional slicers<br>don't know your site.</h2>
+      <p>Standard slicers compute paths purely from geometry. They don't know your material's open time. They don't know if it's 34°C and humid.</p>
+      <p>AutoBuild AI's RL slicer is trained on real print conditions — minimizing travel, avoiding pot life violations, and producing G-code ready for the real world.</p>
     </div>
   </div>
 </section>
@@ -144,5 +176,6 @@ document.querySelectorAll('.hero .fade-up').forEach(el => {
   setTimeout(() => el.classList.add('visible'), parseFloat(el.style.transitionDelay || 0) * 1000 + 80);
 });
 </script>
+<script src="shared.js"></script>
 </body>
 </html>
