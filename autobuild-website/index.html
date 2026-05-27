@@ -8,11 +8,11 @@
 <link rel="stylesheet" href="shared.css" />
 <style>
 
-/* NAV — transparent over hero, dark when scrolled */
+/* NAV — transparent over hero, white frosted when scrolled */
 #main-nav {
   background: transparent;
   border-bottom: none;
-  transition: background 0.3s ease, border-color 0.3s ease;
+  transition: background 0.3s ease, border-color 0.3s ease, height 0.3s ease, padding 0.3s ease;
 }
 #main-nav .nav-links a { color: rgba(0,0,0,0.65); font-size: 15px; font-weight: 600; }
 #main-nav .nav-links a:hover,
@@ -20,12 +20,16 @@
 #main-nav .nav-cta { color: rgba(0,0,0,0.5); font-size: 15px; font-weight: 600; }
 #main-nav .nav-cta:hover { color: #000; }
 #main-nav .nav-hamburger span { background: rgba(255,255,255,0.85); }
+#main-nav .nav-logo img { transition: height 0.3s ease; }
 
 #main-nav.scrolled {
   background: rgba(255,255,255,0.95);
   border-bottom: 1px solid rgba(0,0,0,0.08);
   backdrop-filter: blur(10px);
+  height: 52px;
+  padding: 0 64px;
 }
+#main-nav.scrolled .nav-logo img { height: 44px; }
 #main-nav.scrolled .nav-links a { color: rgba(0,0,0,0.5); }
 #main-nav.scrolled .nav-links a:hover,
 #main-nav.scrolled .nav-links a.active { color: #000; }
@@ -101,17 +105,19 @@
 .monitor-img-wrap { border-radius: 14px; overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08); }
 .monitor-img-wrap img { display: block; width: 100%; height: auto; }
 .monitor-headline { font-size: clamp(30px,3.5vw,50px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.05; color: var(--black); margin-bottom: 16px; }
-.monitor-desc { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(0,0,0,0.45); margin-bottom: 32px; }
+.monitor-desc { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(0,0,0,0.6); margin-bottom: 32px; }
 .monitor-bullets { list-style: none; display: flex; flex-direction: column; gap: 16px; }
-.monitor-bullets li { display: flex; gap: 14px; font-size: 13px; font-weight: 300; line-height: 1.6; color: rgba(0,0,0,0.5); align-items: flex-start; }
+.monitor-bullets li { display: flex; gap: 14px; font-size: 13px; font-weight: 300; line-height: 1.6; color: rgba(0,0,0,0.65); align-items: flex-start; }
+.monitor-bullets li strong { font-weight: 500; color: var(--black); }
 .bullet-line { width: 16px; height: 1.5px; background: var(--black); margin-top: 9px; flex-shrink: 0; }
 
 /* WAITLIST */
-.waitlist { background: var(--off); color: var(--black); padding: 140px 48px; text-align: center; position: relative; overflow: hidden; border-top: 1px solid var(--border); }
-.wl-headline { font-size: clamp(44px,7vw,100px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 20px; position: relative; color: var(--black); }
-.wl-desc { font-size: 16px; font-weight: 300; color: rgba(0,0,0,0.45); max-width: 400px; margin: 0 auto 48px; line-height: 1.8; position: relative; }
+.waitlist { background: var(--off); color: var(--black); padding: 120px 80px; position: relative; overflow: hidden; border-top: 1px solid var(--border); }
+.wl-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: start; text-align: left; }
+.wl-headline { font-size: clamp(36px,4.5vw,68px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 20px; position: relative; color: var(--black); }
+.wl-desc { font-size: 16px; font-weight: 300; color: rgba(0,0,0,0.45); max-width: 440px; line-height: 1.8; position: relative; }
 .wl-form {
-  max-width: 420px; margin: 0 auto 20px; position: relative;
+  position: relative;
   display: flex; flex-direction: column; gap: 10px;
 }
 .wl-form input {
@@ -127,7 +133,7 @@
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.15em;
   text-transform: uppercase; color: rgba(0,0,0,0.35); margin-bottom: 12px;
 }
-.wl-pills { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.wl-pills { display: flex; gap: 8px; flex-wrap: wrap; }
 .wl-pill input[type="radio"] { display: none; }
 .wl-pill span {
   display: block; padding: 9px 22px;
@@ -140,13 +146,14 @@
 .wl-form .btn-black { width: 100%; text-align: center; margin-top: 4px; padding: 16px; font-size: 14px; border-radius: 8px; }
 .wl-tos { font-size: 11px; color: rgba(0,0,0,0.28); font-family: var(--font-mono); position: relative; }
 .wl-tos a { color: rgba(0,0,0,0.45); }
-.wl-success { display: none; color: rgba(0,0,0,0.6); font-size: 16px; position: relative; margin-bottom: 16px; }
+.wl-success { display: none; color: rgba(0,0,0,0.6); font-size: 16px; position: relative; }
 .wl-success.visible { display: block; }
 
 /* RESPONSIVE */
 @media (max-width: 960px) {
   .explainer-inner { grid-template-columns: 1fr; gap: 48px; }
   .monitor-feat-inner { grid-template-columns: 1fr; gap: 48px; }
+  .wl-inner { grid-template-columns: 1fr; gap: 48px; }
   .explainer, .slicer-feat, .monitor-feat, .waitlist { padding: 80px 24px; }
   .hero { padding: 72px 40px 80px; }
   .step-card { grid-template-columns: 1fr; }
@@ -165,11 +172,14 @@
   .step-img { min-height: 180px; }
   .monitor-feat-inner { gap: 32px; }
   .monitor-headline { font-size: clamp(26px,7vw,40px); }
-  .wl-headline { font-size: clamp(36px,10vw,60px); }
-  .wl-form { max-width: 100%; }
+  .wl-headline { font-size: clamp(30px,8vw,48px); }
   .wl-pills { gap: 6px; }
   .wl-pill span { padding: 8px 16px; font-size: 12px; }
   .explainer-inner > div:last-child > div { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 768px) {
+  #main-nav.scrolled { height: 72px; padding: 0 20px; }
+  #main-nav.scrolled .nav-logo img { height: 52px; }
 }
 </style>
 </head>
@@ -181,7 +191,6 @@
     <li><a href="#slicer">Slicer</a></li>
     <li><a href="#monitor">Monitor</a></li>
     <li><a href="#waitlist">Early Access</a></li>
-    <li><a href="#waitlist" style="color:rgba(255,255,255,0.4);font-size:13px;padding:18px 28px;">Join Waitlist</a></li>
   </ul>
   <a href="#waitlist" class="nav-cta">Join Waitlist</a>
 </nav>
@@ -283,15 +292,15 @@
       <ul class="monitor-bullets">
         <li>
           <span class="bullet-line"></span>
-          <span><strong style="font-weight:500;color:rgba(255,255,255,0.7)">Frame-by-frame deviation tracking.</strong> Measures bead placement against your intended path on every layer.</span>
+          <span><strong>Frame-by-frame deviation tracking.</strong> Measures bead placement against your intended path on every layer.</span>
         </li>
         <li>
           <span class="bullet-line"></span>
-          <span><strong style="font-weight:500;color:rgba(255,255,255,0.7)">Instant alerts.</strong> Your team is notified the moment something drifts, not at the end of the shift.</span>
+          <span><strong>Instant alerts.</strong> Your team is notified the moment something drifts, not at the end of the shift.</span>
         </li>
         <li>
           <span class="bullet-line"></span>
-          <span><strong style="font-weight:500;color:rgba(255,255,255,0.7)">Automated quality logs.</strong> Timestamped records from every session, ready for sign-off and compliance.</span>
+          <span><strong>Automated quality logs.</strong> Timestamped records from every session, ready for sign-off and compliance.</span>
         </li>
       </ul>
     </div>
@@ -300,34 +309,41 @@
 
 <!-- WAITLIST -->
 <section class="waitlist" id="waitlist">
-  <h2 class="wl-headline fade-up">Be part of<br>what's next.</h2>
-  <p class="wl-desc fade-up" style="transition-delay:.08s">Early access is open to a select group of operators, contractors, and construction companies. Tell us a bit about yourself and we'll be in touch.</p>
-  <form class="wl-form fade-up" style="transition-delay:.16s" id="wl-form" onsubmit="handleWaitlist(event)">
-    <input type="text" name="name" placeholder="Your name" required />
-    <input type="text" name="company" placeholder="Company" required />
-    <input type="text" name="role" placeholder="Your role (e.g. Project Manager)" />
-    <input type="email" name="email" placeholder="your@email.com" required />
-    <div class="wl-interest">
-      <div class="wl-interest-label">I'm interested in</div>
-      <div class="wl-pills">
-        <label class="wl-pill">
-          <input type="radio" name="interest" value="slicer" />
-          <span>Slicer</span>
-        </label>
-        <label class="wl-pill">
-          <input type="radio" name="interest" value="monitor" />
-          <span>Live Monitor</span>
-        </label>
-        <label class="wl-pill">
-          <input type="radio" name="interest" value="both" checked />
-          <span>Both</span>
-        </label>
-      </div>
+  <div class="wl-inner">
+    <div class="fade-up">
+      <form class="wl-form" id="wl-form" onsubmit="handleWaitlist(event)">
+        <input type="text" name="name" placeholder="Your name" required />
+        <input type="text" name="company" placeholder="Company" required />
+        <input type="text" name="role" placeholder="Your role (e.g. Project Manager)" />
+        <input type="email" name="email" placeholder="your@email.com" required />
+        <div class="wl-interest">
+          <div class="wl-interest-label">I'm interested in</div>
+          <div class="wl-pills">
+            <label class="wl-pill">
+              <input type="radio" name="interest" value="slicer" />
+              <span>Slicer</span>
+            </label>
+            <label class="wl-pill">
+              <input type="radio" name="interest" value="monitor" />
+              <span>Live Monitor</span>
+            </label>
+            <label class="wl-pill">
+              <input type="radio" name="interest" value="both" checked />
+              <span>Both</span>
+            </label>
+          </div>
+        </div>
+        <button type="submit" class="btn-black">Join Waitlist</button>
+        <p class="wl-tos">By joining you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+      </form>
+      <div class="wl-success" id="wl-success">You're on the list. We'll be in touch soon.</div>
     </div>
-    <button type="submit" class="btn-black">Join Waitlist</button>
-  </form>
-  <div class="wl-success" id="wl-success">You're on the list. We'll be in touch soon.</div>
-  <p class="wl-tos fade-up" style="transition-delay:.22s">By joining you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+    <div class="fade-up" style="transition-delay:.12s">
+      <div class="section-label">Early Access</div>
+      <h2 class="wl-headline">Be part of<br>what's next.</h2>
+      <p class="wl-desc">Early access is open to a select group of operators, contractors, and construction companies. Tell us a bit about yourself and we'll be in touch.</p>
+    </div>
+  </div>
 </section>
 
 <footer>
