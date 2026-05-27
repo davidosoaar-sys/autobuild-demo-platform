@@ -96,53 +96,51 @@
 .step-text { font-size: 13px; font-weight: 300; line-height: 1.7; color: rgba(0,0,0,0.45); }
 
 /* MONITOR FEATURE */
-.monitor-feat { padding: 120px 48px; background: var(--black); }
+.monitor-feat { padding: 120px 48px; background: var(--white); border-top: 1px solid var(--border); }
 .monitor-feat-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1.15fr 1fr; gap: 80px; align-items: center; }
-.monitor-img-wrap { border-radius: 14px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.07); }
+.monitor-img-wrap { border-radius: 14px; overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08); }
 .monitor-img-wrap img { display: block; width: 100%; height: auto; }
-.monitor-right .section-label { color: rgba(255,255,255,0.5); border-left-color: rgba(255,255,255,0.6); }
-.monitor-headline { font-size: clamp(30px,3.5vw,50px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.05; color: var(--white); margin-bottom: 16px; }
-.monitor-desc { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(255,255,255,0.38); margin-bottom: 32px; }
+.monitor-headline { font-size: clamp(30px,3.5vw,50px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.05; color: var(--black); margin-bottom: 16px; }
+.monitor-desc { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(0,0,0,0.45); margin-bottom: 32px; }
 .monitor-bullets { list-style: none; display: flex; flex-direction: column; gap: 16px; }
-.monitor-bullets li { display: flex; gap: 14px; font-size: 13px; font-weight: 300; line-height: 1.6; color: rgba(255,255,255,0.45); align-items: flex-start; }
-.bullet-line { width: 16px; height: 1px; background: rgba(255,255,255,0.2); margin-top: 9px; flex-shrink: 0; }
+.monitor-bullets li { display: flex; gap: 14px; font-size: 13px; font-weight: 300; line-height: 1.6; color: rgba(0,0,0,0.5); align-items: flex-start; }
+.bullet-line { width: 16px; height: 1.5px; background: var(--black); margin-top: 9px; flex-shrink: 0; }
 
 /* WAITLIST */
-.waitlist { background: var(--black); color: var(--white); padding: 140px 48px; text-align: center; position: relative; overflow: hidden; border-top: 1px solid rgba(255,255,255,0.06); }
-.waitlist .dot-grid { background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px); }
-.wl-headline { font-size: clamp(44px,7vw,100px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 20px; position: relative; }
-.wl-desc { font-size: 16px; font-weight: 300; color: rgba(255,255,255,0.38); max-width: 400px; margin: 0 auto 48px; line-height: 1.8; position: relative; }
+.waitlist { background: var(--off); color: var(--black); padding: 140px 48px; text-align: center; position: relative; overflow: hidden; border-top: 2px solid var(--black); }
+.wl-headline { font-size: clamp(44px,7vw,100px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 20px; position: relative; color: var(--black); }
+.wl-desc { font-size: 16px; font-weight: 300; color: rgba(0,0,0,0.45); max-width: 400px; margin: 0 auto 48px; line-height: 1.8; position: relative; }
 .wl-form {
   max-width: 420px; margin: 0 auto 20px; position: relative;
   display: flex; flex-direction: column; gap: 10px;
 }
 .wl-form input {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--white); border: 1px solid rgba(0,0,0,0.15);
   border-radius: 8px; padding: 14px 16px;
-  font-family: var(--font-head); font-size: 14px; color: #fff;
+  font-family: var(--font-head); font-size: 14px; color: var(--black);
   outline: none; transition: border-color 0.2s; width: 100%;
 }
-.wl-form input::placeholder { color: rgba(255,255,255,0.22); }
-.wl-form input:focus { border-color: rgba(255,255,255,0.35); }
+.wl-form input::placeholder { color: rgba(0,0,0,0.28); }
+.wl-form input:focus { border-color: var(--black); }
 .wl-interest { margin: 6px 0; }
 .wl-interest-label {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.15em;
-  text-transform: uppercase; color: rgba(255,255,255,0.25); margin-bottom: 12px;
+  text-transform: uppercase; color: rgba(0,0,0,0.35); margin-bottom: 12px;
 }
 .wl-pills { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .wl-pill input[type="radio"] { display: none; }
 .wl-pill span {
   display: block; padding: 9px 22px;
-  border: 1px solid rgba(255,255,255,0.15); border-radius: 100px;
-  font-size: 13px; font-weight: 400; color: rgba(255,255,255,0.4);
-  cursor: pointer; transition: all 0.2s; user-select: none;
+  border: 1px solid rgba(0,0,0,0.2); border-radius: 100px;
+  font-size: 13px; font-weight: 400; color: rgba(0,0,0,0.45);
+  cursor: pointer; transition: all 0.2s; user-select: none; background: var(--white);
 }
-.wl-pill input:checked + span { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.45); color: #fff; }
-.wl-pill span:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.7); }
-.wl-form .btn-white { width: 100%; text-align: center; margin-top: 4px; padding: 16px; font-size: 14px; border-radius: 8px; }
-.wl-tos { font-size: 11px; color: rgba(255,255,255,0.15); font-family: var(--font-mono); position: relative; }
-.wl-tos a { color: rgba(255,255,255,0.28); }
-.wl-success { display: none; color: rgba(255,255,255,0.6); font-size: 16px; position: relative; margin-bottom: 16px; }
+.wl-pill input:checked + span { background: var(--black); border-color: var(--black); color: #fff; }
+.wl-pill span:hover { border-color: var(--black); color: var(--black); }
+.wl-form .btn-black { width: 100%; text-align: center; margin-top: 4px; padding: 16px; font-size: 14px; border-radius: 8px; }
+.wl-tos { font-size: 11px; color: rgba(0,0,0,0.28); font-family: var(--font-mono); position: relative; }
+.wl-tos a { color: rgba(0,0,0,0.45); }
+.wl-success { display: none; color: rgba(0,0,0,0.6); font-size: 16px; position: relative; margin-bottom: 16px; }
 .wl-success.visible { display: block; }
 
 /* RESPONSIVE */
@@ -278,7 +276,7 @@
       </div>
     </div>
     <div class="monitor-right fade-up" style="transition-delay:.12s">
-      <div class="section-label">AutoBuild Monitor</div>
+      <div class="section-label" style="color:rgba(0,0,0,0.4);border-left-color:#000">AutoBuild Monitor</div>
       <h2 class="monitor-headline">Every layer, watched.</h2>
       <p class="monitor-desc">AutoBuild connects to your site camera and analyses every layer as it's printed. Problems are flagged as they happen, not after the concrete sets.</p>
       <ul class="monitor-bullets">
@@ -301,7 +299,6 @@
 
 <!-- WAITLIST -->
 <section class="waitlist" id="waitlist">
-  <div class="dot-grid"></div>
   <h2 class="wl-headline fade-up">Be part of<br>what's next.</h2>
   <p class="wl-desc fade-up" style="transition-delay:.08s">Early access is open to a select group of operators, contractors, and construction companies. Tell us a bit about yourself and we'll be in touch.</p>
   <form class="wl-form fade-up" style="transition-delay:.16s" id="wl-form" onsubmit="handleWaitlist(event)">
@@ -326,7 +323,7 @@
         </label>
       </div>
     </div>
-    <button type="submit" class="btn-white">Join Waitlist</button>
+    <button type="submit" class="btn-black">Join Waitlist</button>
   </form>
   <div class="wl-success" id="wl-success">You're on the list. We'll be in touch soon.</div>
   <p class="wl-tos fade-up" style="transition-delay:.22s">By joining you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
