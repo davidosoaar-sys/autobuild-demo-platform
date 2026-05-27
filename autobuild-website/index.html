@@ -76,7 +76,7 @@
 .feat-desc { font-size: 15px; font-weight: 300; line-height: 1.8; color: rgba(0,0,0,0.45); }
 
 /* STEPS */
-.steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }
+.steps { display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 720px; }
 .step-card {
   background: var(--white); border-radius: 16px; overflow: hidden;
   border: 1px solid rgba(0,0,0,0.07);
@@ -151,7 +151,6 @@
 /* RESPONSIVE */
 @media (max-width: 960px) {
   .explainer-inner { grid-template-columns: 1fr; gap: 48px; }
-  .steps { grid-template-columns: 1fr; }
   .monitor-feat-inner { grid-template-columns: 1fr; gap: 48px; }
   .explainer, .slicer-feat, .monitor-feat, .waitlist { padding: 80px 24px; }
   .hero { padding: 72px 40px 80px; }
