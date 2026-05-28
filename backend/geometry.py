@@ -316,9 +316,11 @@ def _slice_layer(
         if not contours:
             return []
 
+        # DEBUG: log signed area of every contour so we can see the winding pattern
+        for ci, (_, cp, ca) in enumerate(contours):
+            print(f"[geometry] layer={layer_idx} contour[{ci}] perim={cp:.4f} signed_area={ca:.6f}", flush=True)
+
         # ── Pass 2: determine outer winding sign from largest-area contour ───
-        # The outermost boundary always has the largest absolute area.
-        # All solid islands share the same winding; holes are opposite.
         outer_sign = 1.0 if max(contours, key=lambda c: abs(c[2]))[2] > 0 else -1.0
 
         # ── Pass 3: trace only solid contours (same sign as outer) ──────────
