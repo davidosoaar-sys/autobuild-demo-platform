@@ -256,12 +256,10 @@ def _slice_layer(
     MIN_LEN  = float(nozzle_width) * 0.1
     MIN_PERIM = float(nozzle_width) * 4.0
 
-    # ── Geometry mode ────────────────────────────────────────────────────────────
-    # For each closed cross-section contour, PCA finds the main axis of the
-    # contour point cloud. Projecting onto that axis gives the two endpoints
-    # of the centerline — the print path running through the wall mid-plane.
-    # One centerline per contour entity; trimesh's section() gives one entity
-    # per distinct wall segment, so N wall segments → N centerlines.
+    # ── Geometry mode: trace cross-section contours exactly as modelled ──────────
+    # Slices the mesh at height Z and walks every closed contour as print
+    # segments. Solid wall → single line. Hollow wall → rectangle loop.
+    # Wall with designed infill → outer + infill paths. No interpretation.
     if slicing_mode == 'geometry':
         try:
             section = mesh.section(plane_origin=[0, 0, z_sample], plane_normal=[0, 0, 1])
@@ -272,62 +270,49 @@ def _slice_layer(
             return []
         try:
             section_2d, _ = section.to_planar()
-        except Exception:
+        except Exception as e:
+            print(f"[geometry] layer={layer_idx} to_planar failed: {e}", flush=True)
             return []
         if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
             return []
 
-        centerlines: List[Segment] = []
+        segments: List[Segment] = []
 
         for entity in section_2d.entities:
             try:
                 indices = entity.points
                 pts_raw = section_2d.vertices[indices]
                 n = len(pts_raw)
-                if n < 3:
+                if n < 2:
                     continue
 
-                pts = np.array(
-                    [[float(pts_raw[i][0]), float(pts_raw[i][1])] for i in range(n)],
-                    dtype=float,
-                )
+                perim = 0.0
+                for i in range(n):
+                    dx = float(pts_raw[(i + 1) % n][0]) - float(pts_raw[i][0])
+                    dy = float(pts_raw[(i + 1) % n][1]) - float(pts_raw[i][1])
+                    perim += (dx * dx + dy * dy) ** 0.5
 
-                # Filter tiny contours by perimeter
-                diffs = np.diff(np.vstack([pts, pts[:1]]), axis=0)
-                perim = float(np.linalg.norm(diffs, axis=1).sum())
                 if perim < MIN_PERIM:
                     continue
 
-                # PCA: eigenvector with largest eigenvalue = long axis of wall
-                centroid  = pts.mean(axis=0)
-                centered  = pts - centroid
-                _, evecs  = np.linalg.eigh(centered.T @ centered)
-                main_axis = evecs[:, -1]          # largest eigenvalue last
+                pts = [(float(pts_raw[i][0]), float(pts_raw[i][1])) for i in range(n)]
+                for i in range(n):
+                    p0 = pts[i]
+                    p1 = pts[(i + 1) % n]
+                    seg_len = ((p1[0] - p0[0]) ** 2 + (p1[1] - p0[1]) ** 2) ** 0.5
+                    if seg_len >= MIN_LEN:
+                        segments.append((p0, p1))
 
-                # Project onto main axis → find wall extent
-                projs = centered @ main_axis
-                t_min, t_max = float(projs.min()), float(projs.max())
-                if t_max - t_min < MIN_LEN:
-                    continue
-
-                p0 = (float(centroid[0] + t_min * main_axis[0]),
-                      float(centroid[1] + t_min * main_axis[1]))
-                p1 = (float(centroid[0] + t_max * main_axis[0]),
-                      float(centroid[1] + t_max * main_axis[1]))
-
-                centerlines.append((p0, p1))
-
-            except Exception:
+            except Exception as e:
+                print(f"[geometry] layer={layer_idx} entity error: {e}", flush=True)
                 continue
-
-        centerlines = _chain_path(centerlines)
 
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"mode=geometry contours={len(section_2d.entities)} centerlines={len(centerlines)}",
+            f"mode=geometry contours={len(section_2d.entities)} segments={len(segments)}",
             flush=True,
         )
-        return centerlines
+        return segments
 
     # ── Shell mode: section contours = closed loops (both sides of each element) ──
     try:
