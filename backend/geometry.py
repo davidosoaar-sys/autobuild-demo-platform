@@ -316,18 +316,7 @@ def _slice_layer(
         if not contours:
             return []
 
-        # ── Pass 2: sort by absolute area, detect holes via containment ──────
-        # STL files may have inconsistent normals so winding is unreliable.
-        # Instead: a contour nested inside a larger one AND taking up >25% of
-        # the outer area is a cavity hole (air gap) → skip it.
-        # Small nested contours (<25%) are designed infill islands → keep them.
-        # Contours not inside any other are outer boundaries → always keep.
-        contours.sort(key=lambda c: abs(c[2]), reverse=True)
-        outer_area = abs(contours[0][2]) or 1.0
-        HOLE_RATIO = 0.25
-
         def _pip(px: float, py: float, poly: list) -> bool:
-            """Ray-cast point-in-polygon test."""
             inside = False
             n = len(poly)
             j = n - 1
@@ -340,22 +329,29 @@ def _slice_layer(
                 j = i
             return inside
 
-        # ── Pass 3: trace outer boundaries + small infill, skip cavity holes ─
+        # For each contour find its direct parent (smallest contour that contains it).
+        # A nested contour whose area is >10% of its parent is a cavity wall boundary → skip.
+        # Infill paths have near-zero area relative to their parent → always trace.
+        def _find_parent(i: int):
+            cx = sum(p[0] for p in contours[i][0]) / len(contours[i][0])
+            cy = sum(p[1] for p in contours[i][0]) / len(contours[i][0])
+            best_idx, best_area = None, float('inf')
+            for j, (pts_j, _, area_j) in enumerate(contours):
+                if j == i or abs(area_j) <= abs(contours[i][2]):
+                    continue
+                if _pip(cx, cy, pts_j) and abs(area_j) < best_area:
+                    best_idx, best_area = j, abs(area_j)
+            return best_idx, best_area
+
+        CAVITY_RATIO = 0.10
+
         segments: List[Segment] = []
         traced = skipped = 0
 
         for i, (pts_i, _, area_i) in enumerate(contours):
-            cx = sum(p[0] for p in pts_i) / len(pts_i)
-            cy = sum(p[1] for p in pts_i) / len(pts_i)
+            parent_idx, parent_area = _find_parent(i)
 
-            is_nested = any(
-                j != i
-                and abs(contours[j][2]) > abs(area_i)
-                and _pip(cx, cy, contours[j][0])
-                for j in range(len(contours))
-            )
-
-            if is_nested and abs(area_i) / outer_area > HOLE_RATIO:
+            if parent_idx is not None and abs(area_i) / parent_area > CAVITY_RATIO:
                 skipped += 1
                 continue
 
