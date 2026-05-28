@@ -329,50 +329,20 @@ def _slice_layer(
                 j = i
             return inside
 
-        # Find direct parent for every contour (smallest container).
-        def _find_parent(i: int) -> Optional[int]:
+        def _depth(i: int) -> int:
             cx = sum(p[0] for p in contours[i][0]) / len(contours[i][0])
             cy = sum(p[1] for p in contours[i][0]) / len(contours[i][0])
-            best_idx, best_area = None, float('inf')
-            for j, (pts_j, _, area_j) in enumerate(contours):
-                if j == i or abs(area_j) <= abs(contours[i][2]):
-                    continue
-                if _pip(cx, cy, pts_j) and abs(area_j) < best_area:
-                    best_idx, best_area = j, abs(area_j)
-            return best_idx
+            return sum(1 for j, (pts_j, _, _) in enumerate(contours) if j != i and _pip(cx, cy, pts_j))
 
-        parents = [_find_parent(i) for i in range(len(contours))]
+        depths = [_depth(i) for i in range(len(contours))]
 
-        # Group by parent to find siblings.
-        from collections import defaultdict
-        children_of: dict = defaultdict(list)
-        for i, p in enumerate(parents):
-            children_of[p].append(i)
-
-        # A contour is a cavity wall boundary if it is the only child of its parent,
-        # OR if its area is >> the median area of its siblings (it dominates them).
-        # In both cases it represents hollow space → skip.  Infill paths are many
-        # small contours with similar area → their ratio to the median stays near 1.
-        DOMINANCE = 5.0
-        cavity_set: set = set()
-
-        for parent_idx, children in children_of.items():
-            if parent_idx is None:
-                continue
-            if len(children) == 1:
-                cavity_set.add(children[0])
-                continue
-            areas = sorted([abs(contours[c][2]) for c in children])
-            mid = areas[len(areas) // 2] or 1e-12
-            for c in children:
-                if abs(contours[c][2]) / mid > DOMINANCE:
-                    cavity_set.add(c)
-
+        # Even-odd rule: even depth = solid material → trace; odd depth = cavity/hole → skip.
+        # Depth 0 = outermost boundary, depth 1 = cavity inside, depth 2 = infill inside cavity.
         segments: List[Segment] = []
         traced = skipped = 0
 
         for i, (pts_i, _, _) in enumerate(contours):
-            if i in cavity_set:
+            if depths[i] % 2 == 1:
                 skipped += 1
                 continue
             traced += 1
