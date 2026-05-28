@@ -316,26 +316,54 @@ def _slice_layer(
         if not contours:
             return []
 
-        # DEBUG: log signed area of every contour so we can see the winding pattern
-        for ci, (_, cp, ca) in enumerate(contours):
-            print(f"[geometry] layer={layer_idx} contour[{ci}] perim={cp:.4f} signed_area={ca:.6f}", flush=True)
+        # ── Pass 2: sort by absolute area, detect holes via containment ──────
+        # STL files may have inconsistent normals so winding is unreliable.
+        # Instead: a contour nested inside a larger one AND taking up >25% of
+        # the outer area is a cavity hole (air gap) → skip it.
+        # Small nested contours (<25%) are designed infill islands → keep them.
+        # Contours not inside any other are outer boundaries → always keep.
+        contours.sort(key=lambda c: abs(c[2]), reverse=True)
+        outer_area = abs(contours[0][2]) or 1.0
+        HOLE_RATIO = 0.25
 
-        # ── Pass 2: determine outer winding sign from largest-area contour ───
-        outer_sign = 1.0 if max(contours, key=lambda c: abs(c[2]))[2] > 0 else -1.0
+        def _pip(px: float, py: float, poly: list) -> bool:
+            """Ray-cast point-in-polygon test."""
+            inside = False
+            n = len(poly)
+            j = n - 1
+            for i in range(n):
+                xi, yi = poly[i]
+                xj, yj = poly[j]
+                if (yi > py) != (yj > py):
+                    if px < (xj - xi) * (py - yi) / (yj - yi + 1e-12) + xi:
+                        inside = not inside
+                j = i
+            return inside
 
-        # ── Pass 3: trace only solid contours (same sign as outer) ──────────
+        # ── Pass 3: trace outer boundaries + small infill, skip cavity holes ─
         segments: List[Segment] = []
-        traced = 0
-        skipped = 0
-        for pts, perim, area in contours:
-            if area * outer_sign <= 0:
+        traced = skipped = 0
+
+        for i, (pts_i, _, area_i) in enumerate(contours):
+            cx = sum(p[0] for p in pts_i) / len(pts_i)
+            cy = sum(p[1] for p in pts_i) / len(pts_i)
+
+            is_nested = any(
+                j != i
+                and abs(contours[j][2]) > abs(area_i)
+                and _pip(cx, cy, contours[j][0])
+                for j in range(len(contours))
+            )
+
+            if is_nested and abs(area_i) / outer_area > HOLE_RATIO:
                 skipped += 1
                 continue
+
             traced += 1
-            n = len(pts)
-            for i in range(n):
-                p0 = pts[i]
-                p1 = pts[(i + 1) % n]
+            n = len(pts_i)
+            for k in range(n):
+                p0 = pts_i[k]
+                p1 = pts_i[(k + 1) % n]
                 if ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5 >= MIN_LEN:
                     segments.append((p0, p1))
 
