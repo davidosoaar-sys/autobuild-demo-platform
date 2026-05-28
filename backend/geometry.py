@@ -256,10 +256,15 @@ def _slice_layer(
     MIN_LEN  = float(nozzle_width) * 0.1
     MIN_PERIM = float(nozzle_width) * 4.0
 
-    # ── Geometry mode: trace cross-section contours exactly as modelled ──────────
-    # Slices the mesh at height Z and walks every closed contour as print
-    # segments. Solid wall → single line. Hollow wall → rectangle loop.
-    # Wall with designed infill → outer + infill paths. No interpretation.
+    # ── Geometry mode ─────────────────────────────────────────────────────────────
+    # Slices at Z and traces only SOLID contours — outer boundaries + designed
+    # infill islands. Cavity holes are skipped via winding order (shoelace):
+    # outer/solid contours share the same sign as the largest contour;
+    # holes have the opposite sign and are discarded.
+    #
+    #   Solid wall       → one loop  (A)
+    #   Hollow/cavity    → one outer rectangle, hole skipped  (B)
+    #   Designed infill  → outer + infill islands  (C)
     if slicing_mode == 'geometry':
         try:
             section = mesh.section(plane_origin=[0, 0, z_sample], plane_normal=[0, 0, 1])
@@ -276,8 +281,8 @@ def _slice_layer(
         if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
             return []
 
-        segments: List[Segment] = []
-
+        # ── Pass 1: extract point lists, perimeter, and signed area ──────────
+        contours = []
         for entity in section_2d.entities:
             try:
                 indices = entity.points
@@ -286,30 +291,55 @@ def _slice_layer(
                 if n < 2:
                     continue
 
-                perim = 0.0
-                for i in range(n):
-                    dx = float(pts_raw[(i + 1) % n][0]) - float(pts_raw[i][0])
-                    dy = float(pts_raw[(i + 1) % n][1]) - float(pts_raw[i][1])
-                    perim += (dx * dx + dy * dy) ** 0.5
+                pts = [(float(pts_raw[i][0]), float(pts_raw[i][1])) for i in range(n)]
 
+                perim = sum(
+                    ((pts[(i+1)%n][0]-pts[i][0])**2 + (pts[(i+1)%n][1]-pts[i][1])**2)**0.5
+                    for i in range(n)
+                )
                 if perim < MIN_PERIM:
                     continue
 
-                pts = [(float(pts_raw[i][0]), float(pts_raw[i][1])) for i in range(n)]
+                # Shoelace signed area: positive = CCW, negative = CW
+                area = 0.0
                 for i in range(n):
-                    p0 = pts[i]
-                    p1 = pts[(i + 1) % n]
-                    seg_len = ((p1[0] - p0[0]) ** 2 + (p1[1] - p0[1]) ** 2) ** 0.5
-                    if seg_len >= MIN_LEN:
-                        segments.append((p0, p1))
+                    x0, y0 = pts[i]
+                    x1, y1 = pts[(i + 1) % n]
+                    area += x0 * y1 - x1 * y0
+                area /= 2.0
 
+                contours.append((pts, perim, area))
             except Exception as e:
                 print(f"[geometry] layer={layer_idx} entity error: {e}", flush=True)
                 continue
 
+        if not contours:
+            return []
+
+        # ── Pass 2: determine outer winding sign from largest-area contour ───
+        # The outermost boundary always has the largest absolute area.
+        # All solid islands share the same winding; holes are opposite.
+        outer_sign = 1.0 if max(contours, key=lambda c: abs(c[2]))[2] > 0 else -1.0
+
+        # ── Pass 3: trace only solid contours (same sign as outer) ──────────
+        segments: List[Segment] = []
+        traced = 0
+        skipped = 0
+        for pts, perim, area in contours:
+            if area * outer_sign <= 0:
+                skipped += 1
+                continue
+            traced += 1
+            n = len(pts)
+            for i in range(n):
+                p0 = pts[i]
+                p1 = pts[(i + 1) % n]
+                if ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5 >= MIN_LEN:
+                    segments.append((p0, p1))
+
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"mode=geometry contours={len(section_2d.entities)} segments={len(segments)}",
+            f"contours={len(contours)} traced={traced} holes_skipped={skipped} segments={len(segments)}",
             flush=True,
         )
         return segments
