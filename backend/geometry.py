@@ -257,13 +257,11 @@ def _slice_layer(
     MIN_PERIM = float(nozzle_width) * 4.0
 
     # ── Geometry mode ────────────────────────────────────────────────────────────
-    # For each cross-section contour, find ALL parallel segment pairs whose
-    # perpendicular separation ≈ nozzle_width. Each pair is one print-element
-    # face pair → its midline is the centerline for that wall segment.
-    #
-    # A single closed contour can produce MULTIPLE centerlines (e.g. a building
-    # footprint with 18 wall segments appears as one big ring; we extract all 18
-    # parallel pairs from it rather than stopping at the first/longest).
+    # For each closed cross-section contour, PCA finds the main axis of the
+    # contour point cloud. Projecting onto that axis gives the two endpoints
+    # of the centerline — the print path running through the wall mid-plane.
+    # One centerline per contour entity; trimesh's section() gives one entity
+    # per distinct wall segment, so N wall segments → N centerlines.
     if slicing_mode == 'geometry':
         try:
             section = mesh.section(plane_origin=[0, 0, z_sample], plane_normal=[0, 0, 1])
@@ -279,11 +277,6 @@ def _slice_layer(
         if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
             return []
 
-        # Nearest parallel partner wins — we pick the smallest perpendicular
-        # separation so opposite wall faces pair before distant building walls do.
-        SEP_MIN = 1e-5   # skip co-linear / same-segment matches
-        DOT_MIN = 0.92   # cos ~23° — must be nearly parallel
-
         centerlines: List[Segment] = []
 
         for entity in section_2d.entities:
@@ -294,75 +287,35 @@ def _slice_layer(
                 if n < 3:
                     continue
 
-                # All segments of this contour
-                contour_segs = []
-                for i in range(n):
-                    p0 = (float(pts_raw[i][0]),       float(pts_raw[i][1]))
-                    p1 = (float(pts_raw[(i+1)%n][0]), float(pts_raw[(i+1)%n][1]))
-                    l  = _seg_len(p0, p1)
-                    if l >= MIN_LEN:
-                        contour_segs.append((p0, p1, l))
+                pts = np.array(
+                    [[float(pts_raw[i][0]), float(pts_raw[i][1])] for i in range(n)],
+                    dtype=float,
+                )
 
-                if len(contour_segs) < 2:
+                # Filter tiny contours by perimeter
+                diffs = np.diff(np.vstack([pts, pts[:1]]), axis=0)
+                perim = float(np.linalg.norm(diffs, axis=1).sum())
+                if perim < MIN_PERIM:
                     continue
 
-                # Sort longest-first so we greedily pair long segments first
-                contour_segs.sort(key=lambda s: -s[2])
+                # PCA: eigenvector with largest eigenvalue = long axis of wall
+                centroid  = pts.mean(axis=0)
+                centered  = pts - centroid
+                _, evecs  = np.linalg.eigh(centered.T @ centered)
+                main_axis = evecs[:, -1]          # largest eigenvalue last
 
-                used = set()
-                for i in range(len(contour_segs)):
-                    if i in used:
-                        continue
-                    s1, _, l1 = contour_segs[i]
-                    dx1 = s1[1][0]-s1[0][0];  dy1 = s1[1][1]-s1[0][1]
-                    len1 = (dx1*dx1+dy1*dy1)**0.5
-                    if len1 < 1e-9:
-                        continue
-                    # Unit perpendicular (points "across" the wall)
-                    perp_x = -dy1/len1;  perp_y = dx1/len1
-                    mid1   = ((s1[0][0]+s1[1][0])*0.5, (s1[0][1]+s1[1][1])*0.5)
+                # Project onto main axis → find wall extent
+                projs = centered @ main_axis
+                t_min, t_max = float(projs.min()), float(projs.max())
+                if t_max - t_min < MIN_LEN:
+                    continue
 
-                    best_j, best_d = -1, float('inf')
-                    for j in range(i+1, len(contour_segs)):
-                        if j in used:
-                            continue
-                        s2, _, l2 = contour_segs[j]
-                        # Skip if much shorter than s1 — can't be the opposite face
-                        if l2 < l1 * 0.4:
-                            break
-                        dx2 = s2[1][0]-s2[0][0];  dy2 = s2[1][1]-s2[0][1]
-                        len2 = (dx2*dx2+dy2*dy2)**0.5
-                        if len2 < 1e-9:
-                            continue
-                        # Must be nearly parallel
-                        if abs(dx1*dx2+dy1*dy2)/(len1*len2) < DOT_MIN:
-                            continue
-                        mid2 = ((s2[0][0]+s2[1][0])*0.5, (s2[0][1]+s2[1][1])*0.5)
-                        dm   = (mid2[0]-mid1[0], mid2[1]-mid1[1])
-                        perp_d = abs(dm[0]*perp_x + dm[1]*perp_y)
-                        if perp_d < SEP_MIN:
-                            continue
-                        if perp_d < best_d:
-                            best_d, best_j = perp_d, j
+                p0 = (float(centroid[0] + t_min * main_axis[0]),
+                      float(centroid[1] + t_min * main_axis[1]))
+                p1 = (float(centroid[0] + t_max * main_axis[0]),
+                      float(centroid[1] + t_max * main_axis[1]))
 
-                    if best_j < 0:
-                        continue
-
-                    used.add(i)
-                    used.add(best_j)
-
-                    s2, _, _ = contour_segs[best_j]
-                    dx2 = s2[1][0]-s2[0][0];  dy2 = s2[1][1]-s2[0][1]
-                    # Align directions so endpoints correspond
-                    if dx1*dx2+dy1*dy2 < 0:
-                        s2 = (s2[1], s2[0])
-
-                    cl = (
-                        ((s1[0][0]+s2[0][0])*0.5, (s1[0][1]+s2[0][1])*0.5),
-                        ((s1[1][0]+s2[1][0])*0.5, (s1[1][1]+s2[1][1])*0.5),
-                    )
-                    if _seg_len(cl[0], cl[1]) >= MIN_LEN:
-                        centerlines.append(cl)
+                centerlines.append((p0, p1))
 
             except Exception:
                 continue
