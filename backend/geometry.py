@@ -279,11 +279,10 @@ def _slice_layer(
         if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
             return []
 
-        # Tolerance band: pairs separated between 30 % and 300 % of nozzle_width
-        # are candidates. This handles slight under/over-extrusion in the model.
-        SEP_MIN = float(nozzle_width) * 0.3
-        SEP_MAX = float(nozzle_width) * 3.0
-        DOT_MIN = 0.92  # cos ~23° — must be nearly parallel
+        # Nearest parallel partner wins — we pick the smallest perpendicular
+        # separation so opposite wall faces pair before distant building walls do.
+        SEP_MIN = 1e-5   # skip co-linear / same-segment matches
+        DOT_MIN = 0.92   # cos ~23° — must be nearly parallel
 
         centerlines: List[Segment] = []
 
