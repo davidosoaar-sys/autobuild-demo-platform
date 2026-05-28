@@ -256,10 +256,14 @@ def _slice_layer(
     MIN_LEN  = float(nozzle_width) * 0.1
     MIN_PERIM = float(nozzle_width) * 4.0
 
-    # ── Geometry mode: PCA centerline per section contour ────────────────────
-    # section() reliably finds N separate closed contours (one per print element)
-    # even when the mesh is fully connected. We PCA each contour independently
-    # to extract its print centerline — no inner/outer pairing needed.
+    # ── Geometry mode ────────────────────────────────────────────────────────────
+    # For each cross-section contour, find ALL parallel segment pairs whose
+    # perpendicular separation ≈ nozzle_width. Each pair is one print-element
+    # face pair → its midline is the centerline for that wall segment.
+    #
+    # A single closed contour can produce MULTIPLE centerlines (e.g. a building
+    # footprint with 18 wall segments appears as one big ring; we extract all 18
+    # parallel pairs from it rather than stopping at the first/longest).
     if slicing_mode == 'geometry':
         try:
             section = mesh.section(plane_origin=[0, 0, z_sample], plane_normal=[0, 0, 1])
@@ -275,6 +279,12 @@ def _slice_layer(
         if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
             return []
 
+        # Tolerance band: pairs separated between 30 % and 300 % of nozzle_width
+        # are candidates. This handles slight under/over-extrusion in the model.
+        SEP_MIN = float(nozzle_width) * 0.3
+        SEP_MAX = float(nozzle_width) * 3.0
+        DOT_MIN = 0.92  # cos ~23° — must be nearly parallel
+
         centerlines: List[Segment] = []
 
         for entity in section_2d.entities:
@@ -285,11 +295,11 @@ def _slice_layer(
                 if n < 3:
                     continue
 
-                # Build segments of this contour
+                # All segments of this contour
                 contour_segs = []
                 for i in range(n):
-                    p0 = (float(pts_raw[i][0]),          float(pts_raw[i][1]))
-                    p1 = (float(pts_raw[(i+1)%n][0]),    float(pts_raw[(i+1)%n][1]))
+                    p0 = (float(pts_raw[i][0]),       float(pts_raw[i][1]))
+                    p1 = (float(pts_raw[(i+1)%n][0]), float(pts_raw[(i+1)%n][1]))
                     l  = _seg_len(p0, p1)
                     if l >= MIN_LEN:
                         contour_segs.append((p0, p1, l))
@@ -297,55 +307,65 @@ def _slice_layer(
                 if len(contour_segs) < 2:
                     continue
 
-                # Sort longest-first; the two longest parallel segments are the two
-                # long sides of the thin print-element cross-section rectangle.
+                # Sort longest-first so we greedily pair long segments first
                 contour_segs.sort(key=lambda s: -s[2])
 
-                # Find the best parallel partner for the longest segment
-                s1, _, _ = contour_segs[0]
-                dx1 = s1[1][0]-s1[0][0];  dy1 = s1[1][1]-s1[0][1]
-                len1 = (dx1*dx1+dy1*dy1)**0.5
-                if len1 < 1e-9:
-                    continue
-                perp_x = -dy1/len1;  perp_y = dx1/len1
-                mid1   = ((s1[0][0]+s1[1][0])*0.5, (s1[0][1]+s1[1][1])*0.5)
-
-                best_j, best_d = -1, float('inf')
-                for j in range(1, len(contour_segs)):
-                    s2, _, l2 = contour_segs[j]
-                    if l2 < contour_segs[0][2] * 0.25:
-                        break  # remaining segs too short to be the other long side
-                    dx2 = s2[1][0]-s2[0][0];  dy2 = s2[1][1]-s2[0][1]
-                    len2 = (dx2*dx2+dy2*dy2)**0.5
-                    if len2 < 1e-9:
+                used = set()
+                for i in range(len(contour_segs)):
+                    if i in used:
                         continue
-                    if abs((dx1*dx2+dy1*dy2)/(len1*len2)) < 0.85:
-                        continue  # not parallel
-                    mid2 = ((s2[0][0]+s2[1][0])*0.5, (s2[0][1]+s2[1][1])*0.5)
-                    dm   = (mid2[0]-mid1[0], mid2[1]-mid1[1])
-                    perp_d = abs(dm[0]*perp_x + dm[1]*perp_y)
-                    if perp_d < 1e-6:
-                        continue  # same line
-                    if perp_d < best_d:
-                        best_d, best_j = perp_d, j
+                    s1, _, l1 = contour_segs[i]
+                    dx1 = s1[1][0]-s1[0][0];  dy1 = s1[1][1]-s1[0][1]
+                    len1 = (dx1*dx1+dy1*dy1)**0.5
+                    if len1 < 1e-9:
+                        continue
+                    # Unit perpendicular (points "across" the wall)
+                    perp_x = -dy1/len1;  perp_y = dx1/len1
+                    mid1   = ((s1[0][0]+s1[1][0])*0.5, (s1[0][1]+s1[1][1])*0.5)
 
-                if best_j < 0:
-                    # No parallel partner — use longest segment as fallback
-                    if _seg_len(s1[0], s1[1]) >= MIN_LEN:
-                        centerlines.append((s1[0], s1[1]))
-                    continue
+                    best_j, best_d = -1, float('inf')
+                    for j in range(i+1, len(contour_segs)):
+                        if j in used:
+                            continue
+                        s2, _, l2 = contour_segs[j]
+                        # Skip if much shorter than s1 — can't be the opposite face
+                        if l2 < l1 * 0.4:
+                            break
+                        dx2 = s2[1][0]-s2[0][0];  dy2 = s2[1][1]-s2[0][1]
+                        len2 = (dx2*dx2+dy2*dy2)**0.5
+                        if len2 < 1e-9:
+                            continue
+                        # Must be nearly parallel
+                        if abs(dx1*dx2+dy1*dy2)/(len1*len2) < DOT_MIN:
+                            continue
+                        mid2 = ((s2[0][0]+s2[1][0])*0.5, (s2[0][1]+s2[1][1])*0.5)
+                        dm   = (mid2[0]-mid1[0], mid2[1]-mid1[1])
+                        perp_d = abs(dm[0]*perp_x + dm[1]*perp_y)
+                        # Must be separated by roughly one nozzle width
+                        if perp_d < SEP_MIN or perp_d > SEP_MAX:
+                            continue
+                        if perp_d < best_d:
+                            best_d, best_j = perp_d, j
 
-                s2, _, _ = contour_segs[best_j]
-                dx2 = s2[1][0]-s2[0][0];  dy2 = s2[1][1]-s2[0][1]
-                if dx1*dx2+dy1*dy2 < 0:
-                    s2 = (s2[1], s2[0])
+                    if best_j < 0:
+                        continue
 
-                cl = (
-                    ((s1[0][0]+s2[0][0])*0.5, (s1[0][1]+s2[0][1])*0.5),
-                    ((s1[1][0]+s2[1][0])*0.5, (s1[1][1]+s2[1][1])*0.5),
-                )
-                if _seg_len(cl[0], cl[1]) >= MIN_LEN:
-                    centerlines.append(cl)
+                    used.add(i)
+                    used.add(best_j)
+
+                    s2, _, _ = contour_segs[best_j]
+                    dx2 = s2[1][0]-s2[0][0];  dy2 = s2[1][1]-s2[0][1]
+                    # Align directions so endpoints correspond
+                    if dx1*dx2+dy1*dy2 < 0:
+                        s2 = (s2[1], s2[0])
+
+                    cl = (
+                        ((s1[0][0]+s2[0][0])*0.5, (s1[0][1]+s2[0][1])*0.5),
+                        ((s1[1][0]+s2[1][0])*0.5, (s1[1][1]+s2[1][1])*0.5),
+                    )
+                    if _seg_len(cl[0], cl[1]) >= MIN_LEN:
+                        centerlines.append(cl)
+
             except Exception:
                 continue
 
@@ -452,62 +472,6 @@ def _chain_path(segs: List[Segment]) -> List[Segment]:
         s = remaining.pop(best_i)
         ordered.append((s[1], s[0]) if flip else s)
     return ordered
-
-
-def _walk_ring(coords) -> List[Segment]:
-    pts = list(coords)
-    out = []
-    for j in range(len(pts) - 1):
-        p0 = (float(pts[j][0]),   float(pts[j][1]))
-        p1 = (float(pts[j+1][0]), float(pts[j+1][1]))
-        if _seg_len(p0, p1) > 1e-9:
-            out.append((p0, p1))
-    return out
-
-
-def _nn_chain(segs: List[Segment]) -> List[Segment]:
-    if not segs:
-        return []
-    if len(segs) <= 2:
-        return segs
-
-    def rnd(p): return (round(p[0], 6), round(p[1], 6))
-
-    from collections import defaultdict
-    start_map = defaultdict(list)
-    rounded   = [(rnd(s[0]), rnd(s[1])) for s in segs]
-    for i, (p0, p1) in enumerate(rounded):
-        start_map[p0].append(i)
-
-    used    = [False] * len(segs)
-    ordered = []
-
-    for start_i in range(len(segs)):
-        if used[start_i]:
-            continue
-        chain         = [segs[start_i]]
-        used[start_i] = True
-        cur_end       = rounded[start_i][1]
-
-        while True:
-            next_i = next((i for i in start_map.get(cur_end, []) if not used[i]), None)
-            if next_i is None:
-                break
-            used[next_i] = True
-            chain.append(segs[next_i])
-            cur_end = rounded[next_i][1]
-
-        ordered.extend(chain)
-
-    for i, seg in enumerate(segs):
-        if not used[i]:
-            ordered.append(seg)
-
-    return ordered
-
-
-def _dist(a: Tuple[float, float], b: Tuple[float, float]) -> float:
-    return float(np.hypot(b[0] - a[0], b[1] - a[1]))
 
 
 def _seg_len(p0: Tuple[float, float], p1: Tuple[float, float]) -> float:
