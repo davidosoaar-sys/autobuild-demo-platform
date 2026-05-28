@@ -340,8 +340,7 @@ def _slice_layer(
                         mid2 = ((s2[0][0]+s2[1][0])*0.5, (s2[0][1]+s2[1][1])*0.5)
                         dm   = (mid2[0]-mid1[0], mid2[1]-mid1[1])
                         perp_d = abs(dm[0]*perp_x + dm[1]*perp_y)
-                        # Must be separated by roughly one nozzle width
-                        if perp_d < SEP_MIN or perp_d > SEP_MAX:
+                        if perp_d < SEP_MIN:
                             continue
                         if perp_d < best_d:
                             best_d, best_j = perp_d, j
