@@ -330,9 +330,11 @@ def _slice_layer(
             return inside
 
         def _depth(i: int) -> int:
-            cx = sum(p[0] for p in contours[i][0]) / len(contours[i][0])
-            cy = sum(p[1] for p in contours[i][0]) / len(contours[i][0])
-            return sum(1 for j, (pts_j, _, _) in enumerate(contours) if j != i and _pip(cx, cy, pts_j))
+            pts_i = contours[i][0]
+            # Use leftmost boundary point (not centroid) so concentric shapes get correct depth.
+            lx, ly = min(pts_i, key=lambda p: p[0])
+            px, py = lx + 1e-9, ly
+            return sum(1 for j, (pts_j, _, _) in enumerate(contours) if j != i and _pip(px, py, pts_j))
 
         depths = [_depth(i) for i in range(len(contours))]
 
