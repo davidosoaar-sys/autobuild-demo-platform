@@ -338,15 +338,22 @@ def _slice_layer(
 
         depths = [_depth(i) for i in range(len(contours))]
 
-        # Even-odd rule: even depth = solid material → trace; odd depth = cavity/hole → skip.
-        # Depth 0 = outermost boundary, depth 1 = cavity inside, depth 2 = infill inside cavity.
+        # Even-odd rule with infill exception:
+        # - Even depth → trace (outer boundary or solid region)
+        # - Odd depth + compact shape (rectangle-like) → skip (cavity wall boundary)
+        # - Odd depth + thin/elongated (near-zero area) → trace (designed infill path)
+        # Compactness = area / perimeter² is high for rectangles, near-zero for zigzag lines.
+        HOLE_COMPACTNESS = 0.01
+
         segments: List[Segment] = []
         traced = skipped = 0
 
-        for i, (pts_i, _, _) in enumerate(contours):
+        for i, (pts_i, perim_i, area_i) in enumerate(contours):
             if depths[i] % 2 == 1:
-                skipped += 1
-                continue
+                compactness = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
+                if compactness > HOLE_COMPACTNESS:
+                    skipped += 1
+                    continue
             traced += 1
             n = len(pts_i)
             for k in range(n):
