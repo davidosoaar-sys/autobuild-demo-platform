@@ -338,22 +338,36 @@ def _slice_layer(
 
         depths = [_depth(i) for i in range(len(contours))]
 
-        # Even-odd rule with infill exception:
-        # - Even depth → trace (outer boundary or solid region)
-        # - Odd depth + compact shape (rectangle-like) → skip (cavity wall boundary)
-        # - Odd depth + thin/elongated (near-zero area) → trace (designed infill path)
-        # Compactness = area / perimeter² is high for rectangles, near-zero for zigzag lines.
+        # Classify contours:
+        #   Compact (rectangle-like) contours = wall boundaries. Keep only the
+        #     INNERMOST one (max depth) as the single print path; drop the rest.
+        #     This treats the printed bead as zero-thickness: we trace the inside
+        #     face of the wall, the nozzle width supplies real thickness.
+        #   Thin (low-compactness) contours = designed infill (zigzag). Always trace.
         HOLE_COMPACTNESS = 0.01
+
+        compact_idx = []
+        thin_idx    = []
+        for i, (pts_i, perim_i, area_i) in enumerate(contours):
+            compactness = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
+            if compactness > HOLE_COMPACTNESS:
+                compact_idx.append(i)
+            else:
+                thin_idx.append(i)
+
+        # Among compact contours, keep only the innermost (deepest nesting).
+        keep = set(thin_idx)
+        if compact_idx:
+            innermost = max(compact_idx, key=lambda i: depths[i])
+            keep.add(innermost)
 
         segments: List[Segment] = []
         traced = skipped = 0
 
         for i, (pts_i, perim_i, area_i) in enumerate(contours):
-            if depths[i] % 2 == 1:
-                compactness = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
-                if compactness > HOLE_COMPACTNESS:
-                    skipped += 1
-                    continue
+            if i not in keep:
+                skipped += 1
+                continue
             traced += 1
             n = len(pts_i)
             for k in range(n):
@@ -364,7 +378,8 @@ def _slice_layer(
 
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"contours={len(contours)} traced={traced} holes_skipped={skipped} segments={len(segments)}",
+            f"contours={len(contours)} traced={traced} skipped={skipped} "
+            f"compact={len(compact_idx)} thin={len(thin_idx)} segments={len(segments)}",
             flush=True,
         )
         return segments
