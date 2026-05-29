@@ -272,9 +272,9 @@ function SiteGround({ site, mode, sitePlan, tod }: {
         <Line key={i} points={pts} color={borderColor} lineWidth={1.5}/>
       ))}
 
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
         <planeGeometry args={[100000, 100000]} />
-        <meshStandardMaterial color={groundFar} roughness={0.95}/>
+        <meshStandardMaterial color={groundFar} roughness={0.95} polygonOffset polygonOffsetFactor={2} polygonOffsetUnits={2}/>
       </mesh>
 
       {house && hw > 0 && hl > 0 && (
@@ -1004,7 +1004,7 @@ export default function LayerVisualization({
           </div>
         </div>
         <div className="relative" style={{height:340,background:bg,transition:'background-color 0.4s ease'}}>
-          <Canvas shadows gl={{antialias:true}} camera={{near:0.1,far:50000}}>
+          <Canvas shadows gl={{antialias:true}} camera={{near:0.1,far:2000}}>
             <SmoothBackground targetHex={bg} />
             <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={[]} layerHeight={0.04}
               animProgress={0} mode={mode} site={resolvedSite} modelScale={modelScale}
@@ -1029,7 +1029,7 @@ export default function LayerVisualization({
     <div className="absolute inset-0">
       <Canvas shadows
         gl={{antialias:true,toneMapping:THREE.ACESFilmicToneMapping,toneMappingExposure:1.1}}
-        camera={{near:0.1,far:50000}}
+        camera={{near:0.1,far:2000}}
         style={{background:bg,transition:'background-color 0.4s ease'}}>
         <SmoothBackground targetHex={bg} />
         <Scene fileUrl={fileUrl} fileExt={fileExt} toolpath={toolpath} layerHeight={layerHeight||0.04}

@@ -338,6 +338,13 @@ def _slice_layer(
 
         depths = [_depth(i) for i in range(len(contours))]
 
+        if layer_idx == 0:
+            for i, (pts_i, perim_i, area_i) in enumerate(contours):
+                comp = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
+                print(f"[geomdbg] contour={i} depth={depths[i]} perim={perim_i:.3f} "
+                      f"area={abs(area_i):.4f} compactness={comp:.4f} npts={len(pts_i)}",
+                      flush=True)
+
         # Classify contours:
         #   Compact (rectangle-like) contours = wall boundaries. Keep only the
         #     INNERMOST one (max depth) as the single print path; drop the rest.
