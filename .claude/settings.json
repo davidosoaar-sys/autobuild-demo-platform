@@ -6,7 +6,20 @@
       "Bash(git commit -m ' *)",
       "Bash(vercel ls *)",
       "Bash(vercel --prod --yes --name autobuild-website)",
-      "Bash(vercel inspect *)"
+      "Bash(vercel inspect *)",
+      "Bash(Select-String -Pattern \"png|jpg|jpeg|webp\")",
+      "Bash(python -c \"import sys; sys.path.insert\\(0,'backend'\\); import geometry; print\\('geometry OK'\\); import main; print\\('main OK'\\)\")",
+      "Bash(python \"C:\\\\Users\\\\Esther\\\\Downloads\\\\autobuild-complete-project\\\\autobuild-demo-platform\\\\backend\\\\check_stl.py\")",
+      "Bash(python3 -c \"print\\('no check_stl'\\)\")",
+      "Bash(railway status *)",
+      "PowerShell(railway status 2>&1)",
+      "Bash(npx vercel *)",
+      "Bash(git commit *)",
+      "Bash(start \"c:\\\\Users\\\\Esther\\\\Downloads\\\\autobuild-complete-project\\\\autobuild-demo-platform\\\\autobuild-website\\\\index.html\")",
+      "Bash(dir /b)",
+      "Bash(start \"\" \"c:\\\\Users\\\\Esther\\\\Downloads\\\\autobuild-complete-project\\\\autobuild-demo-platform\\\\autobuild-website\\\\index.html\")",
+      "Bash(copy \"C:\\\\Users\\\\Esther\\\\Downloads\\\\autobuild background.png\" \"C:\\\\Users\\\\Esther\\\\Downloads\\\\autobuild-complete-project\\\\autobuild-demo-platform\\\\autobuild-website\\\\uploads\\\\autobuild-bg.png\")",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\Esther\\\\Downloads\\\\autobuild background.png\" \"C:\\\\Users\\\\Esther\\\\Downloads\\\\autobuild-complete-project\\\\autobuild-demo-platform\\\\autobuild-website\\\\uploads\\\\autobuild-bg.png\")"
     ]
   }
 }

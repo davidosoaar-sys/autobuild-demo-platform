@@ -345,35 +345,19 @@ def _slice_layer(
                       f"area={abs(area_i):.4f} compactness={comp:.4f} npts={len(pts_i)}",
                       flush=True)
 
-        # Classify contours:
-        #   Compact (rectangle-like) contours = wall boundaries. Keep only the
-        #     INNERMOST one (max depth) as the single print path; drop the rest.
-        #     This treats the printed bead as zero-thickness: we trace the inside
-        #     face of the wall, the nozzle width supplies real thickness.
-        #   Thin (low-compactness) contours = designed infill (zigzag). Always trace.
+        # Keep the INNER edge of every wall, drop the outer edge.
+        # Nested walls alternate by depth: even depth = outer face (drop),
+        # odd depth = inner face (keep). Works for any number of walls.
+        # Thin contours (near-zero area, e.g. struts) are always kept.
         HOLE_COMPACTNESS = 0.01
-
-        compact_idx = []
-        thin_idx    = []
+        raw_segments: List[Segment] = []
+        traced = dropped = 0
         for i, (pts_i, perim_i, area_i) in enumerate(contours):
             compactness = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
-            if compactness > HOLE_COMPACTNESS:
-                compact_idx.append(i)
-            else:
-                thin_idx.append(i)
-
-        # Among compact contours, keep only the innermost (deepest nesting).
-        keep = set(thin_idx)
-        if compact_idx:
-            innermost = max(compact_idx, key=lambda i: depths[i])
-            keep.add(innermost)
-
-        segments: List[Segment] = []
-        traced = skipped = 0
-
-        for i, (pts_i, perim_i, area_i) in enumerate(contours):
-            if i not in keep:
-                skipped += 1
+            is_compact = compactness > HOLE_COMPACTNESS
+            # Drop only compact contours sitting at even depth (outer wall faces).
+            if is_compact and depths[i] % 2 == 0:
+                dropped += 1
                 continue
             traced += 1
             n = len(pts_i)
@@ -381,12 +365,12 @@ def _slice_layer(
                 p0 = pts_i[k]
                 p1 = pts_i[(k + 1) % n]
                 if ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5 >= MIN_LEN:
-                    segments.append((p0, p1))
-
+                    raw_segments.append((p0, p1))
+        segments = _chain_path(raw_segments)
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"contours={len(contours)} traced={traced} skipped={skipped} "
-            f"compact={len(compact_idx)} thin={len(thin_idx)} segments={len(segments)}",
+            f"contours={len(contours)} traced={traced} dropped={dropped} "
+            f"segments={len(segments)} (inner-edge, chained)",
             flush=True,
         )
         return segments
