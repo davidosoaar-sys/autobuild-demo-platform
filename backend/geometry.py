@@ -345,10 +345,10 @@ def _slice_layer(
                       f"area={abs(area_i):.4f} compactness={comp:.4f} npts={len(pts_i)}",
                       flush=True)
 
-        segments = _geometry_path(contours, depths, MIN_LEN)
+        segments = _geometry_path(contours, MIN_LEN)
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"contours={len(contours)} segments={len(segments)}",
+            f"contours={len(contours)} segments={len(segments)} (pure-trace)",
             flush=True,
         )
         return segments
@@ -428,59 +428,19 @@ def _slice_layer(
 
 
 
-def _wall_zigzag_path(contours, MIN_LEN):
-    """Two inner walls + one connected zigzag woven between them, ends closed."""
+def _geometry_path(contours, MIN_LEN):
+    """Pure trace: draw every contour exactly as sliced. No inner/outer
+    selection, no fill, no interpretation. Tracing-paper over the model."""
     def slen(a, b):
         return ((b[0]-a[0])**2 + (b[1]-a[1])**2) ** 0.5
-    outer = max(range(len(contours)), key=lambda i: contours[i][1])
-    cells = [contours[i] for i in range(len(contours)) if i != outer]
-    allpts = [p for (P, _, _) in cells for p in P]
-    ys = [p[1] for p in allpts]; xs = [p[0] for p in allpts]
-    ytop, ybot = max(ys), min(ys)
-    xmin, xmax = min(xs), max(xs)
-    info = sorted((sum(p[0] for p in P)/len(P), min(p[0] for p in P), max(p[0] for p in P))
-                  for (P, _, _) in cells)
-    segs = [((xmin, ytop), (xmax, ytop)), ((xmin, ybot), (xmax, ybot)),
-            ((xmin, ybot), (xmin, ytop)), ((xmax, ybot), (xmax, ytop))]
-    rail = ybot
-    prev = (xmin, rail)
-    for (cx, lx, rx) in info:
-        rail = ytop if rail == ybot else ybot
-        nxt = (rx, rail)
-        if slen(prev, nxt) >= MIN_LEN:
-            segs.append((prev, nxt))
-        prev = nxt
-    end = (xmax, prev[1])
-    if slen(prev, end) >= MIN_LEN:
-        segs.append((prev, end))
-    return segs
-
-def _inner_trace_path(contours, depths, MIN_LEN):
-    """Trace every contour; for thick walls keep inner face (drop even-depth
-    compact faces). General fallback for any model."""
-    def slen(a, b):
-        return ((b[0]-a[0])**2 + (b[1]-a[1])**2) ** 0.5
-    HOLE_COMPACTNESS = 0.01
     segs = []
-    for i, (P, per, a) in enumerate(contours):
-        comp = abs(a) / (per ** 2) if per > 0 else 0
-        if comp > HOLE_COMPACTNESS and depths[i] % 2 == 0:
-            continue
+    for (P, per, area) in contours:
         n = len(P)
         for k in range(n):
-            if slen(P[k], P[(k+1) % n]) >= MIN_LEN:
-                segs.append((P[k], P[(k+1) % n]))
+            p0 = P[k]; p1 = P[(k + 1) % n]
+            if slen(p0, p1) >= MIN_LEN:
+                segs.append((p0, p1))
     return segs
-
-def _geometry_path(contours, depths, MIN_LEN):
-    """Dispatcher: wall-with-infill -> woven zigzag; else inner-trace."""
-    if len(contours) >= 4:
-        areas = sorted(abs(a) for (_, _, a) in contours)
-        big = areas[-1]
-        small = [a for a in areas[:-1] if a < big * 0.05]
-        if len(small) >= 4:
-            return _wall_zigzag_path(contours, MIN_LEN)
-    return _inner_trace_path(contours, depths, MIN_LEN)
 
 
 def _chain_path(segs: List[Segment]) -> List[Segment]:
