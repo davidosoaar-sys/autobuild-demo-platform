@@ -96,6 +96,142 @@ async def scan_endpoint(
 
 # ── Floor plan endpoints ──────────────────────────────────────────────────────
 
+from pdf_walls import (
+    group_key, classify_drawing, rgb_to_hex,
+    clean_hex, drawing_matches_exact_color, point_xy,
+)
+
+
+@app.post("/floorplan/scan")
+async def floorplan_scan(file: UploadFile = File(...)):
+    import fitz
+    try:
+        file_bytes = await file.read()
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        drawings = page.get_drawings()
+        groups: dict = {}
+        for d in drawings:
+            key = group_key(d)
+            cls = classify_drawing(d)
+            if key not in groups:
+                groups[key] = {
+                    "fill_hex":   rgb_to_hex(d.get("fill")),
+                    "stroke_hex": rgb_to_hex(d.get("color")),
+                    "width":      round(float(d.get("width") or 0), 3),
+                    "kind":       cls["kind"],
+                    "count":      0,
+                    "total_len":  0.0,
+                }
+            groups[key]["count"] += 1
+            groups[key]["total_len"] += cls["total_len"]
+        result = sorted(groups.values(), key=lambda g: g["count"], reverse=True)
+        for g in result:
+            g["total_len"] = round(g["total_len"], 2)
+        doc.close()
+        return {"groups": result, "total_drawings": len(drawings)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/floorplan/pick")
+async def floorplan_pick(
+    file: UploadFile = File(...),
+    px:   float      = Form(...),
+    py:   float      = Form(...),
+    tol:  float      = Form(4.0),
+):
+    import fitz
+
+    def _pt_seg_dist(qx, qy, x0, y0, x1, y1):
+        dx, dy = x1 - x0, y1 - y0
+        if dx == 0 and dy == 0:
+            return math.hypot(qx - x0, qy - y0)
+        t = max(0.0, min(1.0, ((qx - x0) * dx + (qy - y0) * dy) / (dx * dx + dy * dy)))
+        return math.hypot(qx - (x0 + t * dx), qy - (y0 + t * dy))
+
+    try:
+        file_bytes = await file.read()
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        best_dist = float("inf")
+        best_seg  = None
+        for d in page.get_drawings():
+            for item in d.get("items") or []:
+                op = item[0] if item else None
+                segs = []
+                if op == "l" and len(item) >= 3:
+                    p1 = point_xy(item[1])
+                    p2 = point_xy(item[2])
+                    if p1 and p2:
+                        segs.append((p1, p2))
+                elif op == "re" and len(item) >= 2:
+                    r = item[1]
+                    try:
+                        c = [(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)]
+                        for i in range(4):
+                            segs.append((c[i], c[(i + 1) % 4]))
+                    except Exception:
+                        pass
+                for p1, p2 in segs:
+                    dist = _pt_seg_dist(px, py, p1[0], p1[1], p2[0], p2[1])
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_seg  = (p1, p2)
+        doc.close()
+        if best_seg and best_dist <= tol:
+            return {"hit": True, "segment": [list(best_seg[0]), list(best_seg[1])]}
+        return {"hit": False}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/floorplan/extract")
+async def floorplan_extract(
+    file:          UploadFile = File(...),
+    color_hex:     str        = Form(""),
+    segments_json: str        = Form("[]"),
+):
+    import fitz
+    try:
+        file_bytes = await file.read()
+        doc  = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        segments = []
+        target = clean_hex(color_hex)
+        if target:
+            for d in page.get_drawings():
+                if not drawing_matches_exact_color(d, target):
+                    continue
+                for item in d.get("items") or []:
+                    op = item[0] if item else None
+                    if op == "l" and len(item) >= 3:
+                        p1 = point_xy(item[1])
+                        p2 = point_xy(item[2])
+                        if p1 and p2:
+                            segments.append([list(p1), list(p2)])
+                    elif op == "re" and len(item) >= 2:
+                        r = item[1]
+                        try:
+                            c = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]]
+                            for i in range(4):
+                                segments.append([c[i], c[(i + 1) % 4]])
+                        except Exception:
+                            pass
+        try:
+            for seg in json.loads(segments_json):
+                segments.append(seg)
+        except Exception:
+            pass
+        width_pt  = float(page.rect.width)
+        height_pt = float(page.rect.height)
+        doc.close()
+        return {"segments": segments, "count": len(segments),
+                "page_width_pt": width_pt, "page_height_pt": height_pt}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/floorplan/preview")
 async def floorplan_preview(file: UploadFile = File(...)):
     import fitz
