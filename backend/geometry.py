@@ -338,6 +338,13 @@ def _slice_layer(
 
         depths = [_depth(i) for i in range(len(contours))]
 
+        if layer_idx == 0:
+            for i, (pts_i, perim_i, area_i) in enumerate(contours):
+                comp = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
+                print(f"[geomdbg] contour={i} depth={depths[i]} perim={perim_i:.3f} "
+                      f"area={abs(area_i):.4f} compactness={comp:.4f} npts={len(pts_i)}",
+                      flush=True)
+
         segments = _geometry_path(contours, depths, MIN_LEN)
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
@@ -421,10 +428,35 @@ def _slice_layer(
 
 
 
-def _geometry_path(contours, depths, MIN_LEN):
-    """Pick the inner face of every wall/contour for ANY model.
-    Keep odd nesting depth (inner faces), drop even depth (outer faces).
-    Single lines, no doubling, no mode switching, no generated infill."""
+def _zigzag_weave(contours, MIN_LEN):
+    """Two walls + one connected zigzag woven between them, ends closed."""
+    def slen(a, b):
+        return ((b[0]-a[0])**2 + (b[1]-a[1])**2) ** 0.5
+    outer = max(range(len(contours)), key=lambda i: contours[i][1])
+    cells = [contours[i] for i in range(len(contours)) if i != outer]
+    allpts = [p for (P, _, _) in cells for p in P]
+    ys = [p[1] for p in allpts]; xs = [p[0] for p in allpts]
+    ytop, ybot = max(ys), min(ys)
+    xmin, xmax = min(xs), max(xs)
+    info = sorted((sum(p[0] for p in P)/len(P), min(p[0] for p in P), max(p[0] for p in P))
+                  for (P, _, _) in cells)
+    segs = [((xmin, ytop), (xmax, ytop)), ((xmin, ybot), (xmax, ybot)),
+            ((xmin, ybot), (xmin, ytop)), ((xmax, ybot), (xmax, ytop))]
+    rail = ybot
+    prev = (xmin, rail)
+    for (cx, lx, rx) in info:
+        rail = ytop if rail == ybot else ybot
+        nxt = (rx, rail)
+        if slen(prev, nxt) >= MIN_LEN:
+            segs.append((prev, nxt))
+        prev = nxt
+    end = (xmax, prev[1])
+    if slen(prev, end) >= MIN_LEN:
+        segs.append((prev, end))
+    return segs
+
+def _pick_inside(contours, depths, MIN_LEN):
+    """Keep inner faces (odd nesting depth), drop outer faces. Single walls."""
     def slen(a, b):
         return ((b[0]-a[0])**2 + (b[1]-a[1])**2) ** 0.5
     segs = []
@@ -436,6 +468,17 @@ def _geometry_path(contours, depths, MIN_LEN):
             if slen(P[k], P[(k+1) % n]) >= MIN_LEN:
                 segs.append((P[k], P[(k+1) % n]))
     return segs
+
+def _geometry_path(contours, depths, MIN_LEN):
+    """Detect wall-with-infill (>=4 small similar cells inside a big contour)
+    -> zigzag weave; otherwise pick-inside. Model-agnostic dispatch."""
+    if len(contours) >= 4:
+        areas = sorted(abs(a) for (_, _, a) in contours)
+        big = areas[-1]
+        small = [a for a in areas[:-1] if a < big * 0.05]
+        if len(small) >= 4:
+            return _zigzag_weave(contours, MIN_LEN)
+    return _pick_inside(contours, depths, MIN_LEN)
 
 
 def _chain_path(segs: List[Segment]) -> List[Segment]:

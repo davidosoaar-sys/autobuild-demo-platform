@@ -39,7 +39,8 @@ export default function Home() {
   const [tosChecked,    setTosChecked]    = useState(false);
   const [privChecked,   setPrivChecked]   = useState(false);
   const [dataChecked,   setDataChecked]   = useState(false);
-  const [recentSlices,  setRecentSlices]  = useState<RecentSlice[]>([]);
+  const [recentSlices,      setRecentSlices]      = useState<RecentSlice[]>([]);
+  const [showSlicerPicker, setShowSlicerPicker] = useState(false);
 
   useEffect(() => {
     const name = localStorage.getItem('autobuild_user_name');
@@ -202,6 +203,60 @@ export default function Home() {
         )}
       </AnimatePresence>
 
+      {/* Slicer picker modal */}
+      <AnimatePresence>
+        {showSlicerPicker && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowSlicerPicker(false)}>
+            <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="bg-black px-6 py-5">
+                <p className="text-white font-bold text-lg">Choose Slicer Mode</p>
+                <p className="text-white/40 text-xs mt-1">How would you like to generate your print path?</p>
+              </div>
+              <div className="p-4 space-y-3">
+                <button
+                  onClick={() => { setShowSlicerPicker(false); router.push('/tools/slicer'); }}
+                  className="w-full flex items-start gap-4 bg-gray-50 hover:bg-black hover:text-white rounded-xl p-4 text-left transition-all group">
+                  <div className="mt-0.5 flex-shrink-0">
+                    <svg className="w-5 h-5 text-black/40 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold">Traditional Slicer</p>
+                    <p className="text-xs text-black/40 group-hover:text-white/60 mt-0.5 leading-relaxed">
+                      Upload a 3D model (STL, OBJ, IFC…) and slice it into print layers.
+                    </p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => { setShowSlicerPicker(false); router.push('/floorplan'); }}
+                  className="w-full flex items-start gap-4 bg-gray-50 hover:bg-black hover:text-white rounded-xl p-4 text-left transition-all group">
+                  <div className="mt-0.5 flex-shrink-0">
+                    <svg className="w-5 h-5 text-black/40 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-1.447-.894L15 9m0 8V9m0 0L9 7"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold">Floor Plan</p>
+                    <p className="text-xs text-black/40 group-hover:text-white/60 mt-0.5 leading-relaxed">
+                      Upload a PDF floor plan and extract wall geometry as a print path.
+                    </p>
+                  </div>
+                </button>
+                <button onClick={() => setShowSlicerPicker(false)}
+                  className="w-full py-2 text-xs text-black/30 hover:text-black transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="bg-black border-b border-white/10">
         <div className="max-w-5xl mx-auto px-6 py-1 flex items-center justify-between">
@@ -239,7 +294,7 @@ export default function Home() {
               <motion.button key={tool.key}
                 initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.07 + 0.05 }}
-                onClick={() => router.push(tool.route)}
+                onClick={() => tool.key === 'slicer' ? setShowSlicerPicker(true) : router.push(tool.route)}
                 className="group bg-white border border-gray-100 rounded-2xl p-6 text-left shadow-sm hover:shadow-md hover:border-black transition-all duration-200">
                 <div className="w-12 h-12 rounded-xl bg-gray-50 group-hover:bg-black group-hover:text-white flex items-center justify-center mb-5 transition-all text-black/40">
                   {tool.icon}

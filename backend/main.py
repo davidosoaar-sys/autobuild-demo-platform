@@ -4,7 +4,7 @@ AutoBuild AI — FastAPI backend
 Adaptive 3DCP slicer with Sikacrete-733 W 3D + live weather.
 """
 
-import os, uuid, json, time, math, random
+import os, uuid, json, time, math, random, base64
 from typing import Optional, List
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -92,6 +92,33 @@ async def scan_endpoint(
         raise HTTPException(500, f"Scan failed: {e}")
 
     return result
+
+
+# ── Floor plan endpoints ──────────────────────────────────────────────────────
+
+@app.post("/floorplan/preview")
+async def floorplan_preview(file: UploadFile = File(...)):
+    import fitz
+    try:
+        file_bytes = await file.read()
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        mat  = fitz.Matrix(2.0, 2.0)
+        pix  = page.get_pixmap(matrix=mat, alpha=False)
+        png_bytes = pix.tobytes("png")
+        result = {
+            "image_base64":   base64.b64encode(png_bytes).decode("utf-8"),
+            "page_width_pt":  float(page.rect.width),
+            "page_height_pt": float(page.rect.height),
+            "zoom":           2.0,
+            "image_width_px": pix.width,
+            "image_height_px": pix.height,
+            "page_count":     doc.page_count,
+        }
+        doc.close()
+        return result
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ── Weather endpoints ─────────────────────────────────────────────────────────
