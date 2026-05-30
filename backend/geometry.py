@@ -345,10 +345,10 @@ def _slice_layer(
                       f"area={abs(area_i):.4f} compactness={comp:.4f} npts={len(pts_i)}",
                       flush=True)
 
-        segments = _walls_and_zigzag(contours, MIN_LEN)
+        segments = _geometry_path(contours, depths, MIN_LEN)
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"contours={len(contours)} segments={len(segments)} (walls+zigzag)",
+            f"contours={len(contours)} segments={len(segments)}",
             flush=True,
         )
         return segments
@@ -428,27 +428,20 @@ def _slice_layer(
 
 
 
-def _walls_and_zigzag(contours, MIN_LEN):
-    """Inner walls + connected zigzag, both ends closed into one loop."""
-    if not contours:
-        return []
-    def slen(p0, p1):
-        return ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2) ** 0.5
+def _wall_zigzag_path(contours, MIN_LEN):
+    """Two inner walls + one connected zigzag woven between them, ends closed."""
+    def slen(a, b):
+        return ((b[0]-a[0])**2 + (b[1]-a[1])**2) ** 0.5
     outer = max(range(len(contours)), key=lambda i: contours[i][1])
     cells = [contours[i] for i in range(len(contours)) if i != outer]
-    if not cells:
-        P = contours[outer][0]; n = len(P)
-        return [(P[k], P[(k+1) % n]) for k in range(n)
-                if slen(P[k], P[(k+1) % n]) >= MIN_LEN]
     allpts = [p for (P, _, _) in cells for p in P]
     ys = [p[1] for p in allpts]; xs = [p[0] for p in allpts]
     ytop, ybot = max(ys), min(ys)
     xmin, xmax = min(xs), max(xs)
     info = sorted((sum(p[0] for p in P)/len(P), min(p[0] for p in P), max(p[0] for p in P))
                   for (P, _, _) in cells)
-    segs = [((xmin, ytop), (xmax, ytop)), ((xmin, ybot), (xmax, ybot))]
-    segs.append(((xmin, ybot), (xmin, ytop)))   # left end cap
-    segs.append(((xmax, ybot), (xmax, ytop)))   # right end cap
+    segs = [((xmin, ytop), (xmax, ytop)), ((xmin, ybot), (xmax, ybot)),
+            ((xmin, ybot), (xmin, ytop)), ((xmax, ybot), (xmax, ytop))]
     rail = ybot
     prev = (xmin, rail)
     for (cx, lx, rx) in info:
@@ -461,6 +454,33 @@ def _walls_and_zigzag(contours, MIN_LEN):
     if slen(prev, end) >= MIN_LEN:
         segs.append((prev, end))
     return segs
+
+def _inner_trace_path(contours, depths, MIN_LEN):
+    """Trace every contour; for thick walls keep inner face (drop even-depth
+    compact faces). General fallback for any model."""
+    def slen(a, b):
+        return ((b[0]-a[0])**2 + (b[1]-a[1])**2) ** 0.5
+    HOLE_COMPACTNESS = 0.01
+    segs = []
+    for i, (P, per, a) in enumerate(contours):
+        comp = abs(a) / (per ** 2) if per > 0 else 0
+        if comp > HOLE_COMPACTNESS and depths[i] % 2 == 0:
+            continue
+        n = len(P)
+        for k in range(n):
+            if slen(P[k], P[(k+1) % n]) >= MIN_LEN:
+                segs.append((P[k], P[(k+1) % n]))
+    return segs
+
+def _geometry_path(contours, depths, MIN_LEN):
+    """Dispatcher: wall-with-infill -> woven zigzag; else inner-trace."""
+    if len(contours) >= 4:
+        areas = sorted(abs(a) for (_, _, a) in contours)
+        big = areas[-1]
+        small = [a for a in areas[:-1] if a < big * 0.05]
+        if len(small) >= 4:
+            return _wall_zigzag_path(contours, MIN_LEN)
+    return _inner_trace_path(contours, depths, MIN_LEN)
 
 
 def _chain_path(segs: List[Segment]) -> List[Segment]:
