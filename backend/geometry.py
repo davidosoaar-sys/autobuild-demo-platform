@@ -429,9 +429,7 @@ def _slice_layer(
 
 
 def _walls_and_zigzag(contours, MIN_LEN):
-    """Inner walls + connected zigzag from the model's own infill cells.
-    Drops the outer wall face, keeps two inner rails, weaves one continuous
-    zigzag between them using the model's infill cells ordered left to right."""
+    """Inner walls + connected zigzag, both ends closed into one loop."""
     if not contours:
         return []
     def slen(p0, p1):
@@ -449,14 +447,19 @@ def _walls_and_zigzag(contours, MIN_LEN):
     info = sorted((sum(p[0] for p in P)/len(P), min(p[0] for p in P), max(p[0] for p in P))
                   for (P, _, _) in cells)
     segs = [((xmin, ytop), (xmax, ytop)), ((xmin, ybot), (xmax, ybot))]
+    segs.append(((xmin, ybot), (xmin, ytop)))   # left end cap
+    segs.append(((xmax, ybot), (xmax, ytop)))   # right end cap
     rail = ybot
-    prev = (info[0][1], rail)
+    prev = (xmin, rail)
     for (cx, lx, rx) in info:
         rail = ytop if rail == ybot else ybot
         nxt = (rx, rail)
         if slen(prev, nxt) >= MIN_LEN:
             segs.append((prev, nxt))
         prev = nxt
+    end = (xmax, prev[1])
+    if slen(prev, end) >= MIN_LEN:
+        segs.append((prev, end))
     return segs
 
 
