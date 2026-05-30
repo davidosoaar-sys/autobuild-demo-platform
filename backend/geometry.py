@@ -345,32 +345,10 @@ def _slice_layer(
                       f"area={abs(area_i):.4f} compactness={comp:.4f} npts={len(pts_i)}",
                       flush=True)
 
-        # Keep the INNER edge of every wall, drop the outer edge.
-        # Nested walls alternate by depth: even depth = outer face (drop),
-        # odd depth = inner face (keep). Works for any number of walls.
-        # Thin contours (near-zero area, e.g. struts) are always kept.
-        HOLE_COMPACTNESS = 0.01
-        raw_segments: List[Segment] = []
-        traced = dropped = 0
-        for i, (pts_i, perim_i, area_i) in enumerate(contours):
-            compactness = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
-            is_compact = compactness > HOLE_COMPACTNESS
-            # Drop only compact contours sitting at even depth (outer wall faces).
-            if is_compact and depths[i] % 2 == 0:
-                dropped += 1
-                continue
-            traced += 1
-            n = len(pts_i)
-            for k in range(n):
-                p0 = pts_i[k]
-                p1 = pts_i[(k + 1) % n]
-                if ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5 >= MIN_LEN:
-                    raw_segments.append((p0, p1))
-        segments = _chain_path(raw_segments)
+        segments = _walls_and_zigzag(contours, MIN_LEN)
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"contours={len(contours)} traced={traced} dropped={dropped} "
-            f"segments={len(segments)} (inner-edge, chained)",
+            f"contours={len(contours)} segments={len(segments)} (walls+zigzag)",
             flush=True,
         )
         return segments
@@ -448,6 +426,38 @@ def _slice_layer(
     )
     return segments
 
+
+
+def _walls_and_zigzag(contours, MIN_LEN):
+    """Inner walls + connected zigzag from the model's own infill cells.
+    Drops the outer wall face, keeps two inner rails, weaves one continuous
+    zigzag between them using the model's infill cells ordered left to right."""
+    if not contours:
+        return []
+    def slen(p0, p1):
+        return ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2) ** 0.5
+    outer = max(range(len(contours)), key=lambda i: contours[i][1])
+    cells = [contours[i] for i in range(len(contours)) if i != outer]
+    if not cells:
+        P = contours[outer][0]; n = len(P)
+        return [(P[k], P[(k+1) % n]) for k in range(n)
+                if slen(P[k], P[(k+1) % n]) >= MIN_LEN]
+    allpts = [p for (P, _, _) in cells for p in P]
+    ys = [p[1] for p in allpts]; xs = [p[0] for p in allpts]
+    ytop, ybot = max(ys), min(ys)
+    xmin, xmax = min(xs), max(xs)
+    info = sorted((sum(p[0] for p in P)/len(P), min(p[0] for p in P), max(p[0] for p in P))
+                  for (P, _, _) in cells)
+    segs = [((xmin, ytop), (xmax, ytop)), ((xmin, ybot), (xmax, ybot))]
+    rail = ybot
+    prev = (info[0][1], rail)
+    for (cx, lx, rx) in info:
+        rail = ytop if rail == ybot else ybot
+        nxt = (rx, rail)
+        if slen(prev, nxt) >= MIN_LEN:
+            segs.append((prev, nxt))
+        prev = nxt
+    return segs
 
 
 def _chain_path(segs: List[Segment]) -> List[Segment]:
