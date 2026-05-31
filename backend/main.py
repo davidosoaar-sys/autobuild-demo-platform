@@ -97,7 +97,7 @@ async def scan_endpoint(
 # ── Floor plan endpoints ──────────────────────────────────────────────────────
 
 from pdf_walls import (
-    group_key, classify_drawing, rgb_to_hex,
+    group_key, classify_drawing, rgb_to_hex, normalize_color,
     clean_hex, drawing_matches_exact_color, point_xy,
 )
 
@@ -186,43 +186,169 @@ async def floorplan_pick(
         return {"error": str(e)}
 
 
-@app.post("/floorplan/extract")
-async def floorplan_extract(
-    file:          UploadFile = File(...),
-    color_hex:     str        = Form(""),
-    segments_json: str        = Form("[]"),
-):
+@app.post("/floorplan/legend_colors")
+async def floorplan_legend_colors(file: UploadFile = File(...)):
     import fitz
     try:
         file_bytes = await file.read()
         doc  = fitz.open(stream=file_bytes, filetype="pdf")
         page = doc[0]
+        W    = page.rect.width
+        split = W * 0.62
+        drawings = page.get_drawings()
+
+        # Collect distinct fill colors found in the legend region (right side)
+        legend_hexes: dict = {}   # hex -> legend_count
+        for d in drawings:
+            rect = d.get("rect")
+            if rect is None:
+                continue
+            cx = (rect.x0 + rect.x1) / 2.0
+            if cx <= split:
+                continue
+            fill = normalize_color(d.get("fill"))
+            if fill is None:
+                continue
+            # Skip white
+            if fill[0] > 0.98 and fill[1] > 0.98 and fill[2] > 0.98:
+                continue
+            h = rgb_to_hex(fill)
+            if h == "-":
+                continue
+            legend_hexes[h] = legend_hexes.get(h, 0) + 1
+
+        # Count each legend color on the plan side (left side)
+        result = []
+        for h, lcount in legend_hexes.items():
+            plan_count = sum(
+                1 for d in drawings
+                if (r := d.get("rect")) is not None
+                and (r.x0 + r.x1) / 2.0 <= split
+                and drawing_matches_exact_color(d, h)
+            )
+            if plan_count >= 1:
+                result.append({"hex": h, "legend_count": lcount, "plan_count": plan_count})
+
+        result.sort(key=lambda x: x["plan_count"], reverse=True)
+        doc.close()
+        return {"legend_colors": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/floorplan/color_at")
+async def floorplan_color_at(
+    file: UploadFile = File(...),
+    px:   float      = Form(...),
+    py:   float      = Form(...),
+    tol:  float      = Form(4.0),
+):
+    import fitz
+
+    def _pt_seg_dist(qx, qy, x0, y0, x1, y1):
+        dx, dy = x1 - x0, y1 - y0
+        if dx == 0 and dy == 0:
+            return math.hypot(qx - x0, qy - y0)
+        t = max(0.0, min(1.0, ((qx - x0) * dx + (qy - y0) * dy) / (dx * dx + dy * dy)))
+        return math.hypot(qx - (x0 + t * dx), qy - (y0 + t * dy))
+
+    try:
+        file_bytes = await file.read()
+        doc  = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        best_dist = float("inf")
+        best_hex  = None
+        for d in page.get_drawings():
+            fill_hex   = rgb_to_hex(d.get("fill"))
+            stroke_hex = rgb_to_hex(d.get("color"))
+            candidate  = fill_hex if fill_hex != "-" else stroke_hex if stroke_hex != "-" else None
+            if candidate is None:
+                continue
+            for item in d.get("items") or []:
+                op   = item[0] if item else None
+                segs = []
+                if op == "l" and len(item) >= 3:
+                    p1 = point_xy(item[1]); p2 = point_xy(item[2])
+                    if p1 and p2:
+                        segs.append((p1, p2))
+                elif op == "re" and len(item) >= 2:
+                    r = item[1]
+                    try:
+                        c = [(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)]
+                        for i in range(4):
+                            segs.append((c[i], c[(i + 1) % 4]))
+                    except Exception:
+                        pass
+                for p1, p2 in segs:
+                    dist = _pt_seg_dist(px, py, p1[0], p1[1], p2[0], p2[1])
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_hex  = candidate
+        doc.close()
+        if best_hex and best_dist <= tol:
+            return {"hit": True, "hex": best_hex}
+        return {"hit": False}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/floorplan/extract")
+async def floorplan_extract(
+    file:          UploadFile = File(...),
+    color_hex:     str        = Form(""),
+    colors_json:   str        = Form("[]"),
+    segments_json: str        = Form("[]"),
+):
+    import fitz
+
+    def _drawing_segs(d):
+        out = []
+        for item in d.get("items") or []:
+            op = item[0] if item else None
+            if op == "l" and len(item) >= 3:
+                p1 = point_xy(item[1]); p2 = point_xy(item[2])
+                if p1 and p2:
+                    out.append([list(p1), list(p2)])
+            elif op == "re" and len(item) >= 2:
+                r = item[1]
+                try:
+                    c = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]]
+                    for i in range(4):
+                        out.append([c[i], c[(i + 1) % 4]])
+                except Exception:
+                    pass
+        return out
+
+    try:
+        file_bytes = await file.read()
+        doc  = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        drawings = page.get_drawings()
         segments = []
-        target = clean_hex(color_hex)
-        if target:
-            for d in page.get_drawings():
-                if not drawing_matches_exact_color(d, target):
-                    continue
-                for item in d.get("items") or []:
-                    op = item[0] if item else None
-                    if op == "l" and len(item) >= 3:
-                        p1 = point_xy(item[1])
-                        p2 = point_xy(item[2])
-                        if p1 and p2:
-                            segments.append([list(p1), list(p2)])
-                    elif op == "re" and len(item) >= 2:
-                        r = item[1]
-                        try:
-                            c = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]]
-                            for i in range(4):
-                                segments.append([c[i], c[(i + 1) % 4]])
-                        except Exception:
-                            pass
+
+        # Build full set of target colors (single + list)
+        targets = set()
+        if t := clean_hex(color_hex):
+            targets.add(t)
+        try:
+            for h in json.loads(colors_json):
+                if t := clean_hex(h):
+                    targets.add(t)
+        except Exception:
+            pass
+
+        for target in targets:
+            for d in drawings:
+                if drawing_matches_exact_color(d, target):
+                    segments.extend(_drawing_segs(d))
+
+        # Add manually clicked segments
         try:
             for seg in json.loads(segments_json):
                 segments.append(seg)
         except Exception:
             pass
+
         width_pt  = float(page.rect.width)
         height_pt = float(page.rect.height)
         doc.close()
