@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
@@ -16,8 +16,7 @@ const LayerVisualization = dynamic(
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Temporary visualization-only scale: 1 PDF point → 0.01 m.
-// Replace with a real scale factor derived from the drawing's stated scale (e.g. 1:50).
+// TODO: replace with real 1:50 scale later — temporary visualization-only placeholder
 const PT_TO_M = 0.01;
 
 interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; }
@@ -36,6 +35,7 @@ interface HatchSignature { angle: number; spacing: number; }
 
 type Seg  = [[number, number], [number, number]];
 type Mode = 'line' | 'color' | 'pattern';
+type View = 'select' | 'review';
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -66,6 +66,9 @@ function NumInput({ label, value, onChange, min, max, step, unit }: {
 export default function FloorPlanPage() {
   const router = useRouter();
 
+  // ── View ──────────────────────────────────────────────────────────────────
+  const [view, setView] = useState<View>('select');
+
   // ── Core state ────────────────────────────────────────────────────────────
   const [pdfFile,         setPdfFile]         = useState<File | null>(null);
   const [preview,         setPreview]         = useState<PreviewData | null>(null);
@@ -82,13 +85,13 @@ export default function FloorPlanPage() {
   const [angleTol,          setAngleTol]          = useState(8);
   const [spacingTol,        setSpacingTol]        = useState(0.5);
 
-  // ── Output state ──────────────────────────────────────────────────────────
+  // ── Output / wall state ───────────────────────────────────────────────────
   const [wallSegments,      setWallSegments]      = useState<Seg[]>([]);
   const [extracting,        setExtracting]        = useState(false);
   const [patternExtracting, setPatternExtracting] = useState(false);
   const [patternStats,      setPatternStats]      = useState<{matched:number;count:number}|null>(null);
 
-  // ── 3D state ──────────────────────────────────────────────────────────────
+  // ── 3D / review state ─────────────────────────────────────────────────────
   const [wallHeightMm,  setWallHeightMm]  = useState(2500);
   const [layerHeightMm, setLayerHeightMm] = useState(50);
   const [toolpath,      setToolpath]      = useState<Layer[] | null>(null);
@@ -102,6 +105,7 @@ export default function FloorPlanPage() {
     setSelectedColors([]); setClickedSegments([]);
     setSelectedSignature(null); setPatternStats(null);
     setWallSegments([]); setToolpath(null);
+    setView('select');
     if (!file) { setStatusMsg('Upload a PDF to begin'); return; }
     setLoading(true); setStatusMsg('Loading…');
     try {
@@ -127,7 +131,7 @@ export default function FloorPlanPage() {
     } finally { setLoading(false); }
   }
 
-  // ── Image click — branches on mode ────────────────────────────────────────
+  // ── Image click ───────────────────────────────────────────────────────────
   async function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
     if (!preview || !pdfFile) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -142,7 +146,6 @@ export default function FloorPlanPage() {
         const data = await fetch(`${API}/floorplan/pick`, { method: 'POST', body: fd }).then(r => r.json());
         if (data.hit && data.segment) setClickedSegments(prev => [...prev, data.segment as Seg]);
       } catch { /* silent */ }
-
     } else if (mode === 'color') {
       const fd = new FormData();
       fd.append('file', pdfFile); fd.append('px', String(pdfX));
@@ -151,28 +154,21 @@ export default function FloorPlanPage() {
         const data = await fetch(`${API}/floorplan/color_at`, { method: 'POST', body: fd }).then(r => r.json());
         if (data.hit && data.hex) toggleColor(data.hex);
       } catch { /* silent */ }
-
     } else {
-      // pattern mode — detect hatch signature at click point
       const fd = new FormData();
       fd.append('file', pdfFile); fd.append('px', String(pdfX));
       fd.append('py', String(pdfY)); fd.append('tol', '6');
       try {
         const data = await fetch(`${API}/floorplan/signature_at`, { method: 'POST', body: fd }).then(r => r.json());
-        if (data.hit) {
-          setSelectedSignature({ angle: data.angle, spacing: data.spacing });
-          setPatternStats(null);
-        }
+        if (data.hit) { setSelectedSignature({ angle: data.angle, spacing: data.spacing }); setPatternStats(null); }
       } catch { /* silent */ }
     }
   }
 
-  // ── Color helpers ─────────────────────────────────────────────────────────
   function toggleColor(hex: string) {
     setSelectedColors(prev => prev.includes(hex) ? prev.filter(h => h !== hex) : [...prev, hex]);
   }
 
-  // ── Extract (color + line modes) ──────────────────────────────────────────
   async function handleExtract() {
     if (!pdfFile) return;
     setExtracting(true); setToolpath(null);
@@ -190,13 +186,12 @@ export default function FloorPlanPage() {
     } finally { setExtracting(false); }
   }
 
-  // ── Extract by pattern ────────────────────────────────────────────────────
   async function handlePatternExtract() {
     if (!pdfFile || !selectedSignature) return;
     setPatternExtracting(true); setToolpath(null);
     try {
       const fd = new FormData();
-      fd.append('file',        pdfFile);
+      fd.append('file', pdfFile);
       fd.append('angle',       String(selectedSignature.angle));
       fd.append('spacing',     String(selectedSignature.spacing));
       fd.append('angle_tol',   String(angleTol));
@@ -205,14 +200,14 @@ export default function FloorPlanPage() {
       if (data.error) { setStatusMsg(`Pattern extract error: ${data.error}`); return; }
       setWallSegments((data.segments ?? []) as Seg[]);
       setPatternStats({ matched: data.matched_objects, count: data.count });
-      setStatusMsg(`Pattern: ${data.matched_objects} objects matched · ${data.count} segments`);
+      setStatusMsg(`Pattern: ${data.matched_objects} objects · ${data.count} segments`);
     } catch (err: any) {
       setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
     } finally { setPatternExtracting(false); }
   }
 
-  // ── 3D visualize ──────────────────────────────────────────────────────────
-  function handleVisualize() {
+  // ── Generate 3D from review screen ────────────────────────────────────────
+  function handleGenerate() {
     if (!wallSegments.length) return;
     const base: Layer = wallSegments.map(s => ({
       x0: s[0][0] * PT_TO_M, y0: s[0][1] * PT_TO_M,
@@ -223,6 +218,25 @@ export default function FloorPlanPage() {
     setToolpath(Array.from({ length: n }, () => base));
   }
 
+  // ── Review SVG: fit all wallSegments into a fixed-width canvas ────────────
+  const reviewSvg = useMemo(() => {
+    if (!wallSegments.length) return null;
+    const SVG_W = 900; const PAD = 24;
+    const xs = wallSegments.flatMap(s => [s[0][0], s[1][0]]);
+    const ys = wallSegments.flatMap(s => [s[0][1], s[1][1]]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const dataW = maxX - minX || 1;
+    const dataH = maxY - minY || 1;
+    const scale = (SVG_W - PAD * 2) / Math.max(dataW, dataH);
+    const svgH  = dataH * scale + PAD * 2;
+    // Y is flipped: PDF y grows down in fitz, but we still want top-of-plan at top.
+    // Just map consistently: svg_y = PAD + (y - minY) * scale
+    const tx = (x: number) => PAD + (x - minX) * scale;
+    const ty = (y: number) => PAD + (y - minY) * scale;
+    return { SVG_W, svgH, tx, ty };
+  }, [wallSegments]);
+
   function swatchOf(g: Group) {
     return g.fill_hex !== '-' ? g.fill_hex : g.stroke_hex !== '-' ? g.stroke_hex : '#888';
   }
@@ -230,38 +244,147 @@ export default function FloorPlanPage() {
     return g.fill_hex !== '-' ? g.fill_hex : g.stroke_hex !== '-' ? g.stroke_hex : '';
   }
 
-  const computedLayers = Math.max(1, Math.round((wallHeightMm / 1000) / (layerHeightMm / 1000)));
   const hasColorLineSelection = selectedColors.length > 0 || clickedSegments.length > 0;
-
-  const modeCursor = mode === 'color' ? 'cell' : mode === 'pattern' ? 'crosshair' : 'crosshair';
+  const computedLayers = Math.max(1, Math.round((wallHeightMm / 1000) / (layerHeightMm / 1000)));
   const modeHint = mode === 'line'
     ? 'Click any line on the plan to select it individually.'
     : mode === 'color'
     ? 'Click any element to select all objects of that color.'
     : 'Click any hatch on the plan or legend to detect its pattern signature.';
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // REVIEW VIEW
+  // ══════════════════════════════════════════════════════════════════════════
+  if (view === 'review') {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <header className="border-b border-gray-100 bg-white sticky top-0 z-20 flex-shrink-0">
+          <div className="px-6 py-1 flex items-center justify-between">
+            <button onClick={() => router.push('/')} className="-my-4 sm:-my-6">
+              <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400}
+                className="h-24 sm:h-36 w-auto" />
+            </button>
+            <span className="text-sm font-medium text-black/30">Floor Plan — Review</span>
+          </div>
+        </header>
+
+        <main className="flex-1 flex flex-col items-center px-6 py-10">
+          <div className="w-full max-w-4xl space-y-8">
+
+            {/* Top bar */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-black tracking-tight">Review selected walls</h1>
+                <p className="text-sm text-black/40 mt-1">
+                  {wallSegments.length} segment{wallSegments.length !== 1 ? 's' : ''} selected
+                </p>
+              </div>
+              <button onClick={() => { setToolpath(null); setView('select'); }}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl
+                  text-sm font-medium text-black/60 hover:border-black hover:text-black transition-all">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Back to add more
+              </button>
+            </div>
+
+            {/* 2D wall preview — clean, no background image */}
+            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+              {reviewSvg ? (
+                <svg
+                  width="100%"
+                  viewBox={`0 0 ${reviewSvg.SVG_W} ${reviewSvg.svgH}`}
+                  style={{ display: 'block' }}
+                >
+                  <rect width={reviewSvg.SVG_W} height={reviewSvg.svgH} fill="white" />
+                  {wallSegments.map((seg, i) => (
+                    <line key={i}
+                      x1={reviewSvg.tx(seg[0][0])} y1={reviewSvg.ty(seg[0][1])}
+                      x2={reviewSvg.tx(seg[1][0])} y2={reviewSvg.ty(seg[1][1])}
+                      stroke="#111" strokeWidth={1.5} strokeLinecap="round" />
+                  ))}
+                </svg>
+              ) : (
+                <div className="flex items-center justify-center py-20">
+                  <p className="text-sm text-black/25">No wall segments to display</p>
+                </div>
+              )}
+            </div>
+
+            {/* Height controls + generate */}
+            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+              <SectionLabel>Print parameters</SectionLabel>
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <NumInput label="Wall height (mm)" value={wallHeightMm}
+                  onChange={setWallHeightMm} min={100} max={20000} step={50} />
+                <NumInput label="Layer height (mm)" value={layerHeightMm}
+                  onChange={setLayerHeightMm} min={1} max={500} step={5} />
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-black/30">{computedLayers} layers</p>
+                <button onClick={handleGenerate}
+                  className="px-6 py-2.5 bg-black text-white text-sm font-semibold rounded-xl
+                    hover:bg-black/80 transition-all">
+                  Generate 3D
+                </button>
+              </div>
+            </div>
+
+            {/* 3D viewer */}
+            {toolpath && (
+              <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
+                style={{ height: '600px' }}>
+                <LayerVisualization
+                  file={null as any}
+                  toolpath={toolpath as any}
+                  numLayers={numLayers3d}
+                  layerHeight={layerHeightMm / 1000}
+                  nozzleDiameter={0.025}
+                />
+              </div>
+            )}
+
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SELECT VIEW (existing UI)
+  // ══════════════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
 
-      {/* ── Header ────────────────────────────────────────────────────────── */}
       <header className="border-b border-gray-100 bg-white sticky top-0 z-20 flex-shrink-0">
         <div className="px-6 py-1 flex items-center justify-between">
           <button onClick={() => router.push('/')} className="-my-4 sm:-my-6">
             <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400}
               className="h-24 sm:h-36 w-auto" />
           </button>
-          <span className="text-sm font-medium text-black/30">Floor Plan</span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-black/30">Floor Plan</span>
+            {wallSegments.length > 0 && (
+              <button onClick={() => setView('review')}
+                className="flex items-center gap-2 px-4 py-2 bg-black text-white text-sm
+                  font-semibold rounded-xl hover:bg-black/80 transition-all">
+                Review selection
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
-      {/* ── Two-column body ───────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
 
         {/* ── Sidebar ─────────────────────────────────────────────────────── */}
         <aside className="w-72 flex-shrink-0 bg-white border-r border-gray-100 overflow-y-auto flex flex-col">
           <div className="flex flex-col flex-1 divide-y divide-gray-100">
 
-            {/* Upload */}
             <section className="p-5">
               <SectionLabel>Floor Plan PDF</SectionLabel>
               <input type="file" accept=".pdf" onChange={handleFileChange}
@@ -271,7 +394,6 @@ export default function FloorPlanPage() {
                   hover:file:bg-black/80 file:cursor-pointer cursor-pointer transition-all" />
             </section>
 
-            {/* Click mode */}
             {pdfFile && (
               <section className="p-5">
                 <SectionLabel>Click Mode</SectionLabel>
@@ -288,11 +410,10 @@ export default function FloorPlanPage() {
               </section>
             )}
 
-            {/* ── Pattern mode panel ─────────────────────────────────────── */}
+            {/* Pattern panel */}
             {pdfFile && mode === 'pattern' && (
               <section className="p-5 space-y-4">
                 <SectionLabel>Hatch Pattern</SectionLabel>
-
                 {selectedSignature ? (
                   <div className="bg-gray-50 rounded-xl p-3 space-y-1">
                     <p className="text-xs font-semibold text-black/70">Detected pattern</p>
@@ -306,37 +427,32 @@ export default function FloorPlanPage() {
                   </div>
                 ) : (
                   <p className="text-[11px] text-black/25 italic">
-                    Click a hatch area on the plan or legend to detect its signature.
+                    Click a hatch area to detect its signature.
                   </p>
                 )}
-
                 <div className="space-y-3">
                   <NumInput label="Angle tolerance (°)" value={angleTol}
                     onChange={setAngleTol} min={1} max={45} step={1} />
                   <NumInput label="Spacing tolerance (pt)" value={spacingTol}
                     onChange={setSpacingTol} min={0.1} max={10} step={0.1} />
                 </div>
-
-                <button
-                  onClick={handlePatternExtract}
+                <button onClick={handlePatternExtract}
                   disabled={!selectedSignature || patternExtracting}
                   className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl
                     hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                   {patternExtracting ? 'Matching…' : 'Select all this pattern'}
                 </button>
-
                 {patternStats && (
                   <p className="text-[11px] text-black/40 text-center">
-                    {patternStats.matched} objects matched · {patternStats.count} segments
+                    {patternStats.matched} objects · {patternStats.count} segments
                   </p>
                 )}
               </section>
             )}
 
-            {/* ── Color + line mode panels ───────────────────────────────── */}
+            {/* Color + line panels */}
             {pdfFile && mode !== 'pattern' && (
               <>
-                {/* Legend colors */}
                 {legendColors.length > 0 && (
                   <section className="p-5">
                     <SectionLabel>Legend Colors</SectionLabel>
@@ -362,7 +478,6 @@ export default function FloorPlanPage() {
                   </section>
                 )}
 
-                {/* All vector colors */}
                 {groups.length > 0 && (
                   <section className="p-5">
                     <SectionLabel>All Colors ({groups.length})</SectionLabel>
@@ -389,10 +504,8 @@ export default function FloorPlanPage() {
                   </section>
                 )}
 
-                {/* Selection summary + extract */}
                 <section className="p-5 space-y-4">
                   <SectionLabel>Selection</SectionLabel>
-
                   {selectedColors.length > 0 ? (
                     <div>
                       <div className="flex flex-wrap gap-1.5 mb-1.5">
@@ -410,7 +523,6 @@ export default function FloorPlanPage() {
                   ) : (
                     <p className="text-[11px] text-black/25 italic">No colors selected</p>
                   )}
-
                   <div className="flex items-start justify-between gap-2">
                     <div className="space-y-0.5">
                       <p className="text-[11px] text-black/40">
@@ -437,7 +549,6 @@ export default function FloorPlanPage() {
                       )}
                     </div>
                   </div>
-
                   <button onClick={handleExtract} disabled={!hasColorLineSelection || extracting}
                     className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl
                       hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
@@ -447,7 +558,7 @@ export default function FloorPlanPage() {
               </>
             )}
 
-            {/* Clear walls (shared across modes) */}
+            {/* Shared: clear walls */}
             {wallSegments.length > 0 && (
               <section className="p-5">
                 <div className="flex items-center justify-between">
@@ -460,28 +571,17 @@ export default function FloorPlanPage() {
               </section>
             )}
 
-            {/* 3D visualisation */}
+            {/* Review CTA in sidebar */}
             {wallSegments.length > 0 && (
-              <section className="p-5 space-y-4">
-                <SectionLabel>3D Visualisation</SectionLabel>
-                <div className="space-y-3">
-                  <NumInput label="Wall height (mm)" value={wallHeightMm}
-                    onChange={setWallHeightMm} min={100} max={20000} step={50} />
-                  <NumInput label="Layer height (mm)" value={layerHeightMm}
-                    onChange={setLayerHeightMm} min={1} max={500} step={5} />
-                </div>
-                <p className="text-[11px] text-black/30">{computedLayers} layers</p>
-                <button onClick={handleVisualize}
+              <section className="p-5">
+                <button onClick={() => setView('review')}
                   className="w-full py-2.5 border-2 border-black text-black text-sm font-semibold
-                    rounded-xl hover:bg-black hover:text-white transition-all">
-                  Visualize in 3D
+                    rounded-xl hover:bg-black hover:text-white transition-all flex items-center justify-center gap-2">
+                  Review selection
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </button>
-                {toolpath && (
-                  <button onClick={() => setToolpath(null)}
-                    className="w-full text-[11px] text-black/30 hover:text-black transition-colors">
-                    Hide viewer
-                  </button>
-                )}
               </section>
             )}
 
@@ -490,8 +590,6 @@ export default function FloorPlanPage() {
 
         {/* ── Main panel ──────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto flex flex-col">
-
-          {/* Status bar */}
           <div className="px-6 py-3 border-b border-gray-100 bg-white flex items-center gap-3 flex-shrink-0">
             {loading && (
               <div className="w-3.5 h-3.5 border-2 border-black/20 border-t-black rounded-full animate-spin flex-shrink-0" />
@@ -513,8 +611,7 @@ export default function FloorPlanPage() {
             </div>
           </div>
 
-          {/* Preview + viewer */}
-          <div className="flex-1 p-6 space-y-4">
+          <div className="flex-1 p-6">
             <div className={`rounded-2xl overflow-hidden border bg-white shadow-sm flex items-center justify-center
               ${preview ? 'border-gray-100' : 'border-2 border-dashed border-gray-200'}`}
               style={{ minHeight: '480px' }}>
@@ -533,7 +630,7 @@ export default function FloorPlanPage() {
                     src={`data:image/png;base64,${preview.image_base64}`}
                     alt="PDF preview"
                     className="w-full h-auto block"
-                    style={{ cursor: modeCursor }}
+                    style={{ cursor: mode === 'color' ? 'cell' : 'crosshair' }}
                     onClick={handleImageClick}
                   />
                   <svg
@@ -566,22 +663,9 @@ export default function FloorPlanPage() {
                 </div>
               )}
             </div>
-
-            {toolpath && (
-              <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
-                style={{ height: '600px' }}>
-                <LayerVisualization
-                  file={null}
-                  toolpath={toolpath as any}
-                  numLayers={numLayers3d}
-                  layerHeight={layerHeightMm / 1000}
-                  nozzleDiameter={0.025}
-                />
-              </div>
-            )}
           </div>
-
         </div>
+
       </div>
     </div>
   );
