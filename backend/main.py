@@ -5,6 +5,7 @@ Adaptive 3DCP slicer with Sikacrete-733 W 3D + live weather.
 """
 
 import os, uuid, json, time, math, random, base64
+from collections import defaultdict
 from typing import Optional, List
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -92,6 +93,44 @@ async def scan_endpoint(
         raise HTTPException(500, f"Scan failed: {e}")
 
     return result
+
+
+# ── Floor plan helpers ────────────────────────────────────────────────────────
+
+def _drawing_segments(d):
+    out = []
+    for it in d.get("items") or []:
+        if it and it[0] == "l" and len(it) >= 3:
+            a, b = it[1], it[2]
+            try:
+                out.append(((a.x, a.y), (b.x, b.y)))
+            except Exception:
+                out.append(((a[0], a[1]), (b[0], b[1])))
+    return out
+
+
+def _hatch_signature(d):
+    segs = _drawing_segments(d)
+    if len(segs) < 3:
+        return None
+    angs = []
+    for (a, b) in segs:
+        angs.append(math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) % 180)
+    h = defaultdict(int)
+    for a in angs:
+        h[round(a / 5) * 5] += 1
+    dom_ang, dom_n = max(h.items(), key=lambda x: x[1])
+    if dom_n < 3:
+        return None
+    rad = math.radians(dom_ang)
+    nx, ny = -math.sin(rad), math.cos(rad)
+    mids = sorted(
+        ((a[0] + b[0]) / 2) * nx + ((a[1] + b[1]) / 2) * ny
+        for (a, b) in segs
+    )
+    gaps = [mids[i + 1] - mids[i] for i in range(len(mids) - 1) if mids[i + 1] - mids[i] > 0.3]
+    spacing = round(sorted(gaps)[len(gaps) // 2], 1) if gaps else 0.0
+    return (float(dom_ang), float(spacing))
 
 
 # ── Floor plan endpoints ──────────────────────────────────────────────────────
@@ -288,6 +327,86 @@ async def floorplan_color_at(
         if best_hex and best_dist <= tol:
             return {"hit": True, "hex": best_hex}
         return {"hit": False}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/floorplan/signature_at")
+async def floorplan_signature_at(
+    file: UploadFile = File(...),
+    px:   float      = Form(...),
+    py:   float      = Form(...),
+    tol:  float      = Form(6.0),
+):
+    import fitz
+    try:
+        file_bytes = await file.read()
+        doc  = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        best_dist = float("inf")
+        best_sig  = None
+        for d in page.get_drawings():
+            sig = _hatch_signature(d)
+            if sig is None:
+                continue
+            rect = d.get("rect")
+            if rect is None:
+                continue
+            if not (rect.x0 - tol <= px <= rect.x1 + tol and
+                    rect.y0 - tol <= py <= rect.y1 + tol):
+                continue
+            cx = (rect.x0 + rect.x1) / 2.0
+            cy = (rect.y0 + rect.y1) / 2.0
+            dist = math.hypot(px - cx, py - cy)
+            if dist < best_dist:
+                best_dist = dist
+                best_sig  = sig
+        doc.close()
+        if best_sig is not None:
+            return {"hit": True, "angle": best_sig[0], "spacing": best_sig[1]}
+        return {"hit": False}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/floorplan/extract_by_signature")
+async def floorplan_extract_by_signature(
+    file:        UploadFile = File(...),
+    angle:       float      = Form(...),
+    spacing:     float      = Form(...),
+    angle_tol:   float      = Form(8.0),
+    spacing_tol: float      = Form(0.5),
+):
+    import fitz
+    try:
+        file_bytes = await file.read()
+        doc  = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        segments: list = []
+        matched = 0
+        for d in page.get_drawings():
+            sig = _hatch_signature(d)
+            if sig is None:
+                continue
+            ang_diff = abs(sig[0] - angle) % 180
+            ang_diff = min(ang_diff, 180 - ang_diff)
+            if ang_diff > angle_tol:
+                continue
+            if abs(sig[1] - spacing) > spacing_tol:
+                continue
+            matched += 1
+            for (a, b) in _drawing_segments(d):
+                segments.append([[a[0], a[1]], [b[0], b[1]]])
+        width_pt  = float(page.rect.width)
+        height_pt = float(page.rect.height)
+        doc.close()
+        return {
+            "segments":        segments,
+            "count":           len(segments),
+            "page_width_pt":   width_pt,
+            "page_height_pt":  height_pt,
+            "matched_objects": matched,
+        }
     except Exception as e:
         return {"error": str(e)}
 

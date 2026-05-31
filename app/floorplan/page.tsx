@@ -32,9 +32,10 @@ interface Group {
   kind: string; count: number; total_len: number;
 }
 interface LegendColor { hex: string; legend_count: number; plan_count: number; }
+interface HatchSignature { angle: number; spacing: number; }
 
 type Seg  = [[number, number], [number, number]];
-type Mode = 'line' | 'color';
+type Mode = 'line' | 'color' | 'pattern';
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -44,30 +45,63 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function NumInput({ label, value, onChange, min, max, step, unit }: {
+  label: string; value: number; onChange: (v: number) => void;
+  min?: number; max?: number; step?: number; unit?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-[11px] text-black/40 mb-1">{label}</label>
+      <div className="flex items-center gap-2">
+        <input type="number" min={min} max={max} step={step} value={value}
+          onChange={e => onChange(Math.max(min ?? 0, Number(e.target.value)))}
+          className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm
+            outline-none focus:border-black transition-colors" />
+        {unit && <span className="text-[11px] text-black/30 flex-shrink-0">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function FloorPlanPage() {
   const router = useRouter();
 
+  // ── Core state ────────────────────────────────────────────────────────────
   const [pdfFile,         setPdfFile]         = useState<File | null>(null);
   const [preview,         setPreview]         = useState<PreviewData | null>(null);
   const [groups,          setGroups]          = useState<Group[]>([]);
   const [legendColors,    setLegendColors]    = useState<LegendColor[]>([]);
-  const [selectedColors,  setSelectedColors]  = useState<string[]>([]);
-  const [clickedSegments, setClickedSegments] = useState<Seg[]>([]);
-  const [wallSegments,    setWallSegments]    = useState<Seg[]>([]);
-  const [mode,            setMode]            = useState<Mode>('line');
   const [loading,         setLoading]         = useState(false);
-  const [extracting,      setExtracting]      = useState(false);
   const [statusMsg,       setStatusMsg]       = useState('Upload a PDF to begin');
-  const [wallHeightMm,    setWallHeightMm]    = useState(2500);
-  const [layerHeightMm,   setLayerHeightMm]   = useState(50);
-  const [toolpath,        setToolpath]        = useState<Layer[] | null>(null);
-  const [numLayers3d,     setNumLayers3d]     = useState(0);
 
+  // ── Selection state ───────────────────────────────────────────────────────
+  const [mode,              setMode]              = useState<Mode>('line');
+  const [selectedColors,    setSelectedColors]    = useState<string[]>([]);
+  const [clickedSegments,   setClickedSegments]   = useState<Seg[]>([]);
+  const [selectedSignature, setSelectedSignature] = useState<HatchSignature | null>(null);
+  const [angleTol,          setAngleTol]          = useState(8);
+  const [spacingTol,        setSpacingTol]        = useState(0.5);
+
+  // ── Output state ──────────────────────────────────────────────────────────
+  const [wallSegments,      setWallSegments]      = useState<Seg[]>([]);
+  const [extracting,        setExtracting]        = useState(false);
+  const [patternExtracting, setPatternExtracting] = useState(false);
+  const [patternStats,      setPatternStats]      = useState<{matched:number;count:number}|null>(null);
+
+  // ── 3D state ──────────────────────────────────────────────────────────────
+  const [wallHeightMm,  setWallHeightMm]  = useState(2500);
+  const [layerHeightMm, setLayerHeightMm] = useState(50);
+  const [toolpath,      setToolpath]      = useState<Layer[] | null>(null);
+  const [numLayers3d,   setNumLayers3d]   = useState(0);
+
+  // ── File load ─────────────────────────────────────────────────────────────
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     setPdfFile(file);
     setPreview(null); setGroups([]); setLegendColors([]);
-    setSelectedColors([]); setClickedSegments([]); setWallSegments([]); setToolpath(null);
+    setSelectedColors([]); setClickedSegments([]);
+    setSelectedSignature(null); setPatternStats(null);
+    setWallSegments([]); setToolpath(null);
     if (!file) { setStatusMsg('Upload a PDF to begin'); return; }
     setLoading(true); setStatusMsg('Loading…');
     try {
@@ -86,18 +120,20 @@ export default function FloorPlanPage() {
       setLegendColors((ld.legend_colors ?? []) as LegendColor[]);
       setStatusMsg(
         `${file.name} · ${sd.total_drawings ?? 0} objects` +
-        (ld.legend_colors?.length ? ` · ${ld.legend_colors.length} legend colors detected` : '')
+        (ld.legend_colors?.length ? ` · ${ld.legend_colors.length} legend colors` : '')
       );
     } catch (err: any) {
       setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
     } finally { setLoading(false); }
   }
 
+  // ── Image click — branches on mode ────────────────────────────────────────
   async function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
     if (!preview || !pdfFile) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const pdfX = (e.clientX - rect.left) * (preview.page_width_pt  / rect.width);
     const pdfY = (e.clientY - rect.top)  * (preview.page_height_pt / rect.height);
+
     if (mode === 'line') {
       const fd = new FormData();
       fd.append('file', pdfFile); fd.append('px', String(pdfX));
@@ -106,7 +142,8 @@ export default function FloorPlanPage() {
         const data = await fetch(`${API}/floorplan/pick`, { method: 'POST', body: fd }).then(r => r.json());
         if (data.hit && data.segment) setClickedSegments(prev => [...prev, data.segment as Seg]);
       } catch { /* silent */ }
-    } else {
+
+    } else if (mode === 'color') {
       const fd = new FormData();
       fd.append('file', pdfFile); fd.append('px', String(pdfX));
       fd.append('py', String(pdfY)); fd.append('tol', '12');
@@ -114,13 +151,28 @@ export default function FloorPlanPage() {
         const data = await fetch(`${API}/floorplan/color_at`, { method: 'POST', body: fd }).then(r => r.json());
         if (data.hit && data.hex) toggleColor(data.hex);
       } catch { /* silent */ }
+
+    } else {
+      // pattern mode — detect hatch signature at click point
+      const fd = new FormData();
+      fd.append('file', pdfFile); fd.append('px', String(pdfX));
+      fd.append('py', String(pdfY)); fd.append('tol', '6');
+      try {
+        const data = await fetch(`${API}/floorplan/signature_at`, { method: 'POST', body: fd }).then(r => r.json());
+        if (data.hit) {
+          setSelectedSignature({ angle: data.angle, spacing: data.spacing });
+          setPatternStats(null);
+        }
+      } catch { /* silent */ }
     }
   }
 
+  // ── Color helpers ─────────────────────────────────────────────────────────
   function toggleColor(hex: string) {
     setSelectedColors(prev => prev.includes(hex) ? prev.filter(h => h !== hex) : [...prev, hex]);
   }
 
+  // ── Extract (color + line modes) ──────────────────────────────────────────
   async function handleExtract() {
     if (!pdfFile) return;
     setExtracting(true); setToolpath(null);
@@ -138,6 +190,28 @@ export default function FloorPlanPage() {
     } finally { setExtracting(false); }
   }
 
+  // ── Extract by pattern ────────────────────────────────────────────────────
+  async function handlePatternExtract() {
+    if (!pdfFile || !selectedSignature) return;
+    setPatternExtracting(true); setToolpath(null);
+    try {
+      const fd = new FormData();
+      fd.append('file',        pdfFile);
+      fd.append('angle',       String(selectedSignature.angle));
+      fd.append('spacing',     String(selectedSignature.spacing));
+      fd.append('angle_tol',   String(angleTol));
+      fd.append('spacing_tol', String(spacingTol));
+      const data = await fetch(`${API}/floorplan/extract_by_signature`, { method: 'POST', body: fd }).then(r => r.json());
+      if (data.error) { setStatusMsg(`Pattern extract error: ${data.error}`); return; }
+      setWallSegments((data.segments ?? []) as Seg[]);
+      setPatternStats({ matched: data.matched_objects, count: data.count });
+      setStatusMsg(`Pattern: ${data.matched_objects} objects matched · ${data.count} segments`);
+    } catch (err: any) {
+      setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
+    } finally { setPatternExtracting(false); }
+  }
+
+  // ── 3D visualize ──────────────────────────────────────────────────────────
   function handleVisualize() {
     if (!wallSegments.length) return;
     const base: Layer = wallSegments.map(s => ({
@@ -157,7 +231,14 @@ export default function FloorPlanPage() {
   }
 
   const computedLayers = Math.max(1, Math.round((wallHeightMm / 1000) / (layerHeightMm / 1000)));
-  const hasSelection   = selectedColors.length > 0 || clickedSegments.length > 0;
+  const hasColorLineSelection = selectedColors.length > 0 || clickedSegments.length > 0;
+
+  const modeCursor = mode === 'color' ? 'cell' : mode === 'pattern' ? 'crosshair' : 'crosshair';
+  const modeHint = mode === 'line'
+    ? 'Click any line on the plan to select it individually.'
+    : mode === 'color'
+    ? 'Click any element to select all objects of that color.'
+    : 'Click any hatch on the plan or legend to detect its pattern signature.';
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -169,9 +250,7 @@ export default function FloorPlanPage() {
             <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400}
               className="h-24 sm:h-36 w-auto" />
           </button>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-black/30">Floor Plan</span>
-          </div>
+          <span className="text-sm font-medium text-black/30">Floor Plan</span>
         </div>
       </header>
 
@@ -185,193 +264,218 @@ export default function FloorPlanPage() {
             {/* Upload */}
             <section className="p-5">
               <SectionLabel>Floor Plan PDF</SectionLabel>
-              <input
-                type="file" accept=".pdf" onChange={handleFileChange}
+              <input type="file" accept=".pdf" onChange={handleFileChange}
                 className="block w-full text-sm text-black/50
                   file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0
                   file:text-xs file:font-semibold file:bg-black file:text-white
-                  hover:file:bg-black/80 file:cursor-pointer cursor-pointer transition-all"
-              />
+                  hover:file:bg-black/80 file:cursor-pointer cursor-pointer transition-all" />
             </section>
 
-            {/* Click mode — shown after PDF loaded */}
+            {/* Click mode */}
             {pdfFile && (
               <section className="p-5">
                 <SectionLabel>Click Mode</SectionLabel>
                 <div className="flex rounded-xl overflow-hidden border border-gray-200 text-xs font-semibold w-full">
-                  <button onClick={() => setMode('line')}
-                    className={`flex-1 py-2 transition-colors ${mode === 'line'
-                      ? 'bg-black text-white' : 'text-black/40 hover:text-black'}`}>
-                    Line pick
-                  </button>
-                  <button onClick={() => setMode('color')}
-                    className={`flex-1 py-2 transition-colors ${mode === 'color'
-                      ? 'bg-black text-white' : 'text-black/40 hover:text-black'}`}>
-                    Color pick
-                  </button>
+                  {(['line', 'color', 'pattern'] as Mode[]).map(m => (
+                    <button key={m} onClick={() => setMode(m)}
+                      className={`flex-1 py-2 transition-colors capitalize ${mode === m
+                        ? 'bg-black text-white' : 'text-black/40 hover:text-black'}`}>
+                      {m}
+                    </button>
+                  ))}
                 </div>
-                <p className="text-[11px] text-black/30 mt-2 leading-relaxed">
-                  {mode === 'line'
-                    ? 'Click any line on the plan to select it individually.'
-                    : 'Click any element to select all objects of that color.'}
-                </p>
+                <p className="text-[11px] text-black/30 mt-2 leading-relaxed">{modeHint}</p>
               </section>
             )}
 
-            {/* Legend colors */}
-            {legendColors.length > 0 && (
-              <section className="p-5">
-                <SectionLabel>Legend Colors</SectionLabel>
-                <div className="flex flex-col gap-1.5">
-                  {legendColors.map(lc => {
-                    const on = selectedColors.includes(lc.hex);
-                    return (
-                      <button key={lc.hex} onClick={() => toggleColor(lc.hex)}
-                        className={`flex items-center gap-3 w-full px-3 py-2 rounded-xl border
-                          text-xs font-medium transition-all text-left ${on
-                            ? 'bg-black text-white border-black'
-                            : 'border-gray-100 hover:border-gray-300 bg-gray-50'}`}>
-                        <span className="w-5 h-5 rounded-md flex-shrink-0 border border-black/10"
-                          style={{ background: lc.hex }} />
-                        <span className="font-mono flex-1">{lc.hex}</span>
-                        <span className={`text-[11px] ${on ? 'text-white/50' : 'text-black/30'}`}>
-                          {lc.plan_count} obj
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            {/* All vector colors */}
-            {groups.length > 0 && (
-              <section className="p-5">
-                <SectionLabel>All Colors ({groups.length})</SectionLabel>
-                <div className="space-y-0.5 max-h-56 overflow-y-auto -mx-1">
-                  {groups.map((g, i) => {
-                    const sc = colorOf(g);
-                    const on = sc !== '' && selectedColors.includes(sc);
-                    return (
-                      <button key={i} onClick={() => sc && toggleColor(sc)}
-                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg
-                          text-left transition-colors ${on ? 'bg-black/5' : 'hover:bg-gray-50'}`}>
-                        <span className="w-4 h-4 rounded flex-shrink-0 border border-gray-200"
-                          style={{ background: swatchOf(g) }} />
-                        <span className="text-[10px] font-mono text-black/40 w-16 flex-shrink-0 truncate">
-                          {sc || '-'}
-                        </span>
-                        <span className="text-[11px] text-black/50 flex-1 truncate">{g.kind}</span>
-                        <span className="text-[10px] text-black/25 flex-shrink-0">{g.count}</span>
-                        {on && <span className="text-[10px] text-black/60 flex-shrink-0">✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            {/* Selection summary + actions */}
-            {pdfFile && (
+            {/* ── Pattern mode panel ─────────────────────────────────────── */}
+            {pdfFile && mode === 'pattern' && (
               <section className="p-5 space-y-4">
-                <SectionLabel>Selection</SectionLabel>
+                <SectionLabel>Hatch Pattern</SectionLabel>
 
-                {/* Color swatches */}
-                {selectedColors.length > 0 ? (
-                  <div>
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {selectedColors.map(h => (
-                        <button key={h} onClick={() => toggleColor(h)} title={`Remove ${h}`}
-                          className="w-6 h-6 rounded-lg border-2 border-white shadow-sm
-                            hover:scale-110 transition-transform ring-1 ring-black/10"
-                          style={{ background: h }} />
-                      ))}
-                    </div>
-                    <p className="text-[11px] text-black/40">
-                      {selectedColors.length} color{selectedColors.length !== 1 ? 's' : ''} selected
+                {selectedSignature ? (
+                  <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+                    <p className="text-xs font-semibold text-black/70">Detected pattern</p>
+                    <p className="text-[11px] text-black/50 font-mono">
+                      {selectedSignature.angle.toFixed(1)}° · spacing {selectedSignature.spacing.toFixed(1)} pt
                     </p>
+                    <button onClick={() => { setSelectedSignature(null); setPatternStats(null); }}
+                      className="text-[11px] text-black/30 hover:text-black transition-colors">
+                      Clear
+                    </button>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-black/25 italic">No colors selected</p>
+                  <p className="text-[11px] text-black/25 italic">
+                    Click a hatch area on the plan or legend to detect its signature.
+                  </p>
                 )}
 
-                {/* Line count */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[11px] text-black/40">
-                      {clickedSegments.length} line{clickedSegments.length !== 1 ? 's' : ''} picked
-                    </p>
-                    {wallSegments.length > 0 && (
-                      <p className="text-[11px] text-black/40 mt-0.5">
-                        {wallSegments.length} segments extracted
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    {selectedColors.length > 0 && (
-                      <button onClick={() => setSelectedColors([])}
-                        className="text-[11px] text-black/30 hover:text-black transition-colors">
-                        Clear colors
-                      </button>
-                    )}
-                    {clickedSegments.length > 0 && (
-                      <button onClick={() => setClickedSegments([])}
-                        className="text-[11px] text-red-400 hover:text-red-600 transition-colors">
-                        Clear lines
-                      </button>
-                    )}
-                    {wallSegments.length > 0 && (
-                      <button onClick={() => setWallSegments([])}
-                        className="text-[11px] text-blue-400 hover:text-blue-600 transition-colors">
-                        Clear walls
-                      </button>
-                    )}
-                  </div>
+                <div className="space-y-3">
+                  <NumInput label="Angle tolerance (°)" value={angleTol}
+                    onChange={setAngleTol} min={1} max={45} step={1} />
+                  <NumInput label="Spacing tolerance (pt)" value={spacingTol}
+                    onChange={setSpacingTol} min={0.1} max={10} step={0.1} />
                 </div>
 
-                {/* Extract button */}
                 <button
-                  onClick={handleExtract}
-                  disabled={!hasSelection || extracting}
+                  onClick={handlePatternExtract}
+                  disabled={!selectedSignature || patternExtracting}
                   className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl
                     hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                  {extracting ? 'Extracting…' : 'Extract Walls'}
+                  {patternExtracting ? 'Matching…' : 'Select all this pattern'}
                 </button>
+
+                {patternStats && (
+                  <p className="text-[11px] text-black/40 text-center">
+                    {patternStats.matched} objects matched · {patternStats.count} segments
+                  </p>
+                )}
               </section>
             )}
 
-            {/* 3D visualisation settings */}
+            {/* ── Color + line mode panels ───────────────────────────────── */}
+            {pdfFile && mode !== 'pattern' && (
+              <>
+                {/* Legend colors */}
+                {legendColors.length > 0 && (
+                  <section className="p-5">
+                    <SectionLabel>Legend Colors</SectionLabel>
+                    <div className="flex flex-col gap-1.5">
+                      {legendColors.map(lc => {
+                        const on = selectedColors.includes(lc.hex);
+                        return (
+                          <button key={lc.hex} onClick={() => toggleColor(lc.hex)}
+                            className={`flex items-center gap-3 w-full px-3 py-2 rounded-xl border
+                              text-xs font-medium transition-all text-left ${on
+                                ? 'bg-black text-white border-black'
+                                : 'border-gray-100 hover:border-gray-300 bg-gray-50'}`}>
+                            <span className="w-5 h-5 rounded-md flex-shrink-0 border border-black/10"
+                              style={{ background: lc.hex }} />
+                            <span className="font-mono flex-1">{lc.hex}</span>
+                            <span className={`text-[11px] ${on ? 'text-white/50' : 'text-black/30'}`}>
+                              {lc.plan_count} obj
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {/* All vector colors */}
+                {groups.length > 0 && (
+                  <section className="p-5">
+                    <SectionLabel>All Colors ({groups.length})</SectionLabel>
+                    <div className="space-y-0.5 max-h-52 overflow-y-auto -mx-1">
+                      {groups.map((g, i) => {
+                        const sc = colorOf(g);
+                        const on = sc !== '' && selectedColors.includes(sc);
+                        return (
+                          <button key={i} onClick={() => sc && toggleColor(sc)}
+                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg
+                              text-left transition-colors ${on ? 'bg-black/5' : 'hover:bg-gray-50'}`}>
+                            <span className="w-4 h-4 rounded flex-shrink-0 border border-gray-200"
+                              style={{ background: swatchOf(g) }} />
+                            <span className="text-[10px] font-mono text-black/40 w-16 flex-shrink-0 truncate">
+                              {sc || '-'}
+                            </span>
+                            <span className="text-[11px] text-black/50 flex-1 truncate">{g.kind}</span>
+                            <span className="text-[10px] text-black/25 flex-shrink-0">{g.count}</span>
+                            {on && <span className="text-[10px] text-black/60 flex-shrink-0">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {/* Selection summary + extract */}
+                <section className="p-5 space-y-4">
+                  <SectionLabel>Selection</SectionLabel>
+
+                  {selectedColors.length > 0 ? (
+                    <div>
+                      <div className="flex flex-wrap gap-1.5 mb-1.5">
+                        {selectedColors.map(h => (
+                          <button key={h} onClick={() => toggleColor(h)} title={`Remove ${h}`}
+                            className="w-6 h-6 rounded-lg border-2 border-white shadow-sm
+                              hover:scale-110 transition-transform ring-1 ring-black/10"
+                            style={{ background: h }} />
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-black/40">
+                        {selectedColors.length} color{selectedColors.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-black/25 italic">No colors selected</p>
+                  )}
+
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] text-black/40">
+                        {clickedSegments.length} line{clickedSegments.length !== 1 ? 's' : ''} picked
+                      </p>
+                      {wallSegments.length > 0 && (
+                        <p className="text-[11px] text-black/40">
+                          {wallSegments.length} segments extracted
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      {selectedColors.length > 0 && (
+                        <button onClick={() => setSelectedColors([])}
+                          className="text-[11px] text-black/30 hover:text-black transition-colors">
+                          Clear colors
+                        </button>
+                      )}
+                      {clickedSegments.length > 0 && (
+                        <button onClick={() => setClickedSegments([])}
+                          className="text-[11px] text-red-400 hover:text-red-600 transition-colors">
+                          Clear lines
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <button onClick={handleExtract} disabled={!hasColorLineSelection || extracting}
+                    className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl
+                      hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                    {extracting ? 'Extracting…' : 'Extract Walls'}
+                  </button>
+                </section>
+              </>
+            )}
+
+            {/* Clear walls (shared across modes) */}
+            {wallSegments.length > 0 && (
+              <section className="p-5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] text-black/40">{wallSegments.length} segments ready</p>
+                  <button onClick={() => { setWallSegments([]); setToolpath(null); setPatternStats(null); }}
+                    className="text-[11px] text-blue-400 hover:text-blue-600 transition-colors">
+                    Clear walls
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {/* 3D visualisation */}
             {wallSegments.length > 0 && (
               <section className="p-5 space-y-4">
                 <SectionLabel>3D Visualisation</SectionLabel>
-
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-[11px] text-black/40 mb-1">Wall height (mm)</label>
-                    <input type="number" min={100} max={20000} step={50}
-                      value={wallHeightMm}
-                      onChange={e => setWallHeightMm(Math.max(1, Number(e.target.value)))}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm
-                        outline-none focus:border-black transition-colors" />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-black/40 mb-1">Layer height (mm)</label>
-                    <input type="number" min={1} max={500} step={5}
-                      value={layerHeightMm}
-                      onChange={e => setLayerHeightMm(Math.max(1, Number(e.target.value)))}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm
-                        outline-none focus:border-black transition-colors" />
-                  </div>
+                  <NumInput label="Wall height (mm)" value={wallHeightMm}
+                    onChange={setWallHeightMm} min={100} max={20000} step={50} />
+                  <NumInput label="Layer height (mm)" value={layerHeightMm}
+                    onChange={setLayerHeightMm} min={1} max={500} step={5} />
                 </div>
-
                 <p className="text-[11px] text-black/30">{computedLayers} layers</p>
-
                 <button onClick={handleVisualize}
                   className="w-full py-2.5 border-2 border-black text-black text-sm font-semibold
                     rounded-xl hover:bg-black hover:text-white transition-all">
                   Visualize in 3D
                 </button>
-
                 {toolpath && (
                   <button onClick={() => setToolpath(null)}
                     className="w-full text-[11px] text-black/30 hover:text-black transition-colors">
@@ -393,25 +497,23 @@ export default function FloorPlanPage() {
               <div className="w-3.5 h-3.5 border-2 border-black/20 border-t-black rounded-full animate-spin flex-shrink-0" />
             )}
             <p className="text-xs text-black/40 truncate">{statusMsg}</p>
-            {(clickedSegments.length > 0 || wallSegments.length > 0) && (
-              <div className="flex items-center gap-4 ml-auto flex-shrink-0">
-                {clickedSegments.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-black/40">
-                    <div className="w-4 h-0.5 bg-red-400 rounded" />
-                    {clickedSegments.length} picked
-                  </div>
-                )}
-                {wallSegments.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-black/40">
-                    <div className="w-4 h-0.5 bg-blue-500 rounded" />
-                    {wallSegments.length} extracted
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="flex items-center gap-4 ml-auto flex-shrink-0">
+              {clickedSegments.length > 0 && (
+                <div className="flex items-center gap-1.5 text-[11px] text-black/40">
+                  <div className="w-4 h-0.5 bg-red-400 rounded" />
+                  {clickedSegments.length} picked
+                </div>
+              )}
+              {wallSegments.length > 0 && (
+                <div className="flex items-center gap-1.5 text-[11px] text-black/40">
+                  <div className="w-4 h-0.5 bg-blue-500 rounded" />
+                  {wallSegments.length} extracted
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Preview */}
+          {/* Preview + viewer */}
           <div className="flex-1 p-6 space-y-4">
             <div className={`rounded-2xl overflow-hidden border bg-white shadow-sm flex items-center justify-center
               ${preview ? 'border-gray-100' : 'border-2 border-dashed border-gray-200'}`}
@@ -431,7 +533,7 @@ export default function FloorPlanPage() {
                     src={`data:image/png;base64,${preview.image_base64}`}
                     alt="PDF preview"
                     className="w-full h-auto block"
-                    style={{ cursor: mode === 'color' ? 'cell' : 'crosshair' }}
+                    style={{ cursor: modeCursor }}
                     onClick={handleImageClick}
                   />
                   <svg
@@ -465,7 +567,6 @@ export default function FloorPlanPage() {
               )}
             </div>
 
-            {/* 3D viewer */}
             {toolpath && (
               <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
                 style={{ height: '600px' }}>
