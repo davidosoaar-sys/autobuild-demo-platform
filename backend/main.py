@@ -376,6 +376,7 @@ async def floorplan_extract_by_signature(
     spacing:     float      = Form(...),
     angle_tol:   float      = Form(8.0),
     spacing_tol: float      = Form(0.5),
+    match_mode:  str        = Form("both"),
 ):
     import fitz
     try:
@@ -392,7 +393,7 @@ async def floorplan_extract_by_signature(
             ang_diff = min(ang_diff, 180 - ang_diff)
             if ang_diff > angle_tol:
                 continue
-            if abs(sig[1] - spacing) > spacing_tol:
+            if match_mode != "angle" and abs(sig[1] - spacing) > spacing_tol:
                 continue
             matched += 1
             for (a, b) in _drawing_segments(d):
