@@ -3,8 +3,28 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
+
+// Dynamic import keeps Three.js off the SSR bundle (same pattern as slicer page)
+const LayerVisualization = dynamic(
+  () => import('../pre-print-optimizer/components/LayerVisualization'),
+  { ssr: false, loading: () => (
+    <div className="flex items-center justify-center h-full min-h-[520px]">
+      <div className="w-6 h-6 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+    </div>
+  )},
+);
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// Temporary visualization-only scale: 1 PDF point → 0.01 m.
+// This is a placeholder so walls appear at a sensible size in the 3D viewer.
+// Replace with a real scale factor derived from the drawing's stated scale (e.g. 1:50).
+const PT_TO_M = 0.01;
+
+// ── Types matching LayerVisualization's internal Segment interface ────────────
+interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; }
+type Layer = Segment[];
 
 interface PreviewData {
   image_base64:    string;
@@ -16,12 +36,12 @@ interface PreviewData {
 }
 
 interface Group {
-  fill_hex:  string;
+  fill_hex:   string;
   stroke_hex: string;
-  width:     number;
-  kind:      string;
-  count:     number;
-  total_len: number;
+  width:      number;
+  kind:       string;
+  count:      number;
+  total_len:  number;
 }
 
 interface LegendColor {
@@ -36,19 +56,26 @@ type Mode = 'line' | 'color';
 export default function FloorPlanPage() {
   const router = useRouter();
 
-  const [pdfFile,        setPdfFile]        = useState<File | null>(null);
-  const [preview,        setPreview]        = useState<PreviewData | null>(null);
-  const [groups,         setGroups]         = useState<Group[]>([]);
-  const [legendColors,   setLegendColors]   = useState<LegendColor[]>([]);
-  const [selectedColors, setSelectedColors] = useState<string[]>([]);   // multi-color set
-  const [clickedSegments, setClickedSegments] = useState<Seg[]>([]);    // line-mode picks
-  const [wallSegments,   setWallSegments]   = useState<Seg[]>([]);
-  const [mode,           setMode]           = useState<Mode>('line');
-  const [loading,        setLoading]        = useState(false);
-  const [extracting,     setExtracting]     = useState(false);
-  const [statusMsg,      setStatusMsg]      = useState('No PDF uploaded');
+  // ── Existing state ─────────────────────────────────────────────────────────
+  const [pdfFile,         setPdfFile]         = useState<File | null>(null);
+  const [preview,         setPreview]         = useState<PreviewData | null>(null);
+  const [groups,          setGroups]          = useState<Group[]>([]);
+  const [legendColors,    setLegendColors]    = useState<LegendColor[]>([]);
+  const [selectedColors,  setSelectedColors]  = useState<string[]>([]);
+  const [clickedSegments, setClickedSegments] = useState<Seg[]>([]);
+  const [wallSegments,    setWallSegments]    = useState<Seg[]>([]);
+  const [mode,            setMode]            = useState<Mode>('line');
+  const [loading,         setLoading]         = useState(false);
+  const [extracting,      setExtracting]      = useState(false);
+  const [statusMsg,       setStatusMsg]       = useState('No PDF uploaded');
 
-  // ── File upload: preview + scan + legend in parallel ──────────────────────
+  // ── 3D visualisation state ─────────────────────────────────────────────────
+  const [wallHeightMm,  setWallHeightMm]  = useState(2500);
+  const [layerHeightMm, setLayerHeightMm] = useState(50);
+  const [toolpath,      setToolpath]      = useState<Layer[] | null>(null);
+  const [numLayers3d,   setNumLayers3d]   = useState(0);
+
+  // ── File upload ────────────────────────────────────────────────────────────
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     setPdfFile(file);
@@ -58,6 +85,7 @@ export default function FloorPlanPage() {
     setSelectedColors([]);
     setClickedSegments([]);
     setWallSegments([]);
+    setToolpath(null);
 
     if (!file) { setStatusMsg('No PDF uploaded'); return; }
 
@@ -96,7 +124,7 @@ export default function FloorPlanPage() {
     }
   }
 
-  // ── Image click — branches on mode ────────────────────────────────────────
+  // ── Image click ────────────────────────────────────────────────────────────
   async function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
     if (!preview || !pdfFile) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -104,7 +132,6 @@ export default function FloorPlanPage() {
     const pdfY = (e.clientY - rect.top)  * (preview.page_height_pt / rect.height);
 
     if (mode === 'line') {
-      // Pick individual segment
       const fd = new FormData();
       fd.append('file', pdfFile);
       fd.append('px',  String(pdfX));
@@ -118,7 +145,6 @@ export default function FloorPlanPage() {
         }
       } catch { /* silent */ }
     } else {
-      // Color mode — get color of nearest object
       const fd = new FormData();
       fd.append('file', pdfFile);
       fd.append('px',  String(pdfX));
@@ -127,14 +153,12 @@ export default function FloorPlanPage() {
       try {
         const res  = await fetch(`${API}/floorplan/color_at`, { method: 'POST', body: fd });
         const data = await res.json();
-        if (data.hit && data.hex) {
-          toggleColor(data.hex);
-        }
+        if (data.hit && data.hex) toggleColor(data.hex);
       } catch { /* silent */ }
     }
   }
 
-  // ── Color set helpers ──────────────────────────────────────────────────────
+  // ── Color helpers ──────────────────────────────────────────────────────────
   function toggleColor(hex: string) {
     setSelectedColors(prev =>
       prev.includes(hex) ? prev.filter(h => h !== hex) : [...prev, hex]
@@ -145,6 +169,7 @@ export default function FloorPlanPage() {
   async function handleExtract() {
     if (!pdfFile) return;
     setExtracting(true);
+    setToolpath(null);
     try {
       const fd = new FormData();
       fd.append('file',          pdfFile);
@@ -161,6 +186,26 @@ export default function FloorPlanPage() {
     } finally {
       setExtracting(false);
     }
+  }
+
+  // ── Build toolpath and show 3D viewer ─────────────────────────────────────
+  function handleVisualize() {
+    if (wallSegments.length === 0) return;
+
+    // Convert PDF points → metres using placeholder scale (replace later)
+    const base: Layer = wallSegments.map(s => ({
+      x0: s[0][0] * PT_TO_M,
+      y0: s[0][1] * PT_TO_M,
+      x1: s[1][0] * PT_TO_M,
+      y1: s[1][1] * PT_TO_M,
+    }));
+
+    const n = Math.max(1, Math.round((wallHeightMm / 1000) / (layerHeightMm / 1000)));
+    // Repeat the same wall footprint at every layer → straight vertical extrusion
+    const tp: Layer[] = Array.from({ length: n }, () => base);
+
+    setNumLayers3d(n);
+    setToolpath(tp);
   }
 
   function groupSwatchColor(g: Group) {
@@ -238,9 +283,7 @@ export default function FloorPlanPage() {
                       <span className="w-4 h-4 rounded border border-white/20 flex-shrink-0"
                         style={{ background: lc.hex }} />
                       <span className="font-mono">{lc.hex}</span>
-                      <span className={on ? 'text-white/50' : 'text-black/30'}>
-                        {lc.plan_count}
-                      </span>
+                      <span className={on ? 'text-white/50' : 'text-black/30'}>{lc.plan_count}</span>
                     </button>
                   );
                 })}
@@ -248,7 +291,7 @@ export default function FloorPlanPage() {
             </div>
           )}
 
-          {/* Scan color list */}
+          {/* All vector colors list */}
           {groups.length > 0 && (
             <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
               <p className="text-xs font-semibold text-black/50 uppercase tracking-wider mb-3">
@@ -279,8 +322,6 @@ export default function FloorPlanPage() {
           {/* Mode toggle + counters + clear buttons */}
           {pdfFile && (
             <div className="flex flex-wrap items-center gap-4">
-
-              {/* Mode toggle */}
               <div className="flex items-center bg-white border border-gray-200 rounded-xl overflow-hidden text-xs font-semibold">
                 <button onClick={() => setMode('line')}
                   className={`px-3 py-1.5 transition-colors ${mode === 'line' ? 'bg-black text-white' : 'text-black/40 hover:text-black'}`}>
@@ -292,7 +333,6 @@ export default function FloorPlanPage() {
                 </button>
               </div>
 
-              {/* Selected colors swatches */}
               {selectedColors.length > 0 && (
                 <div className="flex items-center gap-1.5">
                   {selectedColors.map(h => (
@@ -300,7 +340,9 @@ export default function FloorPlanPage() {
                       className="w-5 h-5 rounded border-2 border-white shadow hover:scale-110 transition-transform"
                       style={{ background: h }} />
                   ))}
-                  <span className="text-xs text-black/30 ml-1">{selectedColors.length} color{selectedColors.length !== 1 ? 's' : ''}</span>
+                  <span className="text-xs text-black/30 ml-1">
+                    {selectedColors.length} color{selectedColors.length !== 1 ? 's' : ''}
+                  </span>
                 </div>
               )}
 
@@ -374,7 +416,7 @@ export default function FloorPlanPage() {
             )}
           </div>
 
-          {/* Legend */}
+          {/* Overlay legend */}
           {(clickedSegments.length > 0 || wallSegments.length > 0) && (
             <div className="flex flex-wrap items-center gap-6 text-xs text-black/50">
               {clickedSegments.length > 0 && (
@@ -389,6 +431,73 @@ export default function FloorPlanPage() {
                   <span>Extracted walls ({wallSegments.length})</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── 3D visualisation controls ──────────────────────────────────── */}
+          {wallSegments.length > 0 && (
+            <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+              <p className="text-xs font-semibold text-black/50 uppercase tracking-wider mb-4">
+                3D Visualisation
+              </p>
+              <div className="flex flex-wrap items-end gap-6">
+
+                <div className="space-y-1">
+                  <label className="block text-xs text-black/50">Wall height (mm)</label>
+                  <input
+                    type="number" min={100} max={20000} step={50}
+                    value={wallHeightMm}
+                    onChange={e => setWallHeightMm(Math.max(1, Number(e.target.value)))}
+                    className="w-28 border border-gray-200 rounded-xl px-3 py-2 text-sm
+                      outline-none focus:border-black transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs text-black/50">Layer height (mm)</label>
+                  <input
+                    type="number" min={1} max={500} step={5}
+                    value={layerHeightMm}
+                    onChange={e => setLayerHeightMm(Math.max(1, Number(e.target.value)))}
+                    className="w-28 border border-gray-200 rounded-xl px-3 py-2 text-sm
+                      outline-none focus:border-black transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs text-black/30">
+                    {Math.max(1, Math.round((wallHeightMm / 1000) / (layerHeightMm / 1000)))} layers
+                  </p>
+                  <button
+                    onClick={handleVisualize}
+                    className="px-5 py-2 bg-black text-white text-sm font-semibold rounded-xl
+                      hover:bg-black/80 transition-all"
+                  >
+                    Visualize in 3D
+                  </button>
+                </div>
+
+                {toolpath && (
+                  <button onClick={() => setToolpath(null)}
+                    className="text-xs text-black/30 hover:text-black transition-colors self-end pb-2">
+                    Hide viewer
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── 3D viewer ─────────────────────────────────────────────────── */}
+          {toolpath && (
+            <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
+              style={{ height: '600px' }}>
+              <LayerVisualization
+                file={null}
+                toolpath={toolpath as any}
+                numLayers={numLayers3d}
+                layerHeight={layerHeightMm / 1000}
+                nozzleDiameter={0.025}
+              />
             </div>
           )}
 
