@@ -1,18 +1,18 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
 
-const LayerVisualization = dynamic(
-  () => import('../pre-print-optimizer/components/LayerVisualization'),
-  { ssr: false, loading: () => (
-    <div className="flex items-center justify-center h-full">
-      <div className="w-6 h-6 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+const WallViewer = dynamic(() => import('./WallViewer'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full bg-sky-200">
+      <div className="w-6 h-6 border-2 border-white/40 border-t-white rounded-full animate-spin" />
     </div>
-  )},
-);
+  ),
+});
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -20,8 +20,6 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 // pt → paper metres (pt / 72 * 0.0254) → real metres (* 50)
 const PT_TO_M = (0.0254 / 72) * 50; // ≈ 0.017638 m per pt at 1:50
 
-interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; }
-type Layer = Segment[];
 
 interface PreviewData {
   image_base64: string; page_width_pt: number; page_height_pt: number;
@@ -105,24 +103,6 @@ export default function FloorPlanPage() {
   // ── 3D / review state ─────────────────────────────────────────────────────
   const [wallHeightMm,  setWallHeightMm]  = useState(2500);
   const [layerHeightMm, setLayerHeightMm] = useState(50);
-  const [toolpath,      setToolpath]      = useState<Layer[] | null>(null);
-  const [numLayers3d,   setNumLayers3d]   = useState(0);
-
-  // ── Auto-build toolpath whenever in review and inputs change ──────────────
-  const buildToolpath = useCallback(() => {
-    if (!wallSegments.length) { setToolpath(null); return; }
-    const base: Layer = wallSegments.map(s => ({
-      x0: s[0][0] * PT_TO_M, y0: s[0][1] * PT_TO_M,
-      x1: s[1][0] * PT_TO_M, y1: s[1][1] * PT_TO_M,
-    }));
-    const n = Math.max(1, Math.round((wallHeightMm / 1000) / (layerHeightMm / 1000)));
-    setNumLayers3d(n);
-    setToolpath(Array.from({ length: n }, () => base));
-  }, [wallSegments, wallHeightMm, layerHeightMm]);
-
-  useEffect(() => {
-    if (view === 'review') buildToolpath();
-  }, [view, buildToolpath]);
 
   // ── File load ─────────────────────────────────────────────────────────────
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -132,7 +112,7 @@ export default function FloorPlanPage() {
     setSelectedColors([]); setClickedSegments([]);
     setSelectedSignature(null);
     setSelectedSignatures([]); setPatternSegments([]); setColorSegments([]);
-    setToolpath(null); setView('select');
+    setView('select');
     if (!file) { setStatusMsg('Upload a PDF to begin'); return; }
     setLoading(true); setStatusMsg('Loading…');
     try {
@@ -244,7 +224,6 @@ export default function FloorPlanPage() {
   function clearAllWalls() {
     setSelectedSignatures([]); setPatternSegments([]);
     setColorSegments([]); setClickedSegments([]);
-    setToolpath(null);
   }
 
   // ── Review SVG ────────────────────────────────────────────────────────────
@@ -292,14 +271,7 @@ export default function FloorPlanPage() {
               <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400}
                 className="h-24 sm:h-36 w-auto" />
             </button>
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-black/30">Floor Plan — Review</span>
-              <button onClick={buildToolpath}
-                className="px-4 py-2 border border-gray-200 rounded-xl text-xs font-semibold
-                  text-black/50 hover:border-black hover:text-black transition-all">
-                Regenerate
-              </button>
-            </div>
+            <span className="text-sm font-medium text-black/30">Floor Plan — Review</span>
           </div>
         </header>
 
@@ -389,22 +361,16 @@ export default function FloorPlanPage() {
             </div>
           </div>
 
-          {/* RIGHT — 3D viewer */}
-          <div className="flex-1 bg-gray-900 min-w-0" style={{ minWidth: '300px' }}>
-            {toolpath ? (
-              <LayerVisualization
-                file={null as any}
-                toolpath={toolpath as any}
-                numLayers={numLayers3d}
-                layerHeight={layerHeightMm / 1000}
-                nozzleDiameter={0.025}
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-white/20">
-                <div className="w-8 h-8 border-2 border-white/20 border-t-white/50 rounded-full animate-spin" />
-                <p className="text-sm">Building 3D model…</p>
-              </div>
-            )}
+          {/* RIGHT — solid 3D wall model */}
+          <div className="flex-1 min-w-0" style={{ minWidth: '300px', minHeight: '500px' }}>
+            {wallSegments.length > 0
+              ? <WallViewer segments={wallSegments} wallHeightMm={wallHeightMm} />
+              : (
+                <div className="flex items-center justify-center h-full bg-sky-100">
+                  <p className="text-sm text-black/30">No wall segments selected</p>
+                </div>
+              )
+            }
           </div>
 
         </div>
