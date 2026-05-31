@@ -16,9 +16,6 @@ const LayerVisualization = dynamic(
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// TODO: replace with real 1:50 scale later — temporary visualization-only placeholder
-const PT_TO_M = 0.01;
-
 interface Segment { x0: number; y0: number; x1: number; y1: number; gap?: boolean; }
 type Layer = Segment[];
 
@@ -70,26 +67,36 @@ export default function FloorPlanPage() {
   const [view, setView] = useState<View>('select');
 
   // ── Core state ────────────────────────────────────────────────────────────
-  const [pdfFile,         setPdfFile]         = useState<File | null>(null);
-  const [preview,         setPreview]         = useState<PreviewData | null>(null);
-  const [groups,          setGroups]          = useState<Group[]>([]);
-  const [legendColors,    setLegendColors]    = useState<LegendColor[]>([]);
-  const [loading,         setLoading]         = useState(false);
-  const [statusMsg,       setStatusMsg]       = useState('Upload a PDF to begin');
+  const [pdfFile,      setPdfFile]      = useState<File | null>(null);
+  const [preview,      setPreview]      = useState<PreviewData | null>(null);
+  const [groups,       setGroups]       = useState<Group[]>([]);
+  const [legendColors, setLegendColors] = useState<LegendColor[]>([]);
+  const [loading,      setLoading]      = useState(false);
+  const [statusMsg,    setStatusMsg]    = useState('Upload a PDF to begin');
 
   // ── Selection state ───────────────────────────────────────────────────────
-  const [mode,              setMode]              = useState<Mode>('line');
-  const [selectedColors,    setSelectedColors]    = useState<string[]>([]);
-  const [clickedSegments,   setClickedSegments]   = useState<Seg[]>([]);
-  const [selectedSignature, setSelectedSignature] = useState<HatchSignature | null>(null);
-  const [angleTol,          setAngleTol]          = useState(8);
-  const [spacingTol,        setSpacingTol]        = useState(0.5);
+  const [mode,             setMode]             = useState<Mode>('line');
+  const [selectedColors,   setSelectedColors]   = useState<string[]>([]);
+  const [clickedSegments,  setClickedSegments]  = useState<Seg[]>([]);
+  const [selectedSignature,setSelectedSignature]= useState<HatchSignature | null>(null); // pending detect
+  const [angleTol,         setAngleTol]         = useState(8);
+  const [spacingTol,       setSpacingTol]       = useState(0.5);
 
-  // ── Output / wall state ───────────────────────────────────────────────────
-  const [wallSegments,      setWallSegments]      = useState<Seg[]>([]);
+  // ── Three separate wall-segment buckets ───────────────────────────────────
+  // Kept separate so patterns, color extraction, and line-clicks don't stomp on each other.
+  const [selectedSignatures, setSelectedSignatures] = useState<HatchSignature[]>([]); // added patterns
+  const [patternSegments,    setPatternSegments]    = useState<Seg[][]>([]);          // parallel: segs per pattern
+  const [colorSegments,      setColorSegments]      = useState<Seg[]>([]);            // from color/line extraction
+
+  // wallSegments is derived — pattern segs + color segs + individual clicked lines
+  const wallSegments = useMemo<Seg[]>(
+    () => [...patternSegments.flat(), ...colorSegments, ...clickedSegments],
+    [patternSegments, colorSegments, clickedSegments],
+  );
+
+  // ── Extracting flags ──────────────────────────────────────────────────────
   const [extracting,        setExtracting]        = useState(false);
   const [patternExtracting, setPatternExtracting] = useState(false);
-  const [patternStats,      setPatternStats]      = useState<{matched:number;count:number}|null>(null);
 
   // ── 3D / review state ─────────────────────────────────────────────────────
   const [wallHeightMm,  setWallHeightMm]  = useState(2500);
@@ -103,9 +110,9 @@ export default function FloorPlanPage() {
     setPdfFile(file);
     setPreview(null); setGroups([]); setLegendColors([]);
     setSelectedColors([]); setClickedSegments([]);
-    setSelectedSignature(null); setPatternStats(null);
-    setWallSegments([]); setToolpath(null);
-    setView('select');
+    setSelectedSignature(null);
+    setSelectedSignatures([]); setPatternSegments([]); setColorSegments([]);
+    setToolpath(null); setView('select');
     if (!file) { setStatusMsg('Upload a PDF to begin'); return; }
     setLoading(true); setStatusMsg('Loading…');
     try {
@@ -160,7 +167,7 @@ export default function FloorPlanPage() {
       fd.append('py', String(pdfY)); fd.append('tol', '6');
       try {
         const data = await fetch(`${API}/floorplan/signature_at`, { method: 'POST', body: fd }).then(r => r.json());
-        if (data.hit) { setSelectedSignature({ angle: data.angle, spacing: data.spacing }); setPatternStats(null); }
+        if (data.hit) setSelectedSignature({ angle: data.angle, spacing: data.spacing });
       } catch { /* silent */ }
     }
   }
@@ -169,46 +176,65 @@ export default function FloorPlanPage() {
     setSelectedColors(prev => prev.includes(hex) ? prev.filter(h => h !== hex) : [...prev, hex]);
   }
 
+  // ── Extract color/line walls (replaces colorSegments bucket) ──────────────
   async function handleExtract() {
     if (!pdfFile) return;
     setExtracting(true); setToolpath(null);
     try {
       const fd = new FormData();
       fd.append('file', pdfFile); fd.append('color_hex', '');
-      fd.append('colors_json', JSON.stringify(selectedColors));
-      fd.append('segments_json', JSON.stringify(clickedSegments));
+      fd.append('colors_json',   JSON.stringify(selectedColors));
+      fd.append('segments_json', '[]'); // clicked lines live in their own bucket
       const data = await fetch(`${API}/floorplan/extract`, { method: 'POST', body: fd }).then(r => r.json());
       if (data.error) { setStatusMsg(`Extract error: ${data.error}`); return; }
-      setWallSegments((data.segments ?? []) as Seg[]);
-      setStatusMsg(`${data.count} wall segments extracted`);
+      setColorSegments((data.segments ?? []) as Seg[]);
+      setStatusMsg(`${data.count} color segments extracted`);
     } catch (err: any) {
       setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
     } finally { setExtracting(false); }
   }
 
-  async function handlePatternExtract() {
+  // ── Add a pattern (appends to patternSegments + selectedSignatures) ───────
+  async function handleAddPattern() {
     if (!pdfFile || !selectedSignature) return;
     setPatternExtracting(true); setToolpath(null);
     try {
       const fd = new FormData();
-      fd.append('file', pdfFile);
+      fd.append('file',        pdfFile);
       fd.append('angle',       String(selectedSignature.angle));
       fd.append('spacing',     String(selectedSignature.spacing));
       fd.append('angle_tol',   String(angleTol));
       fd.append('spacing_tol', String(spacingTol));
       const data = await fetch(`${API}/floorplan/extract_by_signature`, { method: 'POST', body: fd }).then(r => r.json());
-      if (data.error) { setStatusMsg(`Pattern extract error: ${data.error}`); return; }
-      setWallSegments((data.segments ?? []) as Seg[]);
-      setPatternStats({ matched: data.matched_objects, count: data.count });
-      setStatusMsg(`Pattern: ${data.matched_objects} objects · ${data.count} segments`);
+      if (data.error) { setStatusMsg(`Pattern error: ${data.error}`); return; }
+      const newSegs = (data.segments ?? []) as Seg[];
+      setSelectedSignatures(prev => [...prev, selectedSignature]);
+      setPatternSegments(prev => [...prev, newSegs]);
+      setSelectedSignature(null); // clear pending after adding
+      setStatusMsg(`Pattern added · ${data.matched_objects} objects · ${data.count} segments`);
     } catch (err: any) {
       setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
     } finally { setPatternExtracting(false); }
   }
 
-  // ── Generate 3D from review screen ────────────────────────────────────────
+  function removePattern(i: number) {
+    setSelectedSignatures(prev => prev.filter((_, idx) => idx !== i));
+    setPatternSegments(prev    => prev.filter((_, idx) => idx !== i));
+    setToolpath(null);
+  }
+
+  function clearAllWalls() {
+    setSelectedSignatures([]); setPatternSegments([]);
+    setColorSegments([]); setClickedSegments([]);
+    setToolpath(null);
+  }
+
+  // ── Generate 3D ───────────────────────────────────────────────────────────
   function handleGenerate() {
     if (!wallSegments.length) return;
+    // Real-world scale: plan is drawn at 1:50.
+    // pt → paper metres (pt / 72 * 0.0254) → real metres (* 50)
+    const PT_TO_M = (0.0254 / 72) * 50; // ≈ 0.017638 m per pt at 1:50
     const base: Layer = wallSegments.map(s => ({
       x0: s[0][0] * PT_TO_M, y0: s[0][1] * PT_TO_M,
       x1: s[1][0] * PT_TO_M, y1: s[1][1] * PT_TO_M,
@@ -218,7 +244,7 @@ export default function FloorPlanPage() {
     setToolpath(Array.from({ length: n }, () => base));
   }
 
-  // ── Review SVG: fit all wallSegments into a fixed-width canvas ────────────
+  // ── Review SVG ────────────────────────────────────────────────────────────
   const reviewSvg = useMemo(() => {
     if (!wallSegments.length) return null;
     const SVG_W = 900; const PAD = 24;
@@ -230,8 +256,6 @@ export default function FloorPlanPage() {
     const dataH = maxY - minY || 1;
     const scale = (SVG_W - PAD * 2) / Math.max(dataW, dataH);
     const svgH  = dataH * scale + PAD * 2;
-    // Y is flipped: PDF y grows down in fitz, but we still want top-of-plan at top.
-    // Just map consistently: svg_y = PAD + (y - minY) * scale
     const tx = (x: number) => PAD + (x - minX) * scale;
     const ty = (y: number) => PAD + (y - minY) * scale;
     return { SVG_W, svgH, tx, ty };
@@ -244,13 +268,14 @@ export default function FloorPlanPage() {
     return g.fill_hex !== '-' ? g.fill_hex : g.stroke_hex !== '-' ? g.stroke_hex : '';
   }
 
-  const hasColorLineSelection = selectedColors.length > 0 || clickedSegments.length > 0;
+  const hasColorLineSelection = selectedColors.length > 0;
   const computedLayers = Math.max(1, Math.round((wallHeightMm / 1000) / (layerHeightMm / 1000)));
   const modeHint = mode === 'line'
     ? 'Click any line on the plan to select it individually.'
     : mode === 'color'
     ? 'Click any element to select all objects of that color.'
-    : 'Click any hatch on the plan or legend to detect its pattern signature.';
+    : 'Click any hatch area to detect its pattern signature.';
+  const totalPatternSegs = patternSegments.reduce((a, s) => a + s.length, 0);
 
   // ══════════════════════════════════════════════════════════════════════════
   // REVIEW VIEW
@@ -271,12 +296,14 @@ export default function FloorPlanPage() {
         <main className="flex-1 flex flex-col items-center px-6 py-10">
           <div className="w-full max-w-4xl space-y-8">
 
-            {/* Top bar */}
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-2xl font-bold text-black tracking-tight">Review selected walls</h1>
                 <p className="text-sm text-black/40 mt-1">
                   {wallSegments.length} segment{wallSegments.length !== 1 ? 's' : ''} selected
+                  {selectedSignatures.length > 0 && ` · ${selectedSignatures.length} pattern${selectedSignatures.length !== 1 ? 's' : ''}`}
+                  {colorSegments.length > 0 && ` · ${colorSegments.length} color seg`}
+                  {clickedSegments.length > 0 && ` · ${clickedSegments.length} picked`}
                 </p>
               </div>
               <button onClick={() => { setToolpath(null); setView('select'); }}
@@ -289,14 +316,11 @@ export default function FloorPlanPage() {
               </button>
             </div>
 
-            {/* 2D wall preview — clean, no background image */}
+            {/* 2D wall preview */}
             <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
               {reviewSvg ? (
-                <svg
-                  width="100%"
-                  viewBox={`0 0 ${reviewSvg.SVG_W} ${reviewSvg.svgH}`}
-                  style={{ display: 'block' }}
-                >
+                <svg width="100%" viewBox={`0 0 ${reviewSvg.SVG_W} ${reviewSvg.svgH}`}
+                  style={{ display: 'block' }}>
                   <rect width={reviewSvg.SVG_W} height={reviewSvg.svgH} fill="white" />
                   {wallSegments.map((seg, i) => (
                     <line key={i}
@@ -322,7 +346,10 @@ export default function FloorPlanPage() {
                   onChange={setLayerHeightMm} min={1} max={500} step={5} />
               </div>
               <div className="flex items-center justify-between">
-                <p className="text-xs text-black/30">{computedLayers} layers</p>
+                <div className="space-y-0.5">
+                  <p className="text-xs text-black/30">{computedLayers} layers</p>
+                  <p className="text-[11px] text-black/25">Scale: 1:50 (real-world metres)</p>
+                </div>
                 <button onClick={handleGenerate}
                   className="px-6 py-2.5 bg-black text-white text-sm font-semibold rounded-xl
                     hover:bg-black/80 transition-all">
@@ -331,7 +358,6 @@ export default function FloorPlanPage() {
               </div>
             </div>
 
-            {/* 3D viewer */}
             {toolpath && (
               <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
                 style={{ height: '600px' }}>
@@ -352,7 +378,7 @@ export default function FloorPlanPage() {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // SELECT VIEW (existing UI)
+  // SELECT VIEW
   // ══════════════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -385,6 +411,7 @@ export default function FloorPlanPage() {
         <aside className="w-72 flex-shrink-0 bg-white border-r border-gray-100 overflow-y-auto flex flex-col">
           <div className="flex flex-col flex-1 divide-y divide-gray-100">
 
+            {/* Upload */}
             <section className="p-5">
               <SectionLabel>Floor Plan PDF</SectionLabel>
               <input type="file" accept=".pdf" onChange={handleFileChange}
@@ -394,6 +421,7 @@ export default function FloorPlanPage() {
                   hover:file:bg-black/80 file:cursor-pointer cursor-pointer transition-all" />
             </section>
 
+            {/* Click mode */}
             {pdfFile && (
               <section className="p-5">
                 <SectionLabel>Click Mode</SectionLabel>
@@ -410,47 +438,79 @@ export default function FloorPlanPage() {
               </section>
             )}
 
-            {/* Pattern panel */}
+            {/* ── Pattern panel ──────────────────────────────────────────── */}
             {pdfFile && mode === 'pattern' && (
               <section className="p-5 space-y-4">
-                <SectionLabel>Hatch Pattern</SectionLabel>
+                <SectionLabel>Hatch Patterns</SectionLabel>
+
+                {/* Added patterns list */}
+                {selectedSignatures.length > 0 && (
+                  <div className="space-y-1.5">
+                    {selectedSignatures.map((sig, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                        <span className="text-[10px] font-mono text-black/50 flex-1 truncate">
+                          {sig.angle.toFixed(1)}° · {sig.spacing.toFixed(1)}pt
+                        </span>
+                        <span className="text-[10px] text-black/25 flex-shrink-0">
+                          {patternSegments[i]?.length ?? 0} seg
+                        </span>
+                        <button onClick={() => removePattern(i)}
+                          className="text-[11px] text-red-400 hover:text-red-600 transition-colors flex-shrink-0 ml-1">
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between pt-0.5">
+                      <p className="text-[11px] text-black/40">
+                        {selectedSignatures.length} pattern{selectedSignatures.length !== 1 ? 's' : ''} · {totalPatternSegs} seg
+                      </p>
+                      <button onClick={() => { setSelectedSignatures([]); setPatternSegments([]); setToolpath(null); }}
+                        className="text-[11px] text-black/30 hover:text-black transition-colors">
+                        Clear all
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Pending detected signature */}
                 {selectedSignature ? (
-                  <div className="bg-gray-50 rounded-xl p-3 space-y-1">
-                    <p className="text-xs font-semibold text-black/70">Detected pattern</p>
-                    <p className="text-[11px] text-black/50 font-mono">
+                  <div className="bg-gray-50 rounded-xl p-3 space-y-1 border border-gray-200">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-black/40">Detected</p>
+                    <p className="text-xs font-mono text-black/70">
                       {selectedSignature.angle.toFixed(1)}° · spacing {selectedSignature.spacing.toFixed(1)} pt
                     </p>
-                    <button onClick={() => { setSelectedSignature(null); setPatternStats(null); }}
+                    <button onClick={() => setSelectedSignature(null)}
                       className="text-[11px] text-black/30 hover:text-black transition-colors">
-                      Clear
+                      Discard
                     </button>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-black/25 italic">
-                    Click a hatch area to detect its signature.
+                  <p className="text-[11px] text-black/25 italic leading-relaxed">
+                    {selectedSignatures.length > 0
+                      ? 'Click another hatch to add more patterns.'
+                      : 'Click a hatch area on the plan or legend to detect its signature.'}
                   </p>
                 )}
+
+                {/* Tolerances */}
                 <div className="space-y-3">
                   <NumInput label="Angle tolerance (°)" value={angleTol}
                     onChange={setAngleTol} min={1} max={45} step={1} />
                   <NumInput label="Spacing tolerance (pt)" value={spacingTol}
                     onChange={setSpacingTol} min={0.1} max={10} step={0.1} />
                 </div>
-                <button onClick={handlePatternExtract}
+
+                {/* Add button */}
+                <button onClick={handleAddPattern}
                   disabled={!selectedSignature || patternExtracting}
                   className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl
                     hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                  {patternExtracting ? 'Matching…' : 'Select all this pattern'}
+                  {patternExtracting ? 'Matching…' : 'Add this pattern'}
                 </button>
-                {patternStats && (
-                  <p className="text-[11px] text-black/40 text-center">
-                    {patternStats.matched} objects · {patternStats.count} segments
-                  </p>
-                )}
               </section>
             )}
 
-            {/* Color + line panels */}
+            {/* ── Color + line panels ────────────────────────────────────── */}
             {pdfFile && mode !== 'pattern' && (
               <>
                 {legendColors.length > 0 && (
@@ -528,10 +588,8 @@ export default function FloorPlanPage() {
                       <p className="text-[11px] text-black/40">
                         {clickedSegments.length} line{clickedSegments.length !== 1 ? 's' : ''} picked
                       </p>
-                      {wallSegments.length > 0 && (
-                        <p className="text-[11px] text-black/40">
-                          {wallSegments.length} segments extracted
-                        </p>
+                      {colorSegments.length > 0 && (
+                        <p className="text-[11px] text-black/40">{colorSegments.length} color seg</p>
                       )}
                     </div>
                     <div className="flex flex-col items-end gap-1">
@@ -547,6 +605,12 @@ export default function FloorPlanPage() {
                           Clear lines
                         </button>
                       )}
+                      {colorSegments.length > 0 && (
+                        <button onClick={() => setColorSegments([])}
+                          className="text-[11px] text-blue-400 hover:text-blue-600 transition-colors">
+                          Clear extracted
+                        </button>
+                      )}
                     </div>
                   </div>
                   <button onClick={handleExtract} disabled={!hasColorLineSelection || extracting}
@@ -558,22 +622,18 @@ export default function FloorPlanPage() {
               </>
             )}
 
-            {/* Shared: clear walls */}
+            {/* Shared: total + clear + review CTA */}
             {wallSegments.length > 0 && (
-              <section className="p-5">
+              <section className="p-5 space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-[11px] text-black/40">{wallSegments.length} segments ready</p>
-                  <button onClick={() => { setWallSegments([]); setToolpath(null); setPatternStats(null); }}
-                    className="text-[11px] text-blue-400 hover:text-blue-600 transition-colors">
-                    Clear walls
+                  <p className="text-[11px] text-black/50 font-medium">
+                    {wallSegments.length} total segments
+                  </p>
+                  <button onClick={clearAllWalls}
+                    className="text-[11px] text-black/30 hover:text-black transition-colors">
+                    Clear all
                   </button>
                 </div>
-              </section>
-            )}
-
-            {/* Review CTA in sidebar */}
-            {wallSegments.length > 0 && (
-              <section className="p-5">
                 <button onClick={() => setView('review')}
                   className="w-full py-2.5 border-2 border-black text-black text-sm font-semibold
                     rounded-xl hover:bg-black hover:text-white transition-all flex items-center justify-center gap-2">
@@ -596,6 +656,12 @@ export default function FloorPlanPage() {
             )}
             <p className="text-xs text-black/40 truncate">{statusMsg}</p>
             <div className="flex items-center gap-4 ml-auto flex-shrink-0">
+              {selectedSignatures.length > 0 && (
+                <div className="flex items-center gap-1.5 text-[11px] text-black/40">
+                  <div className="w-4 h-0.5 bg-violet-400 rounded" />
+                  {selectedSignatures.length} pattern{selectedSignatures.length !== 1 ? 's' : ''}
+                </div>
+              )}
               {clickedSegments.length > 0 && (
                 <div className="flex items-center gap-1.5 text-[11px] text-black/40">
                   <div className="w-4 h-0.5 bg-red-400 rounded" />
@@ -605,7 +671,7 @@ export default function FloorPlanPage() {
               {wallSegments.length > 0 && (
                 <div className="flex items-center gap-1.5 text-[11px] text-black/40">
                   <div className="w-4 h-0.5 bg-blue-500 rounded" />
-                  {wallSegments.length} extracted
+                  {wallSegments.length} total
                 </div>
               )}
             </div>
