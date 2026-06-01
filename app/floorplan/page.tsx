@@ -117,12 +117,11 @@ export default function FloorPlanPage() {
   const [layerHeightMm, setLayerHeightMm] = useState(50);
 
   // ── Slicer state ──────────────────────────────────────────────────────────
-  const [nozzleMm,     setNozzleMm]     = useState(25);
-  const [speedMmS,     setSpeedMmS]     = useState(60);
-  const [cityInput,    setCityInput]    = useState('');
-  const [sliceResult,  setSliceResult]  = useState<any>(null);
-  const [slicing,      setSlicing]      = useState(false);
-  const [showLayerViz, setShowLayerViz] = useState(false);
+  const [nozzleMm,    setNozzleMm]    = useState(25);
+  const [speedMmS,    setSpeedMmS]    = useState(60);
+  const [cityInput,   setCityInput]   = useState('');
+  const [sliceResult, setSliceResult] = useState<any>(null);
+  const [slicing,     setSlicing]     = useState(false);
 
   // ── File load ─────────────────────────────────────────────────────────────
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -312,18 +311,14 @@ export default function FloorPlanPage() {
   if (view === 'review') {
     return (
       <>
-      {/* Fullscreen layer visualizer */}
-      {showLayerViz && sliceResult && (
-        <div className="fixed inset-0 z-50">
-          <LayerVisualization
-            file={null}
-            toolpath={sliceResult.toolpath}
-            numLayers={sliceResult.geometry.num_layers}
-            layerHeight={sliceResult.geometry.layer_height}
-            nozzleDiameter={nozzleMm / 1000}
-            fullscreen
-            onBack={() => setShowLayerViz(false)}
-          />
+      {/* Slicing loading overlay */}
+      {slicing && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center gap-5">
+          <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+          <div className="text-center">
+            <p className="text-white font-semibold text-base">Slicing floor plan…</p>
+            <p className="text-white/50 text-sm mt-1">{wallSegments.length} segments · {computedLayers} layers</p>
+          </div>
         </div>
       )}
       <div className="min-h-screen flex flex-col bg-gray-50">
@@ -466,15 +461,6 @@ export default function FloorPlanPage() {
                       </div>
                     ))}
                   </div>
-                  <button onClick={() => setShowLayerViz(true)}
-                    className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl
-                      hover:bg-black/80 transition-all flex items-center justify-center gap-2">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                    </svg>
-                    View layers
-                  </button>
                   <a href={`${API}/gcode/${sliceResult.result_id}`}
                     download={`floorplan_${sliceResult.result_id}.gcode`}
                     className="block w-full py-2 border border-gray-200 text-sm font-semibold
@@ -487,16 +473,23 @@ export default function FloorPlanPage() {
             </div>
           </div>
 
-          {/* RIGHT — solid 3D wall model */}
-          <div className="flex-1 min-w-0" style={{ minWidth: '300px', minHeight: '500px' }}>
-            {wallSegments.length > 0
-              ? <WallViewer segments={wallSegments} wallHeightMm={wallHeightMm} />
-              : (
-                <div className="flex items-center justify-center h-full bg-sky-100">
-                  <p className="text-sm text-black/30">No wall segments selected</p>
-                </div>
-              )
-            }
+          {/* RIGHT — layer visualizer (after slice) or wall preview (before) */}
+          <div className="flex-1 min-w-0 min-h-0" style={{ minWidth: '300px', minHeight: '500px' }}>
+            {sliceResult ? (
+              <LayerVisualization
+                file={null}
+                toolpath={sliceResult.toolpath}
+                numLayers={sliceResult.geometry.num_layers}
+                layerHeight={sliceResult.geometry.layer_height}
+                nozzleDiameter={nozzleMm / 1000}
+              />
+            ) : wallSegments.length > 0 ? (
+              <WallViewer segments={wallSegments} wallHeightMm={wallHeightMm} />
+            ) : (
+              <div className="flex items-center justify-center h-full bg-gray-100">
+                <p className="text-sm text-black/30">No wall segments selected</p>
+              </div>
+            )}
           </div>
 
         </div>
