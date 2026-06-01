@@ -478,6 +478,202 @@ async def floorplan_extract(
         return {"error": str(e)}
 
 
+@app.post("/floorplan/slice")
+async def floorplan_slice(
+    segments_json:      str           = Form(...),
+    page_width_pt:      float         = Form(0.0),
+    page_height_pt:     float         = Form(0.0),
+    wall_height_mm:     float         = Form(2500.0),
+    layer_height_mm:    float         = Form(50.0),
+    printer_name:       str           = Form("Custom 3DCP Printer"),
+    nozzle_diameter_mm: float         = Form(25.0),
+    bead_compression:   float         = Form(0.6),
+    max_speed_mm_s:     float         = Form(100.0),
+    min_speed_mm_s:     float         = Form(15.0),
+    base_speed_mm_s:    float         = Form(60.0),
+    uses_e_axis:        bool          = Form(False),
+    city:               Optional[str] = Form(None),
+    temperature:        float         = Form(20.0),
+    humidity:           float         = Form(65.0),
+    wind_speed:         float         = Form(8.0),
+    print_start_hour:   float         = Form(8.0),
+    structure_type:     str           = Form("wall"),
+):
+    PT_TO_M = (0.0254 / 72) * 50  # PDF points → real-world metres at 1:50
+
+    try:
+        raw_segs = json.loads(segments_json)
+    except Exception:
+        raise HTTPException(400, "Invalid segments_json")
+    if not raw_segs:
+        raise HTTPException(400, "No wall segments provided")
+
+    segs_m = []
+    for s in raw_segs:
+        try:
+            segs_m.append(((float(s[0][0]) * PT_TO_M, float(s[0][1]) * PT_TO_M),
+                           (float(s[1][0]) * PT_TO_M, float(s[1][1]) * PT_TO_M)))
+        except Exception:
+            pass
+    if not segs_m:
+        raise HTTPException(400, "No valid segments after conversion")
+
+    layer_h    = float(max(LAYER_HEIGHT_MIN_M, min(LAYER_HEIGHT_MAX_M, layer_height_mm / 1000.0)))
+    wall_h     = float(max(layer_h, wall_height_mm / 1000.0))
+    num_layers = max(1, int(wall_h / layer_h))
+
+    perim = sum(math.hypot(s[1][0] - s[0][0], s[1][1] - s[0][1]) for s in segs_m)
+    xs    = [p[0] for s in segs_m for p in s]
+    ys    = [p[1] for s in segs_m for p in s]
+    area  = (max(xs) - min(xs)) * (max(ys) - min(ys)) if xs else 0.0
+
+    geometry    = [list(segs_m) for _ in range(num_layers)]
+    layer_metas = [
+        {
+            "index":            idx,
+            "z_height_m":       round((idx + 0.5) * layer_h, 4),
+            "segment_count":    len(segs_m),
+            "perimeter_m":      round(perim, 4),
+            "area_m2":          round(area, 6),
+            "wall_thickness_m": round(nozzle_diameter_mm / 1000.0, 4),
+            "complexity":       1.0,
+        }
+        for idx in range(num_layers)
+    ]
+    geo_meta = {
+        "num_layers":        num_layers,
+        "total_layers":      num_layers,
+        "subsampled":        False,
+        "layer_height":      layer_h,
+        "nozzle_width":      nozzle_diameter_mm / 1000.0,
+        "bounds_x":          (round(min(xs), 3), round(max(xs), 3)),
+        "bounds_y":          (round(min(ys), 3), round(max(ys), 3)),
+        "bounds_z":          (0.0, round(wall_h, 3)),
+        "total_height_m":    round(wall_h, 3),
+        "total_segments":    len(segs_m) * num_layers,
+        "total_perimeter_m": round(perim * num_layers, 2),
+        "file_name":         "floorplan",
+    }
+
+    start   = time.time()
+    printer = {
+        "nozzle_diameter_mm":    nozzle_diameter_mm,
+        "bead_compression":      bead_compression,
+        "max_speed_mm_s":        max_speed_mm_s,
+        "min_speed_mm_s":        min_speed_mm_s,
+        "max_mass_flow_l_min":   8.0,
+        "hose_length_m":         15.0,
+        "hose_internal_diam_mm": 50.0,
+        "acceleration_mm_s2":    500.0,
+        "pump_lag_s":            2.25,
+    }
+
+    if city:
+        try:
+            weather_sched = fetch_forecast_schedule(city, print_start_hour, max(1.0, num_layers * layer_h / 60.0))
+        except Exception:
+            try:
+                snap = fetch_current_weather(city)
+                weather_sched = WeatherSchedule()
+                weather_sched.snapshots = [snap]
+                weather_sched.source    = "live"
+                weather_sched.city      = city
+            except Exception:
+                weather_sched = _manual_schedule(None, print_start_hour, temperature, humidity, wind_speed, 0.0)
+    else:
+        weather_sched = _manual_schedule(None, print_start_hour, temperature, humidity, wind_speed, 0.0)
+
+    avg_cond   = average_conditions(weather_sched)
+    worst_cond = worst_conditions(weather_sched)
+
+    if not os.path.exists(MODEL_PATH):
+        raise HTTPException(503, "RL model not found — run python train.py first")
+
+    try:
+        toolpath, layer_params, stats = optimize(
+            geometry        = geometry,
+            layer_metas     = layer_metas,
+            weather_sched   = weather_sched,
+            model_path      = MODEL_PATH,
+            printer         = printer,
+            base_speed_mm_s = base_speed_mm_s,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Optimisation failed: {e}")
+
+    gcode_str = toolpath_to_gcode(
+        toolpath         = toolpath,
+        layer_params     = layer_params,
+        printer_name     = printer_name,
+        uses_e_axis      = uses_e_axis,
+        nozzle_diam_mm   = nozzle_diameter_mm,
+        structure_type   = structure_type,
+        time_blocks      = [],
+        print_start_hour = print_start_hour,
+    )
+
+    elapsed   = round(time.time() - start, 2)
+    result_id = str(uuid.uuid4())
+    with open(f"{RESULTS_DIR}/{result_id}.gcode", "w", encoding="utf-8") as f:
+        f.write(gcode_str)
+
+    import math as _math
+    GAP_THRESHOLD_M = 0.002
+    def _ser(segs):
+        out = []
+        for i, s in enumerate(segs):
+            if i > 0:
+                prev = segs[i - 1]
+                if _math.hypot(s[0][0] - prev[1][0], s[0][1] - prev[1][1]) > GAP_THRESHOLD_M:
+                    out.append({"gap": True})
+            out.append({"x0": s[0][0], "y0": s[0][1], "x1": s[1][0], "y1": s[1][1]})
+        return out
+
+    toolpath_json = [_ser(layer) for layer in toolpath]
+    est_s         = stats.get("estimated_print_time_s", 0)
+
+    return {
+        "result_id":              result_id,
+        "elapsed_seconds":        elapsed,
+        "geometry":               geo_meta,
+        "material": {
+            "name":              PRODUCT_NAME,
+            "pot_life_20c":      60,
+            "pot_life_at_worst": round(pot_life_at_temp(worst_cond["temperature"]), 1),
+        },
+        "printer": {
+            "name":             printer_name,
+            "nozzle_mm":        nozzle_diameter_mm,
+            "layer_height_mm":  round(layer_h * 1000, 1),
+            "effective_speed":  stats.get("avg_print_speed_mm_s", base_speed_mm_s),
+        },
+        "weather": {
+            "source": weather_sched.source,
+            "city":   weather_sched.city or "manual",
+            "avg":    avg_cond,
+            "worst":  worst_cond,
+        },
+        "optimization":           stats,
+        "estimated_print_time":   format_print_time(est_s),
+        "estimated_print_time_s": est_s,
+        "toolpath":               toolpath_json,
+        "gcode_lines":            len(gcode_str.splitlines()),
+        "gcode_preview":          "\n".join(gcode_str.splitlines()[:40]),
+        "gcode_full":             gcode_str,
+        "layer_stats": [
+            {
+                "layer":        lm["index"],
+                "z_height_mm":  round(lm["z_height_m"] * 1000, 1),
+                "segments":     lm["segment_count"],
+                "perimeter_mm": round(lm["perimeter_m"] * 1000, 1),
+                "speed_mm_s":   layer_params[lm["index"]].print_speed_mm_s if lm["index"] < len(layer_params) else 0,
+                "risk_score":   layer_params[lm["index"]].risk_score        if lm["index"] < len(layer_params) else 0,
+            }
+            for lm in layer_metas[:len(layer_params)]
+        ],
+    }
+
+
 @app.post("/floorplan/preview")
 async def floorplan_preview(file: UploadFile = File(...)):
     import fitz
