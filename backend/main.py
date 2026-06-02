@@ -486,10 +486,17 @@ async def floorplan_outlines(
     hatch_avg_max_pt: float      = Form(25.0),
 ):
     import fitz
+    data = await file.read()
+    if not data:
+        return {"error": f"no bytes received. filename={file.filename}"}
     try:
-        data = await file.read()
-        doc  = fitz.open(stream=data, filetype="pdf")
-        page = doc[0]
+        doc = fitz.open(stream=data, filetype="pdf")
+    except Exception as e:
+        return {"error": f"fitz.open failed: {e}, bytes={len(data)}"}
+    if doc.page_count < 1:
+        return {"error": f"PDF has no pages. bytes={len(data)}"}
+    page = doc.load_page(0)
+    try:
         W    = page.rect.width
         dr   = page.get_drawings()
 
