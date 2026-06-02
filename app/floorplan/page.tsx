@@ -474,7 +474,7 @@ export default function FloorPlanPage() {
           </div>
 
           {/* RIGHT — layer visualizer (after slice) or wall preview (before) */}
-          <div className="flex-1 min-w-0 min-h-0" style={{ minWidth: '300px', minHeight: '500px' }}>
+          <div className="flex-1 min-w-0 min-h-0 relative" style={{ minWidth: '300px', minHeight: '500px' }}>
             {sliceResult ? (
               <LayerVisualization
                 file={null}
@@ -482,6 +482,7 @@ export default function FloorPlanPage() {
                 numLayers={sliceResult.geometry.num_layers}
                 layerHeight={sliceResult.geometry.layer_height}
                 nozzleDiameter={nozzleMm / 1000}
+                fullscreen
               />
             ) : wallSegments.length > 0 ? (
               <WallViewer segments={wallSegments} wallHeightMm={wallHeightMm} />
