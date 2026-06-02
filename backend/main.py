@@ -478,6 +478,63 @@ async def floorplan_extract(
         return {"error": str(e)}
 
 
+@app.post("/floorplan/outlines")
+async def floorplan_outlines(
+    file:             UploadFile = File(...),
+    min_len_pt:       float      = Form(20.0),
+    hatch_min_segs:   int        = Form(6),
+    hatch_avg_max_pt: float      = Form(25.0),
+):
+    import fitz
+    try:
+        data = await file.read()
+        doc  = fitz.open(stream=data, filetype="pdf")
+        page = doc[0]
+        W    = page.rect.width
+        dr   = page.get_drawings()
+
+        def seglen(a, b):
+            ax, ay = (a.x, a.y) if hasattr(a, "x") else (a[0], a[1])
+            bx, by = (b.x, b.y) if hasattr(b, "x") else (b[0], b[1])
+            return math.hypot(ax - bx, ay - by)
+
+        def pt(p):
+            return (float(p.x), float(p.y)) if hasattr(p, "x") else (float(p[0]), float(p[1]))
+
+        kept = []
+        for d in dr:
+            r = d.get("rect")
+            if not r:
+                continue
+            # skip legend/title region on the right
+            if (r.x0 + r.x1) / 2 > W * 0.62:
+                continue
+            segs = [
+                (it[1], it[2]) for it in (d.get("items") or [])
+                if it and it[0] == "l" and len(it) >= 3
+            ]
+            if not segs:
+                continue
+            lens = [seglen(a, b) for a, b in segs]
+            avg  = sum(lens) / len(lens)
+            # hatch (insulation/fill) = many short parallel segments -> skip
+            if len(segs) >= hatch_min_segs and avg < hatch_avg_max_pt:
+                continue
+            for L, (a, b) in zip(lens, segs):
+                if L >= min_len_pt:
+                    kept.append([list(pt(a)), list(pt(b))])
+
+        doc.close()
+        return {
+            "segments":        kept,
+            "count":           len(kept),
+            "page_width_pt":   float(W),
+            "page_height_pt":  float(page.rect.height),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/floorplan/slice")
 async def floorplan_slice(
     segments_json:      str           = Form(...),

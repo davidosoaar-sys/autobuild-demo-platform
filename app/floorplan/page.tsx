@@ -104,9 +104,16 @@ export default function FloorPlanPage() {
   const [patternSegments,    setPatternSegments]    = useState<Seg[][]>([]);
   const [colorSegments,      setColorSegments]      = useState<Seg[]>([]);
 
+  // ── Outline extraction state ──────────────────────────────────────────────
+  const [outlineSegments, setOutlineSegments] = useState<Seg[]>([]);
+  const [minLenPt,        setMinLenPt]        = useState(20);
+  const [hatchMinSegs,    setHatchMinSegs]    = useState(6);
+  const [hatchAvgMaxPt,   setHatchAvgMaxPt]   = useState(25);
+  const [outlining,       setOutlining]       = useState(false);
+
   const wallSegments = useMemo<Seg[]>(
-    () => [...patternSegments.flat(), ...colorSegments, ...clickedSegments],
-    [patternSegments, colorSegments, clickedSegments],
+    () => [...outlineSegments, ...patternSegments.flat(), ...colorSegments, ...clickedSegments],
+    [outlineSegments, patternSegments, colorSegments, clickedSegments],
   );
 
   // ── Extracting flags ──────────────────────────────────────────────────────
@@ -140,6 +147,7 @@ export default function FloorPlanPage() {
     setSelectedColors([]); setClickedSegments([]);
     setSelectedSignature(null);
     setSelectedSignatures([]); setPatternSegments([]); setColorSegments([]);
+    setOutlineSegments([]);
     setView('select');
     if (!file) { setStatusMsg('Upload a PDF to begin'); return; }
     setLoading(true); setStatusMsg('Loading…');
@@ -244,6 +252,24 @@ export default function FloorPlanPage() {
     } finally { setPatternExtracting(false); }
   }
 
+  async function handleExtractOutlines() {
+    if (!pdfFile) return;
+    setOutlining(true);
+    try {
+      const fd = new FormData();
+      fd.append('file',             pdfFile);
+      fd.append('min_len_pt',       String(minLenPt));
+      fd.append('hatch_min_segs',   String(hatchMinSegs));
+      fd.append('hatch_avg_max_pt', String(hatchAvgMaxPt));
+      const data = await fetch(`${API}/floorplan/outlines`, { method: 'POST', body: fd }).then(r => r.json());
+      if (data.error) { setStatusMsg(`Outline error: ${data.error}`); return; }
+      setOutlineSegments((data.segments ?? []) as Seg[]);
+      setStatusMsg(`${data.count} outline segments extracted`);
+    } catch (err: any) {
+      setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
+    } finally { setOutlining(false); }
+  }
+
   async function handleSlice() {
     if (!wallSegments.length || !preview) return;
     setSlicing(true); setSliceResult(null); setShowResults(false);
@@ -281,6 +307,7 @@ export default function FloorPlanPage() {
   function clearAllWalls() {
     setSelectedSignatures([]); setPatternSegments([]);
     setColorSegments([]); setClickedSegments([]);
+    setOutlineSegments([]);
   }
 
   // ── Review SVG ────────────────────────────────────────────────────────────
@@ -612,8 +639,51 @@ export default function FloorPlanPage() {
             </section>
 
             {pdfFile && (
+              <section className="p-5 space-y-4">
+                <SectionLabel>Wall Outline Extraction</SectionLabel>
+                <button
+                  onClick={handleExtractOutlines}
+                  disabled={outlining}
+                  className="w-full py-3 bg-black text-white text-sm font-bold rounded-xl
+                    hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all
+                    flex items-center justify-center gap-2">
+                  {outlining
+                    ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>Extracting…</span></>
+                    : 'Extract Wall Outlines'}
+                </button>
+                {outlineSegments.length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] text-black/50">{outlineSegments.length} outline segments</p>
+                    <button onClick={() => setOutlineSegments([])}
+                      className="text-[11px] text-black/30 hover:text-black transition-colors">
+                      Clear
+                    </button>
+                  </div>
+                )}
+                <div className="space-y-3 pt-1 border-t border-gray-100">
+                  <p className="text-[10px] text-black/30 pt-1">Tuning thresholds</p>
+                  <NumInput label="Min line length (pt)" value={minLenPt}
+                    onChange={setMinLenPt} min={1} max={200} step={1} unit="pt" />
+                  <NumInput label="Hatch min segments" value={hatchMinSegs}
+                    onChange={setHatchMinSegs} min={2} max={30} step={1} />
+                  <NumInput label="Hatch avg max (pt)" value={hatchAvgMaxPt}
+                    onChange={setHatchAvgMaxPt} min={1} max={100} step={1} unit="pt" />
+                  {outlineSegments.length > 0 && (
+                    <button
+                      onClick={handleExtractOutlines}
+                      disabled={outlining}
+                      className="w-full py-2 border border-gray-200 text-black/60 text-xs font-semibold
+                        rounded-xl hover:border-black hover:text-black disabled:opacity-30 transition-all">
+                      {outlining ? 'Extracting…' : 'Re-extract'}
+                    </button>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {pdfFile && (
               <section className="p-5">
-                <SectionLabel>Click Mode</SectionLabel>
+                <SectionLabel>Manual Selection</SectionLabel>
                 <div className="flex rounded-xl overflow-hidden border border-gray-200 text-xs font-semibold w-full">
                   {(['line', 'color', 'pattern'] as Mode[]).map(m => (
                     <button key={m} onClick={() => setMode(m)}
