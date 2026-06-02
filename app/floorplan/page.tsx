@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const WallViewer = dynamic(() => import('./WallViewer'), {
   ssr: false,
@@ -117,11 +118,19 @@ export default function FloorPlanPage() {
   const [layerHeightMm, setLayerHeightMm] = useState(50);
 
   // ── Slicer state ──────────────────────────────────────────────────────────
-  const [nozzleMm,    setNozzleMm]    = useState(25);
-  const [speedMmS,    setSpeedMmS]    = useState(60);
-  const [cityInput,   setCityInput]   = useState('');
-  const [sliceResult, setSliceResult] = useState<any>(null);
-  const [slicing,     setSlicing]     = useState(false);
+  const [nozzle,       setNozzle]       = useState(25);
+  const [compression,  setCompression]  = useState(0.6);
+  const [velocity,     setVelocity]     = useState(100);
+  const [hoseLength,   setHoseLength]   = useState(15);
+  const [flowRate,     setFlowRate]     = useState(8);
+  const [acceleration, setAcceleration] = useState(500);
+  const [cityInput,    setCityInput]    = useState('');
+  const [sliceResult,  setSliceResult]  = useState<any>(null);
+  const [slicing,      setSlicing]      = useState(false);
+  const [showResults,  setShowResults]  = useState(false);
+  const [showSidebar,  setShowSidebar]  = useState(true);
+
+  const layerHeightFromCompression = Math.round(nozzle * compression) / 10;
 
   // ── File load ─────────────────────────────────────────────────────────────
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -237,8 +246,7 @@ export default function FloorPlanPage() {
 
   async function handleSlice() {
     if (!wallSegments.length || !preview) return;
-    setSlicing(true);
-    setSliceResult(null);
+    setSlicing(true); setSliceResult(null); setShowResults(false);
     try {
       const fd = new FormData();
       fd.append('segments_json',      JSON.stringify(wallSegments));
@@ -246,15 +254,18 @@ export default function FloorPlanPage() {
       fd.append('page_height_pt',     String(preview.page_height_pt));
       fd.append('wall_height_mm',     String(wallHeightMm));
       fd.append('layer_height_mm',    String(layerHeightMm));
-      fd.append('nozzle_diameter_mm', String(nozzleMm));
-      fd.append('base_speed_mm_s',    String(speedMmS));
+      fd.append('nozzle_diameter_mm', String(nozzle));
+      fd.append('bead_compression',   String(compression));
+      fd.append('max_speed_mm_s',     String(velocity));
+      fd.append('base_speed_mm_s',    String(Math.round(velocity * 0.6)));
+      fd.append('hose_length_m',      String(hoseLength));
+      fd.append('max_mass_flow_l_min',String(flowRate));
+      fd.append('acceleration_mm_s2', String(acceleration));
       if (cityInput.trim()) fd.append('city', cityInput.trim());
       const data = await fetch(`${API}/floorplan/slice`, { method: 'POST', body: fd }).then(r => r.json());
-      if (data.detail || data.error) {
-        setStatusMsg(`Slice error: ${data.detail || data.error}`);
-        return;
-      }
+      if (data.detail || data.error) { setStatusMsg(`Slice error: ${data.detail || data.error}`); return; }
       setSliceResult(data);
+      setShowResults(true);
     } catch (err: any) {
       setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
     } finally {
@@ -306,12 +317,111 @@ export default function FloorPlanPage() {
     : 'Click any hatch area to detect its pattern signature.';
 
   // ══════════════════════════════════════════════════════════════════════════
-  // REVIEW VIEW — side-by-side layout
+  // REVIEW VIEW
   // ══════════════════════════════════════════════════════════════════════════
   if (view === 'review') {
+    const inputCls = 'w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:border-black transition-colors text-black';
+    function RField({ label, children }: { label: string; children: React.ReactNode }) {
+      return (
+        <div>
+          <label className="block text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-1.5">{label}</label>
+          {children}
+        </div>
+      );
+    }
+    function RNum({ value, onChange, min, max, step }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
+      return <input type="number" value={value} min={min} max={max} step={step ?? 1}
+        onChange={e => onChange(Number(e.target.value))} className={inputCls} />;
+    }
+    function SRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
+      return (
+        <div className="flex items-center justify-between py-1.5 border-b border-white/6 last:border-0">
+          <span className="text-[11px] text-white/40">{label}</span>
+          <span className={`text-[11px] font-semibold ${accent ?? 'text-white/80'}`}>{value}</span>
+        </div>
+      );
+    }
+
     return (
       <>
-      {/* Slicing loading overlay */}
+      {/* ── Fullscreen results overlay (same pattern as regular slicer) ── */}
+      <AnimatePresence>
+        {sliceResult && showResults && !slicing && (
+          <motion.div className="fixed inset-0 overflow-hidden z-50"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <LayerVisualization
+              file={null}
+              toolpath={sliceResult.toolpath}
+              numLayers={sliceResult.geometry.num_layers}
+              layerHeight={sliceResult.geometry.layer_height}
+              nozzleDiameter={nozzle / 1000}
+              fullscreen
+              onBack={() => setShowResults(false)}
+            />
+            {/* Sidebar toggle */}
+            <button onClick={() => setShowSidebar(v => !v)}
+              className="absolute top-3 right-3 z-30 w-7 h-7 rounded-xl flex items-center justify-center transition-all hover:bg-white/10"
+              style={{ background: 'rgba(0,0,0,0.28)', backdropFilter: 'blur(10px)' }}>
+              <svg className="w-3.5 h-3.5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                {showSidebar
+                  ? <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />}
+              </svg>
+            </button>
+            {/* Glass sidebar */}
+            <div className={`absolute top-10 right-3 bottom-3 z-20 w-[300px] flex flex-col transition-all duration-300 ${showSidebar ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'}`}
+              style={{ filter: 'drop-shadow(0 0 30px rgba(0,0,0,0.5))' }}>
+              <div className="flex flex-col h-full rounded-2xl overflow-hidden border border-white/10"
+                style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(24px)' }}>
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  <div className="border-b border-white/8 pb-4">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest mb-1">Est. Print Time</p>
+                    <p className="text-3xl font-bold text-white tracking-tight leading-none">{sliceResult.estimated_print_time}</p>
+                  </div>
+                  <div>
+                    <SRow label="Layers"       value={String(sliceResult.geometry.num_layers)} />
+                    <SRow label="Layer Height" value={`${sliceResult.printer.layer_height_mm} mm`} />
+                    <SRow label="Nozzle"       value={`${sliceResult.printer.nozzle_mm} mm`} />
+                    <SRow label="Avg Velocity" value={`${sliceResult.printer.effective_speed?.toFixed(0)} mm/s`} />
+                    <SRow label="Pot Life"     value={`${sliceResult.material.pot_life_at_worst} min`} />
+                    <SRow label="G-code Lines" value={(sliceResult.gcode_lines ?? 0).toLocaleString()} />
+                    {sliceResult.optimization?.time_saved_pct != null && (
+                      <SRow label="Travel Saved" value={`${sliceResult.optimization.time_saved_pct}%`} accent="text-emerald-400" />
+                    )}
+                  </div>
+                  {sliceResult.weather && (
+                    <div className="border-t border-white/6 pt-3">
+                      <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">Conditions</p>
+                      <SRow label="Temperature" value={`${sliceResult.weather.avg?.temperature}°C`} />
+                      <SRow label="Humidity"    value={`${sliceResult.weather.avg?.humidity}%`} />
+                      <SRow label="Wind"        value={`${sliceResult.weather.avg?.wind_speed} km/h`} />
+                    </div>
+                  )}
+                  <div className="border-t border-white/6 pt-3">
+                    <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">G-code Preview</p>
+                    <pre className="text-[9px] text-white/35 font-mono leading-relaxed overflow-x-auto max-h-16 scrollbar-none">
+                      {sliceResult.gcode_preview?.split('\n').slice(0, 10).join('\n')}
+                    </pre>
+                  </div>
+                </div>
+                <div className="px-4 pb-4 pt-3 border-t border-white/8 flex-shrink-0 space-y-2">
+                  <a href={`${API}/gcode/${sliceResult.result_id}`}
+                    download={`floorplan_${sliceResult.result_id}.gcode`}
+                    className="block w-full py-2.5 text-xs font-semibold bg-white text-black rounded-xl hover:bg-white/90 transition-all text-center">
+                    Download .gcode
+                  </a>
+                  <button onClick={() => setShowResults(false)}
+                    className="w-full py-2 text-[11px] text-white/30 hover:text-white/60 transition-colors text-center">
+                    ← Back to setup
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Slicing loading overlay ── */}
       {slicing && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center gap-5">
           <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin" />
@@ -321,176 +431,135 @@ export default function FloorPlanPage() {
           </div>
         </div>
       )}
-      <div className="min-h-screen flex flex-col bg-gray-50">
-        <header className="border-b border-gray-100 bg-white sticky top-0 z-20 flex-shrink-0">
-          <div className="px-6 py-1 flex items-center justify-between">
+
+      {/* ── Setup page ── */}
+      <div className="min-h-screen bg-gray-50">
+        <header className="border-b border-gray-100 bg-white sticky top-0 z-20">
+          <div className="max-w-[1400px] mx-auto px-6 py-1 flex items-center justify-between">
             <button onClick={() => router.push('/')} className="-my-4 sm:-my-6">
               <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400}
                 className="h-24 sm:h-36 w-auto" />
             </button>
-            <span className="text-sm font-medium text-black/30">Floor Plan — Review</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-black/40">Floor Plan</span>
+              {sliceResult && !slicing && (
+                <button onClick={() => setShowResults(true)}
+                  className="px-5 py-2 border border-black text-black text-sm font-semibold rounded-xl hover:bg-black hover:text-white transition-all">
+                  View Results
+                </button>
+              )}
+              <button onClick={() => setView('select')}
+                className="px-4 py-2 border border-gray-200 text-sm font-medium rounded-xl text-black/50 hover:border-black hover:text-black transition-all">
+                ← Wall Selection
+              </button>
+              <button onClick={handleSlice} disabled={slicing || !wallSegments.length}
+                className="px-5 py-2 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 disabled:opacity-40 transition-all">
+                {sliceResult ? 'Re-run Slicer' : 'Run Slicer'}
+              </button>
+            </div>
           </div>
         </header>
 
-        {/* Side-by-side: left = 2D + controls, right = 3D viewer */}
-        <div className="flex flex-1 min-h-0 gap-0">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 items-start">
 
-          {/* LEFT — 2D review + controls */}
-          <div className="flex flex-col overflow-y-auto bg-gray-50"
-            style={{ minWidth: '340px', maxWidth: '45%', width: '45%' }}>
-            <div className="p-6 space-y-5 flex-1">
+          {/* ── Left panel ── */}
+          <div className="space-y-4">
 
-              {/* Header row */}
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h1 className="text-xl font-bold text-black tracking-tight">Review walls</h1>
-                  <p className="text-xs text-black/40 mt-0.5">
-                    {wallSegments.length} segment{wallSegments.length !== 1 ? 's' : ''}
-                    {selectedSignatures.length > 0 && ` · ${selectedSignatures.length} pattern${selectedSignatures.length !== 1 ? 's' : ''}`}
-                    {colorSegments.length > 0 && ` · ${colorSegments.length} color`}
-                    {clickedSegments.length > 0 && ` · ${clickedSegments.length} picked`}
-                  </p>
+            {/* Wall summary */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Wall Selection</h2>
+              <div className="space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-black/40">Segments</span>
+                  <span className="font-semibold text-black">{wallSegments.length}</span>
                 </div>
-                <button onClick={() => setView('select')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-xl
-                    text-xs font-medium text-black/50 hover:border-black hover:text-black transition-all flex-shrink-0">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Back
-                </button>
-              </div>
-
-              {/* 2D SVG preview */}
-              <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-                {reviewSvg ? (
-                  <svg width="100%" viewBox={`0 0 ${reviewSvg.SVG_W} ${reviewSvg.svgH}`}
-                    style={{ display: 'block' }}>
-                    <rect width={reviewSvg.SVG_W} height={reviewSvg.svgH} fill="white" />
-                    {wallSegments.map((seg, i) => (
-                      <line key={i}
-                        x1={reviewSvg.tx(seg[0][0])} y1={reviewSvg.ty(seg[0][1])}
-                        x2={reviewSvg.tx(seg[1][0])} y2={reviewSvg.ty(seg[1][1])}
-                        stroke="#111" strokeWidth={1.5} strokeLinecap="round" />
-                    ))}
-                  </svg>
-                ) : (
-                  <div className="flex items-center justify-center py-12">
-                    <p className="text-sm text-black/25">No wall segments</p>
+                {selectedSignatures.length > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-black/40">Patterns</span>
+                    <span className="font-semibold text-black">{selectedSignatures.length}</span>
+                  </div>
+                )}
+                {reviewSvg && (
+                  <div className="mt-3 rounded-xl overflow-hidden border border-gray-100">
+                    <svg width="100%" viewBox={`0 0 ${reviewSvg.SVG_W} ${reviewSvg.svgH}`} style={{ display: 'block' }}>
+                      <rect width={reviewSvg.SVG_W} height={reviewSvg.svgH} fill="white" />
+                      {wallSegments.map((seg, i) => (
+                        <line key={i}
+                          x1={reviewSvg.tx(seg[0][0])} y1={reviewSvg.ty(seg[0][1])}
+                          x2={reviewSvg.tx(seg[1][0])} y2={reviewSvg.ty(seg[1][1])}
+                          stroke="#111" strokeWidth={1.5} strokeLinecap="round" />
+                      ))}
+                    </svg>
                   </div>
                 )}
               </div>
-
-              {/* Print parameters */}
-              <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-5">
-                <SectionLabel>Print parameters</SectionLabel>
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <NumInput label="Wall height (mm)" value={wallHeightMm}
-                    onChange={setWallHeightMm} min={100} max={20000} step={50} />
-                  <NumInput label="Layer height (mm)" value={layerHeightMm}
-                    onChange={setLayerHeightMm} min={1} max={500} step={5} />
-                </div>
-                <p className="text-[11px] text-black/30">{computedLayers} layers · Scale 1:50</p>
-              </div>
-
-              {/* Pattern summary */}
-              {selectedSignatures.length > 0 && (
-                <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-5">
-                  <SectionLabel>Patterns ({selectedSignatures.length})</SectionLabel>
-                  <div className="space-y-1.5">
-                    {selectedSignatures.map((sig, i) => (
-                      <div key={i} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
-                        <span className="text-[10px] font-mono text-black/50 flex-1 truncate">
-                          {sig.angle.toFixed(1)}° · {sig.spacing.toFixed(1)}pt
-                          {(sig as any).matchMode === 'angle' && (
-                            <span className="ml-1 text-orange-400">loose</span>
-                          )}
-                        </span>
-                        <span className="text-[10px] text-black/25 flex-shrink-0">
-                          {patternSegments[i]?.length ?? 0} seg
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Slicer config */}
-              <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-5">
-                <SectionLabel>Slicer</SectionLabel>
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <NumInput label="Nozzle (mm)" value={nozzleMm}
-                    onChange={setNozzleMm} min={10} max={100} step={1} />
-                  <NumInput label="Speed (mm/s)" value={speedMmS}
-                    onChange={setSpeedMmS} min={10} max={200} step={5} />
-                </div>
-                <div className="mb-3">
-                  <label className="block text-[11px] text-black/40 mb-1">City (weather, optional)</label>
-                  <input type="text" value={cityInput}
-                    onChange={e => setCityInput(e.target.value)}
-                    placeholder="e.g. Berlin"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm
-                      outline-none focus:border-black transition-colors" />
-                </div>
-                <button onClick={handleSlice} disabled={slicing}
-                  className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl
-                    hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                  {slicing ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Slicing…
-                    </span>
-                  ) : 'Run Slicer'}
-                </button>
-              </div>
-
-              {/* Slice results */}
-              {sliceResult && (
-                <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-5 space-y-4">
-                  <SectionLabel>Results</SectionLabel>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      ['Print time', sliceResult.estimated_print_time],
-                      ['Layers',     sliceResult.geometry.num_layers],
-                      ['Avg speed',  `${sliceResult.printer.effective_speed?.toFixed(0)} mm/s`],
-                      ['Pot life',   `${sliceResult.material.pot_life_at_worst} min`],
-                    ] as [string, any][]).map(([label, val]) => (
-                      <div key={label} className="bg-gray-50 rounded-xl p-3">
-                        <p className="text-[10px] text-black/30 uppercase tracking-wider mb-0.5">{label}</p>
-                        <p className="text-sm font-semibold text-black">{val}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <a href={`${API}/gcode/${sliceResult.result_id}`}
-                    download={`floorplan_${sliceResult.result_id}.gcode`}
-                    className="block w-full py-2 border border-gray-200 text-sm font-semibold
-                      text-center rounded-xl hover:border-black hover:text-black transition-all text-black/50">
-                    Download G-code
-                  </a>
-                </div>
-              )}
-
             </div>
+
+            {/* Wall dimensions */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Wall Dimensions</h2>
+              <div className="grid grid-cols-2 gap-4">
+                <RField label="Wall height (mm)">
+                  <RNum value={wallHeightMm} onChange={setWallHeightMm} min={100} max={20000} step={50} />
+                </RField>
+                <RField label="Print layers">
+                  <div className={`${inputCls} bg-gray-50 text-black/40`}>{computedLayers} layers</div>
+                </RField>
+              </div>
+              <p className="text-[11px] text-black/25">Scale 1:50 · Layer height set by bead compression below</p>
+            </div>
+
+            {/* Printer */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Printer</h2>
+              <div className="grid grid-cols-2 gap-4">
+                <RField label="Nozzle (mm)">
+                  <RNum value={nozzle} onChange={setNozzle} min={10} max={80} />
+                </RField>
+                <RField label={`Compression → ${layerHeightFromCompression} mm`}>
+                  <RNum value={compression} onChange={setCompression} min={0.4} max={0.9} step={0.05} />
+                </RField>
+                <RField label="Max velocity (mm/s)">
+                  <RNum value={velocity} onChange={setVelocity} min={10} max={300} />
+                </RField>
+                <RField label="Hose length (m)">
+                  <RNum value={hoseLength} onChange={setHoseLength} min={1} max={100} />
+                </RField>
+                <RField label="Max flow (L/min)">
+                  <RNum value={flowRate} onChange={setFlowRate} min={1} max={30} step={0.5} />
+                </RField>
+                <RField label="Acceleration (mm/s²)">
+                  <RNum value={acceleration} onChange={setAcceleration} min={50} max={2000} step={50} />
+                </RField>
+              </div>
+            </div>
+
+            {/* Weather */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Weather</h2>
+              <RField label="City (optional)">
+                <input type="text" value={cityInput} onChange={e => setCityInput(e.target.value)}
+                  placeholder="e.g. Berlin" className={inputCls} />
+              </RField>
+              <p className="text-[10px] text-black/25">Leave blank to use default conditions</p>
+            </div>
+
           </div>
 
-          {/* RIGHT — layer visualizer (after slice) or wall preview (before) */}
-          <div className="flex-1 min-w-0 min-h-0 relative" style={{ minWidth: '300px', minHeight: '500px' }}>
-            {sliceResult ? (
-              <LayerVisualization
-                file={null}
-                toolpath={sliceResult.toolpath}
-                numLayers={sliceResult.geometry.num_layers}
-                layerHeight={sliceResult.geometry.layer_height}
-                nozzleDiameter={nozzleMm / 1000}
-                fullscreen
-              />
-            ) : wallSegments.length > 0 ? (
-              <WallViewer segments={wallSegments} wallHeightMm={wallHeightMm} />
-            ) : (
-              <div className="flex items-center justify-center h-full bg-gray-100">
-                <p className="text-sm text-black/30">No wall segments selected</p>
-              </div>
-            )}
+          {/* ── Right panel — 3D wall preview ── */}
+          <div className="rounded-2xl overflow-hidden border border-gray-100 bg-black shadow-sm"
+            style={{ minHeight: '560px', height: 'calc(100vh - 160px)', position: 'sticky', top: '120px' }}>
+            {wallSegments.length > 0
+              ? <WallViewer segments={wallSegments} wallHeightMm={wallHeightMm} />
+              : (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <svg className="w-10 h-10 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                  <p className="text-white/20 text-sm">No wall segments selected</p>
+                </div>
+              )
+            }
           </div>
 
         </div>
