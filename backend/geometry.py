@@ -345,7 +345,25 @@ def _slice_layer(
                       f"area={abs(area_i):.4f} compactness={comp:.4f} npts={len(pts_i)}",
                       flush=True)
 
-        segments = _geometry_path(contours, depths, MIN_LEN)
+        # Even-odd rule: even depth = solid material → trace.
+        # Odd depth + compact shape (area/perim² > 0.01) = cavity wall boundary → skip.
+        # Odd depth + thin/elongated (near-zero compactness) = infill path → trace.
+        HOLE_COMPACTNESS = 0.01
+        segments: List[Segment] = []
+        traced = skipped = 0
+        for i, (pts_i, perim_i, area_i) in enumerate(contours):
+            if depths[i] % 2 == 1:
+                compactness = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
+                if compactness > HOLE_COMPACTNESS:
+                    skipped += 1
+                    continue
+            traced += 1
+            n = len(pts_i)
+            for k in range(n):
+                p0 = pts_i[k]
+                p1 = pts_i[(k + 1) % n]
+                if ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5 >= MIN_LEN:
+                    segments.append((p0, p1))
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
             f"contours={len(contours)} segments={len(segments)}",
