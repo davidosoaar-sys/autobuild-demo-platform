@@ -180,6 +180,10 @@ def parse_and_slice(
     bounds       = mesh.bounds
     total_height = float(bounds[1][2])
     layer_height = float(np.clip(layer_height, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M))
+    # Max plausible segment length = 1.5× the model's XY diagonal.
+    # Segments longer than this are garbage from degenerate mesh intersections.
+    _diag = float(np.hypot(bounds[1][0]-bounds[0][0], bounds[1][1]-bounds[0][1]))
+    MAX_SEG_LEN = _diag * 1.5 if _diag > 0 else 1e9
 
     if total_height < layer_height:
         raise ValueError(f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm")
@@ -198,7 +202,7 @@ def parse_and_slice(
 
     for idx, layer_i in enumerate(layer_indices):
         z        = (layer_i + 0.5) * layer_height
-        segments = _slice_layer(mesh, z, nozzle_width, slicing_mode, idx)
+        segments = _slice_layer(mesh, z, nozzle_width, slicing_mode, idx, MAX_SEG_LEN)
         geometry.append(segments)
 
         n        = len(segments)
@@ -251,6 +255,7 @@ def _slice_layer(
     nozzle_width: float,
     slicing_mode: str = 'geometry',
     layer_idx:    int = 0,
+    max_seg_len:  float = 1e9,
 ) -> List[Segment]:
     z_sample = float(z_height) + 1e-5
     MIN_LEN  = float(nozzle_width) * 0.1
@@ -362,7 +367,8 @@ def _slice_layer(
             for k in range(n):
                 p0 = pts_i[k]
                 p1 = pts_i[(k + 1) % n]
-                if ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5 >= MIN_LEN:
+                slen = ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5
+                if MIN_LEN <= slen <= max_seg_len:
                     segments.append((p0, p1))
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
@@ -430,7 +436,11 @@ def _slice_layer(
         m    = len(points_list)
         end  = m if closed else m - 1
         for i in range(end):
-            segs.append((points_list[i], points_list[(i + 1) % m]))
+            p0 = points_list[i]
+            p1 = points_list[(i + 1) % m]
+            slen = ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5
+            if slen <= max_seg_len:
+                segs.append((p0, p1))
         return segs
 
     segments: List[Segment] = []
