@@ -180,10 +180,10 @@ def parse_and_slice(
     bounds       = mesh.bounds
     total_height = float(bounds[1][2])
     layer_height = float(np.clip(layer_height, LAYER_HEIGHT_MIN_M, LAYER_HEIGHT_MAX_M))
-    # Max plausible segment length = 1.5× the model's XY diagonal.
-    # Segments longer than this are garbage from degenerate mesh intersections.
-    _diag = float(np.hypot(bounds[1][0]-bounds[0][0], bounds[1][1]-bounds[0][1]))
-    MAX_SEG_LEN = _diag * 1.5 if _diag > 0 else 1e9
+    # Max plausible segment length = the longest single wall in the model (max XY side).
+    # Anything longer is a garbage segment from degenerate mesh intersections.
+    _max_side = float(max(bounds[1][0]-bounds[0][0], bounds[1][1]-bounds[0][1]))
+    MAX_SEG_LEN = _max_side * 1.05 if _max_side > 0 else 1e9
 
     if total_height < layer_height:
         raise ValueError(f"Model height {total_height*1000:.1f}mm < layer height {layer_height*1000:.1f}mm")

@@ -459,31 +459,26 @@ class ThreeErrorBoundary extends React.Component<
 function ToolpathLines({ toolpath, layerHeight, progress }: {
   toolpath: Layer[]; layerHeight: number; progress: number;
 }) {
-  const allSegs = useMemo(() => {
-    const out: { s: [number,number,number]; e: [number,number,number] }[] = [];
-    toolpath.forEach((layer, li) => {
+  const geo = useMemo(() => {
+    if (!toolpath.length) return null;
+    // progress controls how many LAYERS to show (not raw segment count).
+    // This gives clean layer-by-layer build-up as the user scrubs.
+    const maxLayer = Math.max(0, Math.ceil(progress * toolpath.length) - 1);
+    const pts: number[] = [];
+    for (let li = 0; li <= maxLayer; li++) {
+      const layer = toolpath[li];
+      if (!layer) continue;
       const y = (li + 0.5) * layerHeight;
       layer.forEach(seg => {
         if (seg.gap) return;
-        out.push({ s: [seg.x0, y, -seg.y0], e: [seg.x1, y, -seg.y1] });
+        pts.push(seg.x0, y, -seg.y0, seg.x1, y, -seg.y1);
       });
-    });
-    return out;
-  }, [toolpath, layerHeight]);
-
-  const geo = useMemo(() => {
-    if (!allSegs.length) return null;
-    const count = Math.min(Math.floor(progress * allSegs.length) + 1, allSegs.length);
-    const pts   = new Float32Array(count * 6);
-    for (let i = 0; i < count; i++) {
-      const seg = allSegs[i];
-      pts[i*6+0] = seg.s[0]; pts[i*6+1] = seg.s[1]; pts[i*6+2] = seg.s[2];
-      pts[i*6+3] = seg.e[0]; pts[i*6+4] = seg.e[1]; pts[i*6+5] = seg.e[2];
     }
+    if (!pts.length) return null;
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
     return g;
-  }, [allSegs, progress]);
+  }, [toolpath, layerHeight, progress]);
 
   if (!geo) return null;
   return (
