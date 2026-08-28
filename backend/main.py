@@ -8,9 +8,9 @@ import os, uuid, json, time, math, random, base64
 from collections import defaultdict
 from typing import Optional, List
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 import requests
 
 from geometry   import parse_and_slice
@@ -49,7 +49,16 @@ RESULTS_DIR = "results"
 OW_KEY      = "b3c56e66236ef0a54e1d8aee8f399533"
 OW_BASE     = "http://api.openweathermap.org/data/2.5"
 OW_GEO_BASE = "http://api.openweathermap.org/geo/1.0"
+API_SECRET  = os.getenv("API_SECRET")  # if set, all routes except /health require X-API-Key
 os.makedirs(RESULTS_DIR, exist_ok=True)
+
+
+@app.middleware("http")
+async def require_api_secret(request: Request, call_next):
+    if API_SECRET and request.method != "OPTIONS" and request.url.path != "/health":
+        if request.headers.get("x-api-key") != API_SECRET:
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
