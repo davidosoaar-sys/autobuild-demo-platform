@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-19T00:00:00Z",
+  "title": "Design System: AutoBuild AI",
+  "extensions": {
+    "colorMeta": {
+      "ink": { "role": "primary", "displayName": "Ink", "canonical": "#111827" },
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "#ffffff" },
+      "mist": { "role": "neutral", "displayName": "Mist", "canonical": "#f9fafb" },
+      "signal-critical": { "role": "status", "displayName": "Signal Critical", "canonical": "#ef4444" },
+      "signal-warning": { "role": "status", "displayName": "Signal Warning", "canonical": "#fbbf24" },
+      "signal-ok": { "role": "status", "displayName": "Signal OK", "canonical": "#10b981" }
+    },
+    "shadows": [
+      { "name": "card-soft", "value": "0 1px 2px rgba(0,0,0,0.05)", "purpose": "Tailwind shadow-sm on some cards." }
+    ],
+    "motion": [
+      { "name": "state-transition", "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Tailwind default transition on hover and color changes." }
+    ],
+    "breakpoints": [
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main action, one per screen.",
+      "html": "<button class=\"ds-btn-primary\">Optimize path</button>",
+      "css": ".ds-btn-primary{background:#111827;color:#fff;border:1px solid #111827;border-radius:12px;padding:8px 20px;font:400 14px Inter,sans-serif;cursor:pointer;transition:all .15s}.ds-btn-primary:hover{background:#374151}.ds-btn-primary:focus-visible{outline:2px solid #111827;outline-offset:2px}"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action that inverts on hover.",
+      "html": "<button class=\"ds-btn-outline\">Export G-code</button>",
+      "css": ".ds-btn-outline{background:#fff;color:#111827;border:1px solid #000;border-radius:12px;padding:8px 20px;font:400 14px Inter,sans-serif;cursor:pointer;transition:all .15s}.ds-btn-outline:hover{background:#000;color:#fff}.ds-btn-outline:focus-visible{outline:2px solid #111827;outline-offset:2px}"
+    },
+    {
+      "name": "Step Pill (active)",
+      "kind": "nav",
+      "refersTo": "step-pill-active",
+      "description": "Current step in the top-bar process indicator.",
+      "html": "<span class=\"ds-step\">Pre-Print</span>",
+      "css": ".ds-step{display:inline-flex;align-items:center;background:#111827;color:#fff;border-radius:9999px;padding:6px 12px;font:400 11px Inter,sans-serif}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Standard container: white, hairline border, 16px radius.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-l\">Print time</div><div class=\"ds-card-v\">6 h 24 min</div></div>",
+      "css": ".ds-card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:20px;font-family:Inter,sans-serif;box-shadow:0 1px 2px rgba(0,0,0,.05)}.ds-card-l{font-size:11px;color:#9ca3af}.ds-card-v{font-size:20px;color:#111827;margin-top:4px}"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "signal-ok",
+      "description": "Print and inspection state; color carries meaning only.",
+      "html": "<span class=\"ds-chip\">Path valid</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;background:#ecfdf5;color:#059669;border-radius:9999px;padding:4px 10px;font:400 11px Inter,sans-serif}.ds-chip::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Workbench",
+    "overview": "A clean, monochrome workspace where the plan, the 3D model and the numbers are the content and the interface stays out of the way.",
+    "keyCharacteristics": ["Monochrome gray and white; near-black is the primary action color.", "Large rounded corners (12px and 16px); pills for steps and status.", "Red, amber and green reserved for print and inspection status."],
+    "rules": [
+      { "name": "The Status-Only Color Rule", "body": "Red, amber and green mean a print or inspection state and nothing else.", "section": "colors" },
+      { "name": "The One Ink Rule", "body": "Near-black is the single action color.", "section": "colors" },
+      { "name": "The Border-First Rule", "body": "Separate surfaces with a hairline border or a tonal fill before reaching for a shadow.", "section": "elevation" }
+    ],
+    "dos": ["Do keep surfaces white and gray-50 with 1px hairline borders.", "Do keep red, amber and green for print and inspection status."],
+    "donts": ["Don't add a second brand color for buttons or links.", "Don't use status colors decoratively."]
+  }
+}
