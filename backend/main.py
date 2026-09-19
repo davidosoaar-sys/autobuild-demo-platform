@@ -142,12 +142,82 @@ def _hatch_signature(d):
     return (float(dom_ang), float(spacing))
 
 
+def _classify_plan_sheet(page) -> dict:
+    """Classify an uploaded sheet before wall extraction.
+
+    This is deliberately conservative: a site plan may show a building
+    footprint, but it does not contain the room-level wall geometry required
+    to make a printable building model.
+    """
+    text = (page.get_text("text") or "").lower()
+    site_terms = ("lageplan", "amtlicher lageplan", "flurstück", "gemarkung", "baugrundstück")
+    floor_terms = ("erdgeschoss", "obergeschoss", "dachgeschoss", "grundriss", "we/", "wohnen")
+    section_terms = ("schnitt", "ansicht", "attika")
+    site_score = sum(term in text for term in site_terms)
+    floor_score = sum(term in text for term in floor_terms)
+    section_score = sum(term in text for term in section_terms)
+    if site_score >= 2 and site_score > floor_score:
+        return {
+            "kind": "site_plan",
+            "confidence": min(0.98, 0.65 + site_score * 0.1),
+            "message": "This looks like a site plan. It can provide placement context, but not room-wall geometry for 3D reconstruction.",
+            "extractable": False,
+        }
+    if floor_score >= 1:
+        return {
+            "kind": "floor_plan",
+            "confidence": min(0.98, 0.65 + floor_score * 0.1),
+            "message": "Architectural floor plan detected. Review the extracted walls before adding this floor to the building.",
+            "extractable": True,
+        }
+    if section_score >= 1:
+        return {
+            "kind": "section_or_elevation",
+            "confidence": min(0.9, 0.55 + section_score * 0.1),
+            "message": "Section/elevation detected. Use it to confirm heights; it is not a standalone wall-layout source.",
+            "extractable": False,
+        }
+    return {
+        "kind": "unknown",
+        "confidence": 0.35,
+        "message": "Drawing type could not be confirmed. Continue only if this is a floor plan and review every wall selection.",
+        "extractable": True,
+    }
+
+
 # ── Floor plan endpoints ──────────────────────────────────────────────────────
 
 from pdf_walls import (
     group_key, classify_drawing, rgb_to_hex, normalize_color,
     clean_hex, drawing_matches_exact_color, point_xy,
 )
+from openings import detect_openings
+
+FLOORPLAN_PT_TO_M = (0.0254 / 72) * 50  # PDF points → real-world metres at 1:50
+
+
+@app.post("/floorplan/detect_openings")
+async def floorplan_detect_openings(
+    file:          UploadFile = File(...),
+    segments_json: str        = Form(...),
+):
+    import fitz
+    try:
+        segs_raw = json.loads(segments_json)
+        segs = [((float(s[0][0]), float(s[0][1])), (float(s[1][0]), float(s[1][1]))) for s in segs_raw]
+    except Exception:
+        raise HTTPException(400, "Invalid segments_json")
+
+    try:
+        file_bytes = await file.read()
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc[0]
+        drawings = page.get_drawings()
+        candidates, truncated = detect_openings(segs, drawings, FLOORPLAN_PT_TO_M)
+        doc.close()
+        return {"candidates": candidates, "truncated": truncated}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.post("/floorplan/scan")
@@ -157,6 +227,7 @@ async def floorplan_scan(file: UploadFile = File(...)):
         file_bytes = await file.read()
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         page = doc[0]
+        sheet = _classify_plan_sheet(page)
         drawings = page.get_drawings()
         groups: dict = {}
         for d in drawings:
@@ -177,7 +248,7 @@ async def floorplan_scan(file: UploadFile = File(...)):
         for g in result:
             g["total_len"] = round(g["total_len"], 2)
         doc.close()
-        return {"groups": result, "total_drawings": len(drawings)}
+        return {"groups": result, "total_drawings": len(drawings), "sheet": sheet}
     except Exception as e:
         return {"error": str(e)}
 
@@ -553,7 +624,8 @@ async def floorplan_outlines(
 
 @app.post("/floorplan/slice")
 async def floorplan_slice(
-    segments_json:      str           = Form(...),
+    segments_json:      str           = Form("[]"),
+    floors_json:        Optional[str] = Form(None),
     page_width_pt:      float         = Form(0.0),
     page_height_pt:     float         = Form(0.0),
     wall_height_mm:     float         = Form(2500.0),
@@ -578,44 +650,138 @@ async def floorplan_slice(
     PT_TO_M = (0.0254 / 72) * 50  # PDF points → real-world metres at 1:50
 
     try:
-        raw_segs = json.loads(segments_json)
+        raw_segs = json.loads(segments_json or "[]")
     except Exception:
         raise HTTPException(400, "Invalid segments_json")
-    if not raw_segs:
-        raise HTTPException(400, "No wall segments provided")
-
-    segs_m = []
-    for s in raw_segs:
-        try:
-            segs_m.append(((float(s[0][0]) * PT_TO_M, float(s[0][1]) * PT_TO_M),
-                           (float(s[1][0]) * PT_TO_M, float(s[1][1]) * PT_TO_M)))
-        except Exception:
-            pass
-    if not segs_m:
-        raise HTTPException(400, "No valid segments after conversion")
 
     layer_h    = float(max(LAYER_HEIGHT_MIN_M, min(LAYER_HEIGHT_MAX_M, layer_height_mm / 1000.0)))
-    wall_h     = float(max(layer_h, wall_height_mm / 1000.0))
-    num_layers = max(1, int(wall_h / layer_h))
+    # A building is submitted as one selected 2D wall set per floor. Floor
+    # coordinates remain in a shared XY datum while elevation is applied to
+    # each generated print layer. Older one-floor clients still use
+    # segments_json and are converted to an equivalent ground-floor object.
+    if floors_json:
+        try:
+            raw_floors = json.loads(floors_json)
+        except Exception:
+            raise HTTPException(400, "Invalid floors_json")
+    else:
+        raw_floors = [{
+            "name": "Ground floor",
+            "segments": raw_segs,
+            "wall_height_mm": wall_height_mm,
+            "elevation_mm": 0.0,
+            "offset_x_mm": 0.0,
+            "offset_y_mm": 0.0,
+        }]
+    if not isinstance(raw_floors, list) or not raw_floors:
+        raise HTTPException(400, "No floor geometry provided")
 
-    perim = sum(math.hypot(s[1][0] - s[0][0], s[1][1] - s[0][1]) for s in segs_m)
-    xs    = [p[0] for s in segs_m for p in s]
-    ys    = [p[1] for s in segs_m for p in s]
-    area  = (max(xs) - min(xs)) * (max(ys) - min(ys)) if xs else 0.0
+    geometry, layer_metas = [], []
+    all_points, floor_summary = [], []
+    for floor_index, raw_floor in enumerate(raw_floors):
+        if not isinstance(raw_floor, dict):
+            continue
+        floor_segments = raw_floor.get("segments") or []
+        elevation_m = max(0.0, float(raw_floor.get("elevation_mm", 0.0)) / 1000.0)
+        floor_height_m = max(layer_h, float(raw_floor.get("wall_height_mm", wall_height_mm)) / 1000.0)
+        offset_x_m = float(raw_floor.get("offset_x_mm", 0.0)) / 1000.0
+        offset_y_m = float(raw_floor.get("offset_y_mm", 0.0)) / 1000.0
 
-    geometry    = [list(segs_m) for _ in range(num_layers)]
-    layer_metas = [
-        {
-            "index":            idx,
-            "z_height_m":       round((idx + 0.5) * layer_h, 4),
-            "segment_count":    len(segs_m),
-            "perimeter_m":      round(perim, 4),
-            "area_m2":          round(area, 6),
-            "wall_thickness_m": round(nozzle_diameter_mm / 1000.0, 4),
-            "complexity":       1.0,
-        }
-        for idx in range(num_layers)
+        segs_m = []
+        for s in floor_segments:
+            try:
+                p0 = (float(s[0][0]) * PT_TO_M + offset_x_m, float(s[0][1]) * PT_TO_M + offset_y_m)
+                p1 = (float(s[1][0]) * PT_TO_M + offset_x_m, float(s[1][1]) * PT_TO_M + offset_y_m)
+                if math.hypot(p1[0] - p0[0], p1[1] - p0[1]) > 0.001:
+                    segs_m.append((p0, p1))
+            except Exception:
+                continue
+        if not segs_m:
+            continue
+
+        # Confirmed door/window openings bridge the plan's wall gap with a
+        # "filler" segment that's only included in layers *outside* the
+        # opening's [sill, head] band — solid wall below a window, an open
+        # doorway up to head height, solid again above. With no openings,
+        # behaviour is unchanged: whatever gap already exists in the plan
+        # stays open at every layer, as before.
+        fillers = []
+        for op in raw_floor.get("openings") or []:
+            try:
+                gx0, gy0 = op["gap_start"]
+                gx1, gy1 = op["gap_end"]
+                p0 = (float(gx0) * PT_TO_M + offset_x_m, float(gy0) * PT_TO_M + offset_y_m)
+                p1 = (float(gx1) * PT_TO_M + offset_x_m, float(gy1) * PT_TO_M + offset_y_m)
+                if math.hypot(p1[0] - p0[0], p1[1] - p0[1]) < 0.001:
+                    continue
+                fillers.append({
+                    "seg":      (p0, p1),
+                    "sill_mm":  float(op.get("sill_mm", 0.0)),
+                    "head_mm":  float(op.get("head_mm", 2100.0)),
+                })
+            except Exception:
+                continue
+
+        closed_segs_m = segs_m + [f["seg"] for f in fillers]
+        perim = sum(math.hypot(s[1][0] - s[0][0], s[1][1] - s[0][1]) for s in closed_segs_m)
+        floor_points = [p for s in closed_segs_m for p in s]
+        all_points.extend(floor_points)
+        xs_floor = [p[0] for p in floor_points]
+        ys_floor = [p[1] for p in floor_points]
+        area = (max(xs_floor) - min(xs_floor)) * (max(ys_floor) - min(ys_floor))
+        floor_layers = max(1, math.ceil(floor_height_m / layer_h))
+        floor_summary.append({
+            "name": str(raw_floor.get("name") or f"Floor {floor_index + 1}"),
+            "elevation_mm": round(elevation_m * 1000, 1),
+            "wall_height_mm": round(floor_height_m * 1000, 1),
+            "segments": len(segs_m),
+            "openings": len(fillers),
+            "layers": floor_layers,
+        })
+        for local_layer in range(floor_layers):
+            z_mm = elevation_m * 1000.0 + (local_layer + 0.5) * layer_h * 1000.0
+            layer_segs = list(segs_m) + [
+                f["seg"] for f in fillers if not (f["sill_mm"] <= z_mm <= f["head_mm"])
+            ]
+            layer_perim = sum(math.hypot(s[1][0] - s[0][0], s[1][1] - s[0][1]) for s in layer_segs)
+            idx = len(geometry)
+            geometry.append(layer_segs)
+            layer_metas.append({
+                "index": idx,
+                "floor_index": floor_index,
+                "floor_name": floor_summary[-1]["name"],
+                "z_height_m": round(elevation_m + (local_layer + 0.5) * layer_h, 4),
+                "segment_count": len(layer_segs),
+                "perimeter_m": round(layer_perim, 4),
+                "area_m2": round(area, 6),
+                "wall_thickness_m": round(nozzle_diameter_mm / 1000.0, 4),
+                "complexity": 1.0,
+            })
+    if not geometry or not all_points:
+        raise HTTPException(400, "No valid wall segments after conversion")
+
+    num_layers = len(geometry)
+    xs = [p[0] for p in all_points]
+    ys = [p[1] for p in all_points]
+
+    # A PDF's own drawing coordinates can sit anywhere on the page — tens of
+    # metres from the origin once converted to real-world scale. STL/OBJ
+    # models get centred on X/Y before slicing (see geometry.py); do the same
+    # here so a floor-plan building lands on the print bed / site origin the
+    # same way, instead of floating off wherever the original PDF placed it.
+    center_x = (min(xs) + max(xs)) / 2.0
+    center_y = (min(ys) + max(ys)) / 2.0
+    geometry = [
+        [((p0[0] - center_x, p0[1] - center_y), (p1[0] - center_x, p1[1] - center_y)) for (p0, p1) in layer]
+        for layer in geometry
     ]
+    xs = [x - center_x for x in xs]
+    ys = [y - center_y for y in ys]
+
+    total_height_m = max(
+        (float(f.get("elevation_mm", 0.0)) + float(f.get("wall_height_mm", wall_height_mm))) / 1000.0
+        for f in raw_floors if isinstance(f, dict)
+    )
     geo_meta = {
         "num_layers":        num_layers,
         "total_layers":      num_layers,
@@ -624,11 +790,12 @@ async def floorplan_slice(
         "nozzle_width":      nozzle_diameter_mm / 1000.0,
         "bounds_x":          (round(min(xs), 3), round(max(xs), 3)),
         "bounds_y":          (round(min(ys), 3), round(max(ys), 3)),
-        "bounds_z":          (0.0, round(wall_h, 3)),
-        "total_height_m":    round(wall_h, 3),
-        "total_segments":    len(segs_m) * num_layers,
-        "total_perimeter_m": round(perim * num_layers, 2),
+        "bounds_z":          (0.0, round(total_height_m, 3)),
+        "total_height_m":    round(total_height_m, 3),
+        "total_segments":    sum(len(layer) for layer in geometry),
+        "total_perimeter_m": round(sum(float(lm["perimeter_m"]) for lm in layer_metas), 2),
         "file_name":         "floorplan",
+        "floors":            floor_summary,
     }
 
     start   = time.time()

@@ -280,22 +280,33 @@ def _nearest_neighbour(segs: List[Segment]) -> List[Segment]:
     Fast O(n) segment ordering.
     Uses endpoint dict for exact match (O(1)), falls back to scan only on path breaks.
     Uses set for O(1) membership/removal.
+
+    Checks BOTH endpoints of each candidate, not just its start — reversing
+    a segment when its END is actually the nearer or exactly-matching
+    connection. A traced contour loop always winds the same direction, so
+    continuing from a start point only never surfaced this; a centerline
+    chained from a skeleton graph has no such guarantee, and checking only
+    the start point meant a real, zero-distance connection at a segment's
+    END could be missed entirely — jumping to something far away instead
+    and turning what should be one continuous wall trace into a broken,
+    zig-zagging one.
     """
     if not segs:  return []
     if len(segs) == 1: return segs
 
     def rkey(p): return (round(p[0], 5), round(p[1], 5))
 
-    # Build start-point index: key → list of indices
-    index: Dict[tuple, List[int]] = defaultdict(list)
+    # Index BOTH endpoints → (segment index, whether continuing from this
+    # endpoint means the segment must be reversed).
+    index: Dict[tuple, List[Tuple[int, bool]]] = defaultdict(list)
     for i, s in enumerate(segs):
-        index[rkey(s[0])].append(i)
+        index[rkey(s[0])].append((i, False))
+        index[rkey(s[1])].append((i, True))
 
     # Use set for O(1) membership test and removal
     remaining_set = set(range(len(segs)))
     ordered = []
-    cur     = segs[0][0]
-    
+
     # Start from segment nearest to origin
     best_start = min(range(len(segs)), key=lambda i: segs[i][0][0]**2 + segs[i][0][1]**2)
     remaining_set.discard(best_start)
@@ -303,25 +314,29 @@ def _nearest_neighbour(segs: List[Segment]) -> List[Segment]:
     cur = segs[best_start][1]
 
     while remaining_set:
-        # Try exact endpoint match first — O(1)
-        hits = [i for i in index.get(rkey(cur), []) if i in remaining_set]
+        # Try exact endpoint match first (either end) — O(1)
+        hits = [(i, rev) for (i, rev) in index.get(rkey(cur), []) if i in remaining_set]
         if hits:
-            best_i = hits[0]
+            best_i, rev = hits[0]
         else:
-            # Nearest scan — only on path breaks, unavoidable
+            # Nearest scan over both endpoints — only on path breaks, unavoidable
             cx, cy = cur
-            best_i = min(
-                remaining_set,
-                key=lambda i: (segs[i][0][0]-cx)**2 + (segs[i][0][1]-cy)**2
-            )
+            best_i, rev, best_d = None, False, float('inf')
+            for i in remaining_set:
+                s = segs[i]
+                d0 = (s[0][0]-cx)**2 + (s[0][1]-cy)**2
+                d1 = (s[1][0]-cx)**2 + (s[1][1]-cy)**2
+                if d0 < best_d:
+                    best_d, best_i, rev = d0, i, False
+                if d1 < best_d:
+                    best_d, best_i, rev = d1, i, True
 
         remaining_set.discard(best_i)
-        # Remove from index
-        k = rkey(segs[best_i][0])
-        if best_i in index.get(k, []):
-            index[k].remove(best_i)
-        ordered.append(segs[best_i])
-        cur = segs[best_i][1]
+        seg = segs[best_i]
+        if rev:
+            seg = (seg[1], seg[0])
+        ordered.append(seg)
+        cur = seg[1]
 
     return ordered
 

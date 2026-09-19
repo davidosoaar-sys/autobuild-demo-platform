@@ -48,6 +48,13 @@ export default function AppNav({ currentStep }: AppNavProps) {
 
         {/* Right — step indicator + tools */}
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push('/help')}
+            title="How AutoBuild AI works"
+            className="w-6 h-6 rounded-full border border-gray-200 text-gray-400 hover:text-gray-900 hover:border-gray-900 transition-colors flex items-center justify-center text-xs font-semibold flex-shrink-0"
+          >
+            ?
+          </button>
           <div className="flex items-center gap-1.5">
             {STEPS.map((s, i) => {
               const isActive = s.key === currentStep;

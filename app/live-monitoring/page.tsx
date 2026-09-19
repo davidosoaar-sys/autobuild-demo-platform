@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useProjects, ProjectReport, ReportAlert } from '@/lib/project-store';
-import { supabase } from '@/lib/supabase';
+import { supabase, uploadTrainingImage } from '@/lib/supabase';
 import AppNav from '@/components/AppNav';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -31,14 +31,33 @@ type BeadVerdict = 'straight' | 'deviated' | 'defect' | 'unclear';
 type BeadSeverity = 'none' | 'low' | 'medium' | 'high';
 type BeadDefectType = 'none' | 'gap' | 'collapse' | 'over-extrusion' | 'under-extrusion' | 'layer-shift' | 'deformation' | 'surface-crack';
 
+interface DefectLocation { x: number; y: number; radius: number; }
+interface AxisPoint { x: number; y: number; }
+interface StructureAxis { base: AxisPoint; top: AxisPoint; }
+
+// Claude returns both an angle_deviation number and the base/top points it
+// eyeballed that angle from — those two can disagree slightly. Deriving the
+// angle straight from the geometry guarantees the drawn line and the label
+// always agree with each other, rather than trusting two separate numbers.
+function leanAngleFromAxis(axis: StructureAxis | null): number | null {
+  if (!axis) return null;
+  const dx = axis.top.x - axis.base.x;
+  const dy = axis.top.y - axis.base.y; // top sits above base, so this is negative
+  if (dy >= 0) return null;
+  return Math.atan2(dx, -dy) * (180 / Math.PI);
+}
+
 interface BeadAnalysis {
   verdict: BeadVerdict;
   angle_deviation: number;
+  structure_axis: StructureAxis | null;
   defect_type: BeadDefectType;
   severity: BeadSeverity;
   description: string;
+  recommendation: string;
   bead_count: number;
   confidence: 'low' | 'medium' | 'high';
+  defect_location: DefectLocation | null;
   timestamp: string;
   cameraId: string;
   cameraLabel: string;
@@ -143,7 +162,10 @@ function BeadStatusPanel({ analysis }: { analysis: BeadAnalysis | null }) {
     <div className="bg-black px-4 py-3 rounded-b-xl border-t border-white/8">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-[10px] text-white/40 font-mono mb-0.5 truncate">{analysis.description}</p>
+          <p className="text-[10px] text-white/40 leading-relaxed mb-0.5">{analysis.description}</p>
+          {analysis.recommendation && (
+            <p className="text-[10px] font-semibold mt-0.5" style={{ color }}>→ {analysis.recommendation}</p>
+          )}
           <div className="flex items-center gap-3 mt-1">
             <div className="flex items-center gap-1">
               <span className="text-[9px] text-white/30 uppercase tracking-wide">Deviation</span>
@@ -186,6 +208,9 @@ function AlertBanner({ analysis, onDismiss }: { analysis: BeadAnalysis; onDismis
         <div>
           <p className="text-xs font-bold uppercase tracking-widest mb-1">Bead Alert — {analysis.cameraLabel}</p>
           <p className="text-sm font-medium leading-snug">{analysis.description}</p>
+          {analysis.recommendation && (
+            <p className="text-sm font-bold leading-snug mt-1.5">→ {analysis.recommendation}</p>
+          )}
           <div className="flex items-center gap-3 mt-2">
             {analysis.angle_deviation !== 0 && (
               <span className="text-xs font-mono opacity-80">
@@ -259,12 +284,15 @@ function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, on
       const data = await res.json();
       const analysis: BeadAnalysis = {
         verdict:         data.verdict         ?? 'unclear',
-        angle_deviation: data.angle_deviation ?? 0,
+        angle_deviation: leanAngleFromAxis(data.structure_axis ?? null) ?? (data.angle_deviation ?? 0),
         defect_type:     data.defect_type     ?? 'none',
         severity:        data.severity        ?? 'none',
         description:     data.description     ?? '',
+        recommendation:  data.recommendation   ?? '',
         bead_count:      data.bead_count      ?? 0,
         confidence:      data.confidence      ?? 'low',
+        defect_location: data.defect_location ?? null,
+        structure_axis:  data.structure_axis  ?? null,
         timestamp:       new Date().toLocaleTimeString(),
         cameraId:        camera.id,
         cameraLabel:     camera.label,
@@ -478,10 +506,63 @@ function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, on
 }
 
 function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info' | 'warn' | 'error') => void }) {
-  const [image,    setImage]    = useState<string | null>(null);
+  const [image,     setImage]     = useState<string | null>(null);
+  const [imgAspect, setImgAspect] = useState(1); // naturalHeight / naturalWidth, for aligning the defect-location overlay
   const [running,  setRunning]  = useState(false);
   const [analysis, setAnalysis] = useState<BeadAnalysis | null>(null);
   const [error,    setError]    = useState('');
+
+  // Training-data feedback — nothing is saved until the operator actually
+  // confirms or corrects an analysis, so "verified" in the DB means something.
+  const [savingFeedback, setSavingFeedback] = useState(false);
+  const [feedbackSaved,  setFeedbackSaved]  = useState(false);
+  const [correcting,     setCorrecting]     = useState(false);
+  const [corrVerdict,    setCorrVerdict]    = useState<BeadVerdict>('straight');
+  const [corrDefectType, setCorrDefectType] = useState<BeadDefectType>('none');
+  const [corrSeverity,   setCorrSeverity]   = useState<BeadSeverity>('none');
+
+  function startCorrection() {
+    if (!analysis) return;
+    setCorrVerdict(analysis.verdict);
+    setCorrDefectType(analysis.defect_type);
+    setCorrSeverity(analysis.severity);
+    setCorrecting(true);
+  }
+
+  async function saveFeedback(overridden: boolean) {
+    if (!analysis || !image) return;
+    setSavingFeedback(true);
+    try {
+      const blob = await fetch(image).then(r => r.blob());
+      const imageUrl = await uploadTrainingImage(blob, blob.type || 'image/jpeg');
+
+      const finalVerdict    = overridden ? corrVerdict    : analysis.verdict;
+      const finalDefectType = overridden ? corrDefectType : analysis.defect_type;
+      const finalSeverity   = overridden ? corrSeverity   : analysis.severity;
+
+      await supabase.from('training_frames').insert({
+        project_id:      null,
+        camera_id:       'post-processing-upload',
+        image_url:       imageUrl,
+        verdict:         finalVerdict,
+        severity:        finalSeverity,
+        angle_deviation: analysis.angle_deviation ?? null,
+        defect_type:     finalDefectType,
+        description:     analysis.description ?? null,
+        confidence:      analysis.confidence  ?? null,
+        gcode_context:   null,
+        verified:        true,
+        overridden,
+      });
+      setFeedbackSaved(true);
+      setCorrecting(false);
+    } catch (e) {
+      console.error('[saveFeedback]', e);
+      onAlert('Could not save training feedback — check the training-frames storage bucket exists', 'error');
+    } finally {
+      setSavingFeedback(false);
+    }
+  }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -509,49 +590,43 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
         body:    JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' }),
       });
 
-      if (!res.ok) throw new Error(`API ${res.status}`);
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `API ${res.status}`);
+
+      // The browser can't decode HEIC (iPhone's default photo format) for
+      // preview — swap in the JPEG the server converted for analysis so the
+      // thumbnail actually shows something instead of a broken-image icon.
+      if (data.convertedImage?.base64) {
+        URL.revokeObjectURL(objectUrl);
+        setImage(`data:${data.convertedImage.mimeType};base64,${data.convertedImage.base64}`);
+      }
 
       const result: BeadAnalysis = {
         verdict:         data.verdict         ?? 'unclear',
-        angle_deviation: data.angle_deviation ?? 0,
+        angle_deviation: leanAngleFromAxis(data.structure_axis ?? null) ?? (data.angle_deviation ?? 0),
         defect_type:     data.defect_type     ?? 'none',
         severity:        data.severity        ?? 'none',
         description:     data.description     ?? '',
+        recommendation:  data.recommendation   ?? '',
         bead_count:      data.bead_count      ?? 0,
         confidence:      data.confidence      ?? 'low',
+        defect_location: data.defect_location ?? null,
+        structure_axis:  data.structure_axis  ?? null,
         timestamp:       new Date().toLocaleTimeString(),
         cameraId:        'upload',
         cameraLabel:     'Uploaded image',
       };
 
       setAnalysis(result);
-
-      if (typeof window !== 'undefined' && localStorage.getItem('autobuild_data_training_opted_in') === 'true') {
-        try {
-          await supabase.from('training_frames').insert({
-            project_id:      null,
-            camera_id:       'post-processing-upload',
-            image_url:       null,
-            verdict:         result.verdict,
-            severity:        result.severity,
-            angle_deviation: result.angle_deviation ?? null,
-            defect_type:     result.defect_type     ?? null,
-            description:     result.description     ?? null,
-            confidence:      result.confidence      ?? null,
-            gcode_context:   null,
-            verified:        true,
-            overridden:      false,
-          });
-        } catch { /* silent */ }
-      }
+      setFeedbackSaved(false);
+      setCorrecting(false);
 
       const level: 'info' | 'warn' | 'error' =
         result.severity === 'high'   ? 'error' :
         result.severity === 'medium' ? 'warn'  : 'info';
       onAlert(`[Upload] ${result.verdict} — ${result.description}`, level);
     } catch (e: any) {
-      setError('Analysis failed. Check your API key and try again.');
+      setError(e.message || 'Analysis failed. Check your API key and try again.');
       onAlert('Defect analysis failed', 'error');
     } finally {
       setRunning(false);
@@ -584,7 +659,8 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
         </div>
         <div className="min-h-[320px] bg-gray-50 flex items-center justify-center relative">
           {image
-            ? <img src={image} alt="layer" className="w-full h-full object-contain" />
+            ? <img src={image} alt="layer" className="w-full h-full object-contain"
+                onLoad={e => setImgAspect(e.currentTarget.naturalHeight / (e.currentTarget.naturalWidth || 1))} />
             : (
               <div className="text-center px-6">
                 <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
@@ -607,6 +683,47 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
               </div>
             </div>
           )}
+          {!running && image && analysis?.structure_axis && (() => {
+            const { base, top } = analysis.structure_axis;
+            const dev = analysis.angle_deviation;
+            const color = Math.abs(dev) < 2 ? '#22c55e' : Math.abs(dev) <= 10 ? '#f59e0b' : '#ef4444';
+            const bx = base.x, by = base.y * imgAspect;
+            const tx = top.x,  ty = top.y * imgAspect;
+            const label = `${dev >= 0 ? '+' : ''}${dev.toFixed(1)}°`;
+            return (
+              <svg className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox={`0 0 1 ${imgAspect}`} preserveAspectRatio="xMidYMid meet">
+                {/* faint true-vertical reference, straight up from the base */}
+                <line x1={bx} y1={by} x2={bx} y2={ty} stroke="white" strokeOpacity={0.4} strokeWidth={1.5}
+                  strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+                {/* actual structure lean */}
+                <line x1={bx} y1={by} x2={tx} y2={ty} stroke={color} strokeWidth={3}
+                  strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                <circle cx={bx} cy={by} r={0.01} fill={color} />
+                <circle cx={tx} cy={ty} r={0.01} fill={color} />
+                <g transform={`translate(${tx} ${ty})`}>
+                  <text x={0.02} y={-0.02} fontSize={0.032} fontFamily="monospace" fontWeight="bold"
+                    fill={color} stroke="black" strokeWidth={0.006} paintOrder="stroke" style={{ whiteSpace: 'pre' }}>
+                    {label}
+                  </text>
+                </g>
+              </svg>
+            );
+          })()}
+          {!running && image && analysis?.defect_location && (() => {
+            const loc = analysis.defect_location;
+            const color = analysis.severity === 'high' ? '#ef4444' : analysis.severity === 'medium' || analysis.severity === 'low' ? '#f59e0b' : '#22c55e';
+            const cx = loc.x, cy = loc.y * imgAspect, r = Math.max(0.035, loc.radius);
+            return (
+              <svg className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox={`0 0 1 ${imgAspect}`} preserveAspectRatio="xMidYMid meet">
+                <motion.circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={2.5}
+                  vectorEffect="non-scaling-stroke" strokeDasharray="5 4"
+                  animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 1.6, repeat: Infinity }} />
+                <circle cx={cx} cy={cy} r={r * 0.06} fill={color} vectorEffect="non-scaling-stroke" />
+              </svg>
+            );
+          })()}
         </div>
       </div>
 
@@ -660,26 +777,81 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
 
               {/* Angle deviation */}
               <div>
-                <p className="text-[10px] text-white/30 uppercase tracking-widest mb-2">Angle Deviation</p>
+                <p className="text-[10px] text-white/30 uppercase tracking-widest mb-2">Lean From Plumb</p>
                 <p className="text-sm font-semibold text-white font-mono">
                   {analysis.angle_deviation !== 0
                     ? `${analysis.angle_deviation > 0 ? '+' : ''}${analysis.angle_deviation.toFixed(1)}°`
-                    : 'None'}
+                    : 'Plumb (0°)'}
                 </p>
+                {!analysis.structure_axis && (
+                  <p className="text-[10px] text-white/25 mt-1">No vertical structure visible to assess</p>
+                )}
               </div>
 
               <div className="h-px bg-white/8"/>
 
               {/* Recommendation */}
               <div className="border border-white/10 rounded-xl px-4 py-3">
-                <p className="text-xs font-semibold text-white">
-                  {analysis.verdict === 'straight' && analysis.defect_type === 'none'
-                    ? 'Print can continue'
-                    : analysis.severity === 'high'
-                      ? 'Stop print — inspect immediately'
-                      : 'Monitor closely before next layer'}
+                <p className="text-[10px] text-white/30 uppercase tracking-widest mb-1.5">Recommendation</p>
+                <p className="text-xs font-semibold text-white leading-relaxed">
+                  {analysis.recommendation || (
+                    analysis.verdict === 'straight' && analysis.defect_type === 'none'
+                      ? 'Print can continue'
+                      : analysis.severity === 'high'
+                        ? 'Stop print — inspect immediately'
+                        : 'Monitor closely before next layer'
+                  )}
                 </p>
-                <p className="text-[10px] text-white/30 mt-0.5 font-mono">{analysis.timestamp}</p>
+                <p className="text-[10px] text-white/30 mt-1.5 font-mono">{analysis.timestamp}</p>
+              </div>
+
+              {/* Training feedback */}
+              <div className="border border-white/10 rounded-xl px-4 py-3">
+                {feedbackSaved ? (
+                  <p className="text-xs font-semibold text-emerald-400">✓ Saved for training — thanks, this helps improve future analyses.</p>
+                ) : correcting ? (
+                  <div className="space-y-2.5">
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest">Correct this analysis</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <select value={corrVerdict} onChange={e => setCorrVerdict(e.target.value as BeadVerdict)}
+                        className="bg-white/5 border border-white/15 rounded-lg text-[10px] text-white px-2 py-1.5 outline-none">
+                        {(['straight', 'deviated', 'defect', 'unclear'] as BeadVerdict[]).map(v => <option key={v} value={v} className="text-black">{v}</option>)}
+                      </select>
+                      <select value={corrDefectType} onChange={e => setCorrDefectType(e.target.value as BeadDefectType)}
+                        className="bg-white/5 border border-white/15 rounded-lg text-[10px] text-white px-2 py-1.5 outline-none">
+                        {(['none', 'gap', 'collapse', 'over-extrusion', 'under-extrusion', 'layer-shift', 'deformation', 'surface-crack'] as BeadDefectType[]).map(v => <option key={v} value={v} className="text-black">{v}</option>)}
+                      </select>
+                      <select value={corrSeverity} onChange={e => setCorrSeverity(e.target.value as BeadSeverity)}
+                        className="bg-white/5 border border-white/15 rounded-lg text-[10px] text-white px-2 py-1.5 outline-none">
+                        {(['none', 'low', 'medium', 'high'] as BeadSeverity[]).map(v => <option key={v} value={v} className="text-black">{v}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => saveFeedback(true)} disabled={savingFeedback}
+                        className="flex-1 py-1.5 bg-white text-black text-[11px] font-semibold rounded-lg disabled:opacity-40">
+                        {savingFeedback ? 'Saving…' : 'Save correction'}
+                      </button>
+                      <button onClick={() => setCorrecting(false)} disabled={savingFeedback}
+                        className="px-3 py-1.5 border border-white/15 text-white/50 text-[11px] font-semibold rounded-lg">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-[10px] text-white/30 uppercase tracking-widest mb-2">Was this analysis correct?</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => saveFeedback(false)} disabled={savingFeedback}
+                        className="flex-1 py-1.5 bg-white text-black text-[11px] font-semibold rounded-lg disabled:opacity-40">
+                        {savingFeedback ? 'Saving…' : '✓ Yes, correct'}
+                      </button>
+                      <button onClick={startCorrection} disabled={savingFeedback}
+                        className="flex-1 py-1.5 border border-white/15 text-white/60 text-[11px] font-semibold rounded-lg hover:text-white">
+                        ✗ No, fix it
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Re-upload */}

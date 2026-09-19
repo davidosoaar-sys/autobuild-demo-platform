@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Line, TransformControls, GizmoHelper, GizmoViewport, OrthographicCamera } from '@react-three/drei';
 import * as THREE from 'three';
@@ -29,6 +29,14 @@ interface LayerVisualizationProps {
   pathColor?:       string;
   modelDimensions?: { x: number; y: number; z: number };
   onBack?:          () => void;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ── Time-of-day configs ───────────────────────────────────────────────────────
@@ -490,9 +498,14 @@ function ToolpathLines({ toolpath, layerHeight, progress }: {
 
 // ── Printer animation ─────────────────────────────────────────────────────────
 
-function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a8', nozzleDiameter = 0.025 }: {
+function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a8', nozzleDiameter = 0.025,
+  enableTransform = false, transformMode = 'translate', orbitRef, groupRef, onTransformChange }: {
   toolpath: Layer[]; layerHeight: number; progress: number; pathColor?: string; nozzleDiameter?: number;
+  enableTransform?: boolean; transformMode?: TransformMode; orbitRef?: React.RefObject<any>;
+  groupRef?: React.MutableRefObject<THREE.Group | null>;
+  onTransformChange?: (s: { x: number; y: number; z: number }) => void;
 }) {
+  const localGroupRef = useRef<THREE.Group | null>(null);
   const allSegs = useMemo(() => {
     const out: { s:[number,number,number]; e:[number,number,number]; layer: number }[] = [];
     toolpath.forEach((layer, li) => {
@@ -604,24 +617,39 @@ function PrinterAnimation({ toolpath, layerHeight, progress, pathColor = '#c2b8a
   }, [fullGeo, progress, segIdx, beadCounts]);
 
   return (
-    <group>
-      {fullGeo && (
-        <mesh geometry={fullGeo}>
-          <meshStandardMaterial
-            color={pathColor}
-            roughness={0.88}
-            metalness={0.02}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      )}
-      <group position={nozzle}>
-        <mesh>
-          <sphereGeometry args={[beadW * 0.4, 12, 12]}/>
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.85}/>
-        </mesh>
+    <>
+      <group ref={el => { localGroupRef.current = el; if (groupRef) groupRef.current = el; }}>
+        {fullGeo && (
+          <mesh geometry={fullGeo}>
+            <meshStandardMaterial
+              color={pathColor}
+              roughness={0.88}
+              metalness={0.02}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        )}
+        <group position={nozzle}>
+          <mesh>
+            <sphereGeometry args={[beadW * 0.4, 12, 12]}/>
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.85}/>
+          </mesh>
+        </group>
       </group>
-    </group>
+
+      {enableTransform && localGroupRef.current && (
+        <TransformControls
+          object={localGroupRef.current}
+          mode={transformMode}
+          onMouseDown={() => { if (orbitRef?.current) orbitRef.current.enabled = false; }}
+          onMouseUp={()   => { if (orbitRef?.current) orbitRef.current.enabled = true;  }}
+          onObjectChange={() => {
+            const s = localGroupRef.current?.scale;
+            if (s) onTransformChange?.({ x: s.x, y: s.y, z: s.z });
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -690,7 +718,7 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
   snap, enableTransform, transformMode, orbitRef, sitePlan, pathColor, nozzleDiameter = 0.025,
   tod = 'noon', showModel = true, showToolpath = true,
   numLayers = 0, showPathLines = false, isOrtho = false,
-  onBoundsDetected, modelBounds }: {
+  onBoundsDetected, modelBounds, toolpathGroupRef, onToolpathTransformChange }: {
   fileUrl: string|null; fileExt: string; toolpath: Layer[];
   layerHeight: number; animProgress: number; mode: ViewMode;
   site: SiteDimensions; modelScale: number; snap: string|null;
@@ -701,6 +729,8 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
   numLayers?: number; showPathLines?: boolean; isOrtho?: boolean;
   onBoundsDetected?: (b: { x: number; y: number; z: number }) => void;
   modelBounds?: { x: number; y: number; z: number } | null;
+  toolpathGroupRef?: React.MutableRefObject<THREE.Group | null>;
+  onToolpathTransformChange?: (s: { x: number; y: number; z: number }) => void;
 }) {
   const isEnv = mode === 'environment';
   const isDark = mode === 'dark';
@@ -749,7 +779,9 @@ function Scene({ fileUrl, fileExt, toolpath, layerHeight, animProgress, mode, si
 
       {toolpath.length > 0 && showToolpath && (
         <PrinterAnimation toolpath={toolpath} layerHeight={layerHeight} progress={animProgress}
-          pathColor={pathColor} nozzleDiameter={nozzleDiameter}/>
+          pathColor={pathColor} nozzleDiameter={nozzleDiameter}
+          enableTransform={!fileUrl && enableTransform} transformMode={transformMode}
+          orbitRef={orbitRef} groupRef={toolpathGroupRef} onTransformChange={onToolpathTransformChange}/>
       )}
 
       {toolpath.length > 0 && showPathLines && (
@@ -884,23 +916,78 @@ export default function LayerVisualization({
   const [isOrtho,         setIsOrtho]         = useState(false);
   const [showPathLines,   setShowPathLines]   = useState(false);
   const [modelBounds,     setModelBounds]     = useState<{x:number;y:number;z:number}|null>(null);
+  const [isExporting,     setIsExporting]     = useState<'stl'|'glb'|null>(null);
+  const [toolpathScale,   setToolpathScale]   = useState({x:1,y:1,z:1});
   const orbitRef = useRef<any>(null);
   const rafRef   = useRef<number|null>(null);
   const lastTRef = useRef<number|null>(null);
+  const toolpathGroupRef = useRef<THREE.Group | null>(null);
 
   const mode       = externalMode ?? internalMode;
   const setMode    = (m: ViewMode) => { setInternalMode(m); onModeChange?.(m); };
   const modelScale = extScale ?? internalScale;
   const fileExt    = file?.name.split('.').pop()?.toLowerCase() ?? 'stl';
+
+  // modelBounds only ever gets set by ModelLoader, which only renders when an
+  // actual 3D file was uploaded (see below). The floor-plan flow passes
+  // file={null} and only ever has a toolpath, so modelBounds stayed null
+  // forever there — the site plane and camera silently fell back to a tiny
+  // fixed 12x10m default no matter how large the real building was, putting
+  // the camera far too close to size up a building correctly. Compute the
+  // same bounds directly from the toolpath's own coordinates as a fallback.
+  const toolpathBounds = useMemo(() => {
+    if (file || toolpath.length === 0) return null;
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const layer of toolpath) {
+      for (const seg of layer) {
+        if (seg.gap) continue;
+        minX = Math.min(minX, seg.x0, seg.x1); maxX = Math.max(maxX, seg.x0, seg.x1);
+        minZ = Math.min(minZ, seg.y0, seg.y1); maxZ = Math.max(maxZ, seg.y0, seg.y1);
+      }
+    }
+    if (!isFinite(minX)) return null;
+    return { x: maxX - minX, y: Math.max(numLayers * layerHeight, 0.5), z: maxZ - minZ };
+  }, [file, toolpath, numLayers, layerHeight]);
+  const effectiveBounds = modelBounds ?? toolpathBounds;
+
   const resolvedSite = useMemo(()=>{
     const base = site ?? { width:12, length:10, slope:0 };
-    if (!modelBounds) return base;
-    const mw = modelBounds.x * modelScale;
-    const ml = modelBounds.z * modelScale;
+    if (!effectiveBounds) return base;
+    const mw = effectiveBounds.x * modelScale;
+    const ml = effectiveBounds.z * modelScale;
     return { ...base, width: Math.max(base.width, mw * 1.25), length: Math.max(base.length, ml * 1.25) };
-  }, [site, modelBounds, modelScale]);
+  }, [site, effectiveBounds, modelScale]);
   const totalSegs    = useMemo(()=>toolpath.reduce((a,l)=>a+l.length,0),[toolpath]);
   const animDuration = useMemo(()=>Math.min(Math.max(totalSegs*0.05,5),120),[totalSegs]);
+
+  // Export the printed (toolpath-generated) model, including any translate/
+  // rotate/scale the user has applied via the Transform gizmo — exporters bake
+  // in matrixWorld, so no extra work is needed to capture that.
+  const handleExport = useCallback(async (format: 'stl'|'glb') => {
+    const group = toolpathGroupRef.current;
+    if (!group) return;
+    setIsExporting(format);
+    try {
+      group.updateMatrixWorld(true);
+      if (format === 'stl') {
+        const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js');
+        const result = new STLExporter().parse(group, { binary: true }) as unknown as DataView;
+        const bytes = new Uint8Array(result.buffer as ArrayBuffer, result.byteOffset, result.byteLength);
+        downloadBlob(new Blob([bytes], { type: 'application/sla' }), 'autobuild-model.stl');
+      } else {
+        const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+        const exporter = new GLTFExporter();
+        exporter.parse(
+          group,
+          (result) => downloadBlob(new Blob([result as ArrayBuffer], { type: 'model/gltf-binary' }), 'autobuild-model.glb'),
+          (err) => console.error('GLB export failed', err),
+          { binary: true },
+        );
+      }
+    } finally {
+      setIsExporting(null);
+    }
+  }, []);
 
   useEffect(()=>{
     if (!fullscreen) return;
@@ -932,6 +1019,17 @@ export default function LayerVisualization({
       return ()=>clearTimeout(t);
     }
   },[toolpath.length]);
+
+  // A newly-sliced toolpath is a fresh model — any manual move/rotate/resize
+  // from a previous slice shouldn't carry over onto it.
+  useEffect(()=>{
+    if (toolpathGroupRef.current) {
+      toolpathGroupRef.current.position.set(0,0,0);
+      toolpathGroupRef.current.rotation.set(0,0,0);
+      toolpathGroupRef.current.scale.set(1,1,1);
+    }
+    setToolpathScale({x:1,y:1,z:1});
+  },[toolpath]);
 
   useEffect(()=>{
     if (isPlaying){
@@ -1006,7 +1104,7 @@ export default function LayerVisualization({
               snap={null} enableTransform={false} transformMode="translate"
               orbitRef={orbitRef} sitePlan={sitePlan} pathColor={pathColor} tod={tod}
               numLayers={numLayers} showPathLines={false} isOrtho={isOrtho}
-              onBoundsDetected={setModelBounds} modelBounds={modelBounds}/>
+              onBoundsDetected={setModelBounds} modelBounds={effectiveBounds}/>
           </Canvas>
           <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg">
             <span className="text-white/40 text-[10px]">Drag · scroll</span>
@@ -1034,7 +1132,8 @@ export default function LayerVisualization({
           nozzleDiameter={nozzleDiameter ?? 0.025} tod={tod}
           showModel={showModel} showToolpath={showToolpath}
           numLayers={numLayers} showPathLines={showPathLines} isOrtho={isOrtho}
-          onBoundsDetected={setModelBounds} modelBounds={modelBounds}/>
+          onBoundsDetected={setModelBounds} modelBounds={effectiveBounds}
+          toolpathGroupRef={toolpathGroupRef} onToolpathTransformChange={setToolpathScale}/>
       </Canvas>
 
       {/* Top-left controls — single compact row */}
@@ -1109,6 +1208,25 @@ export default function LayerVisualization({
           Transform
         </button>
 
+        {/* Export the generated model — only meaningful for the floor-plan
+            (file-less) flow, since that's the only place a mesh exists without
+            an already-exportable source file. */}
+        {!file && toolpath.length > 0 && (
+          <>
+            <div className="w-px h-4 bg-white/15 mx-0.5"/>
+            <button onClick={()=>handleExport('stl')} disabled={!!isExporting} title="Export as STL"
+              className="px-2.5 py-1 text-[11px] font-medium rounded-lg text-white/35 hover:text-white/70 transition-all disabled:opacity-50"
+              style={{background:'rgba(0,0,0,0.28)',backdropFilter:'blur(10px)'}}>
+              {isExporting==='stl' ? '…' : 'STL'}
+            </button>
+            <button onClick={()=>handleExport('glb')} disabled={!!isExporting} title="Export as GLB"
+              className="px-2.5 py-1 text-[11px] font-medium rounded-lg text-white/35 hover:text-white/70 transition-all disabled:opacity-50"
+              style={{background:'rgba(0,0,0,0.28)',backdropFilter:'blur(10px)'}}>
+              {isExporting==='glb' ? '…' : 'GLB'}
+            </button>
+          </>
+        )}
+
         {/* Site info */}
         <div className="hidden sm:block ml-1"
           style={{background:'rgba(0,0,0,0.28)',backdropFilter:'blur(10px)',borderRadius:8,padding:'3px 8px'}}>
@@ -1137,6 +1255,43 @@ export default function LayerVisualization({
                 {opt.label}
               </button>
             ))}
+
+            {/* Precise per-axis resize (Blender-style dimensions panel) — the
+                Scale gizmo above already lets you drag a single axis handle to
+                stretch just one direction, this is the same edit as a typed
+                number instead of a drag. Floor-plan flow only: an uploaded
+                model already has its own dimensions from the source file. */}
+            {!file && toolpathBounds && (
+              <>
+                <div className="w-px h-4 bg-white/15 mx-1"/>
+                {([
+                  {axis:'x' as const, label:'Width'},
+                  {axis:'z' as const, label:'Depth'},
+                  {axis:'y' as const, label:'Height'},
+                ]).map(({axis,label})=>{
+                  const baseDim = toolpathBounds[axis];
+                  const current = baseDim * toolpathScale[axis];
+                  return (
+                    <label key={axis} className="flex items-center gap-1 pl-1">
+                      <span className="text-[10px] text-white/35">{label}</span>
+                      <input
+                        type="number" step={0.1} min={0.1}
+                        value={Number(current.toFixed(2))}
+                        onChange={e=>{
+                          const v = parseFloat(e.target.value);
+                          if (!isFinite(v) || v <= 0 || baseDim <= 0 || !toolpathGroupRef.current) return;
+                          const newScale = v / baseDim;
+                          toolpathGroupRef.current.scale[axis] = newScale;
+                          setToolpathScale(prev=>({...prev, [axis]: newScale}));
+                        }}
+                        className="w-14 px-1.5 py-1 text-[11px] font-mono rounded-md text-white bg-white/10 border border-white/10 focus:outline-none focus:border-white/30"
+                      />
+                    </label>
+                  );
+                })}
+                <span className="text-[10px] text-white/25 pl-0.5">m</span>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

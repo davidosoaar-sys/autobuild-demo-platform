@@ -29,39 +29,6 @@ interface SitePlanReaderProps {
   onSitePlanParsed: (data: SitePlanData) => void;
 }
 
-const SYSTEM_PROMPT = `You are an expert architectural site plan analyser.
-The user will provide an image of a site plan or site layout drawing.
-Analyse it carefully and return ONLY a JSON object with no markdown, no explanation, no backticks.
-
-Extract:
-- Site dimensions in metres (estimate from scale bar, annotations, or visual proportion)
-- Site shape: rectangular, l-shaped, or irregular
-- Road: which side it is on (north/south/east/west or corner), approximate width in metres
-- House or building footprint: its position as fractions (0–1) of the site, its dimensions in metres, and rotation in degrees
-- Confidence: high if you can see clear dimensions, medium if estimating, low if very unclear
-- Brief notes about what you observed
-
-Return exactly this JSON shape:
-{
-  "width": <number>,
-  "length": <number>,
-  "shape": "rectangular" | "l-shaped" | "irregular",
-  "road": {
-    "present": <boolean>,
-    "side": "north" | "south" | "east" | "west" | "corner-ne" | "corner-nw" | "corner-se" | "corner-sw" | "unknown",
-    "width_m": <number>
-  },
-  "house": {
-    "offset_x": <0-1>,
-    "offset_z": <0-1>,
-    "width": <number>,
-    "length": <number>,
-    "rotation": <number>
-  },
-  "confidence": "high" | "medium" | "low",
-  "notes": "<string>"
-}`;
-
 async function readFileAsBase64(file: File): Promise<{ base64: string; mediaType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -79,40 +46,20 @@ async function readFileAsBase64(file: File): Promise<{ base64: string; mediaType
 async function analyseSitePlan(file: File): Promise<SitePlanData> {
   const { base64, mediaType } = await readFileAsBase64(file);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  // Routed through our own server (app/api/analyze-site-plan) so the
+  // Anthropic API key stays server-side and never reaches the browser.
+  const response = await fetch('/api/analyze-site-plan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model:      'claude-opus-4-5',
-      max_tokens: 1000,
-      system:     SYSTEM_PROMPT,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type:   'image',
-            source: { type: 'base64', media_type: mediaType, data: base64 },
-          },
-          {
-            type: 'text',
-            text: 'Analyse this site plan and return the JSON.',
-          },
-        ],
-      }],
-    }),
+    body: JSON.stringify({ imageBase64: base64, mimeType: mediaType }),
   });
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API error ${response.status}`);
-  }
+  const parsed = await response.json();
 
-  const data    = await response.json();
-  const text    = data.content?.[0]?.text ?? '';
-  // Strip any accidental markdown fences
-  const clean   = text.replace(/```json|```/g, '').trim();
-  const parsed  = JSON.parse(clean) as SitePlanData;
-  return parsed;
+  if (!response.ok) {
+    throw new Error(parsed.error || `API error ${response.status}`);
+  }
+  return parsed as SitePlanData;
 }
 
 // ── Confidence badge ──────────────────────────────────────────────────────────

@@ -7,6 +7,8 @@ stable-baselines3==2.3.2
 trimesh==4.4.9
 scipy==1.14.0
 shapely==2.0.4
+scikit-image==0.26.0
+networkx==3.6.1
 pydantic==2.7.1
 requests==2.32.2
 tqdm==4.66.4

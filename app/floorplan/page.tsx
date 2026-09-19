@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { BuildingFloor, Opening } from './WallViewer';
 
 const WallViewer = dynamic(() => import('./WallViewer'), {
   ssr: false,
@@ -44,11 +45,19 @@ interface Group {
 }
 interface LegendColor { hex: string; legend_count: number; plan_count: number; }
 interface HatchSignature { angle: number; spacing: number; }
+interface SheetAnalysis { kind: 'floor_plan' | 'site_plan' | 'section_or_elevation' | 'unknown'; confidence: number; message: string; extractable: boolean; }
+interface OpeningCandidate {
+  id: string; type: 'door' | 'window' | 'opening'; confidence: number;
+  gapStart: [number, number]; gapEnd: [number, number]; widthMm: number;
+  sillMm: number; headMm: number;
+}
 
 type Seg       = [[number, number], [number, number]];
 type Mode      = 'line' | 'color' | 'pattern';
 type View      = 'select' | 'review';
 type MatchMode = 'both' | 'angle';
+
+type FloorDraft = Omit<BuildingFloor, 'id' | 'segments'>;
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -87,6 +96,7 @@ export default function FloorPlanPage() {
   const [preview,      setPreview]      = useState<PreviewData | null>(null);
   const [groups,       setGroups]       = useState<Group[]>([]);
   const [legendColors, setLegendColors] = useState<LegendColor[]>([]);
+  const [sheet,        setSheet]        = useState<SheetAnalysis | null>(null);
   const [loading,      setLoading]      = useState(false);
   const [statusMsg,    setStatusMsg]    = useState('Upload a PDF to begin');
 
@@ -116,6 +126,118 @@ export default function FloorPlanPage() {
     [outlineSegments, patternSegments, colorSegments, clickedSegments],
   );
 
+  // ── Door/window openings ──────────────────────────────────────────────────
+  // Detection finds candidate gaps in the current wall selection and guesses
+  // a type; nothing affects slicing until the user confirms (or edits) one.
+  const [openingCandidates, setOpeningCandidates] = useState<OpeningCandidate[]>([]);
+  const [confirmedOpenings, setConfirmedOpenings] = useState<Opening[]>([]);
+  const [detectingOpenings, setDetectingOpenings] = useState(false);
+  const [activeCandidateId, setActiveCandidateId] = useState<string | null>(null);
+  const [editingOpeningId,  setEditingOpeningId]  = useState<string | null>(null);
+
+  function updateConfirmedOpening(id: string, patch: Partial<Opening>) {
+    setConfirmedOpenings(prev => prev.map(o => o.id === id ? { ...o, ...patch } : o));
+  }
+  const [openingsTruncated,  setOpeningsTruncated]  = useState(false);
+
+  // Global defaults — the height above the floor a new door/window opens at.
+  // Applied to freshly detected candidates and to manually placed ones; use
+  // "Apply to all windows" to retro-fit these onto ones already on the plan.
+  const [windowSillMm, setWindowSillMm] = useState(900);
+  const [windowHeadMm, setWindowHeadMm] = useState(2100);
+  const [doorHeadMm,   setDoorHeadMm]   = useState(2100);
+
+  function defaultsFor(type: Opening['type']) {
+    if (type === 'door')   return { sillMm: 0,           headMm: doorHeadMm };
+    if (type === 'window') return { sillMm: windowSillMm, headMm: windowHeadMm };
+    return { sillMm: windowSillMm, headMm: windowHeadMm };
+  }
+
+  // Resizes an opening to an exact width in mm, keeping its centre point and
+  // direction fixed — lets a window/door be dialled in precisely instead of
+  // only ever matching whatever distance was clicked or auto-detected.
+  function withWidthMm<T extends { gapStart: [number, number]; gapEnd: [number, number]; widthMm: number }>(op: T, widthMm: number): T {
+    const [x0, y0] = op.gapStart, [x1, y1] = op.gapEnd;
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const curLenPt = Math.hypot(x1 - x0, y1 - y0) || 1;
+    const ux = (x1 - x0) / curLenPt, uy = (y1 - y0) / curLenPt;
+    const halfLenPt = (Math.max(50, widthMm) / 1000 / PT_TO_M) / 2;
+    return { ...op, widthMm: Math.max(50, widthMm), gapStart: [cx - ux * halfLenPt, cy - uy * halfLenPt], gapEnd: [cx + ux * halfLenPt, cy + uy * halfLenPt] };
+  }
+
+  // Manual placement — click a start point then an end point on the plan to
+  // define a new opening directly, without depending on auto-detection.
+  const [manualOpeningMode,  setManualOpeningMode]  = useState(false);
+  const [manualOpeningType,  setManualOpeningType]  = useState<Opening['type']>('window');
+  const [manualOpeningStart, setManualOpeningStart] = useState<[number, number] | null>(null);
+
+  function placeManualOpening(px: number, py: number) {
+    if (!manualOpeningStart) { setManualOpeningStart([px, py]); return; }
+    const defaults = defaultsFor(manualOpeningType);
+    const widthMm = Math.hypot(px - manualOpeningStart[0], py - manualOpeningStart[1]) * PT_TO_M * 1000;
+    const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    const opening: Opening = {
+      id, type: manualOpeningType,
+      gapStart: manualOpeningStart, gapEnd: [px, py],
+      widthMm, sillMm: defaults.sillMm, headMm: defaults.headMm,
+    };
+    setConfirmedOpenings(prev => [...prev, opening]);
+    setManualOpeningStart(null);
+    setStatusMsg(`${manualOpeningType} added at ${defaults.sillMm}–${defaults.headMm}mm above floor.`);
+  }
+
+  async function handleDetectOpenings() {
+    if (!pdfFile || !wallSegments.length) return;
+    setDetectingOpenings(true);
+    setActiveCandidateId(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', pdfFile);
+      fd.append('segments_json', JSON.stringify(wallSegments));
+      const res = await fetch(`${API}/floorplan/detect_openings`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.error) { setStatusMsg(`Error: ${data.error}`); return; }
+      const already = new Set(confirmedOpenings.map(o => `${o.gapStart.join(',')}|${o.gapEnd.join(',')}`));
+      const cands: OpeningCandidate[] = (data.candidates ?? []).map((c: any) => ({
+        id: c.id, type: c.type, confidence: c.confidence,
+        gapStart: c.gap_start, gapEnd: c.gap_end, widthMm: c.width_mm,
+        ...defaultsFor(c.type),
+      }));
+      setOpeningCandidates(cands.filter(c => !already.has(`${c.gapStart.join(',')}|${c.gapEnd.join(',')}`)));
+      setOpeningsTruncated(!!data.truncated);
+      setStatusMsg(`Found ${cands.length} possible opening${cands.length === 1 ? '' : 's'} — review each below.`);
+    } catch (err: any) {
+      setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
+    } finally { setDetectingOpenings(false); }
+  }
+
+  function confirmCandidate(id: string, overrides?: Partial<Pick<Opening, 'type' | 'sillMm' | 'headMm'>>) {
+    const c = openingCandidates.find(x => x.id === id);
+    if (!c) return;
+    const confirmed: Opening = {
+      id: c.id, type: overrides?.type ?? c.type,
+      gapStart: c.gapStart, gapEnd: c.gapEnd, widthMm: c.widthMm,
+      sillMm: overrides?.sillMm ?? c.sillMm, headMm: overrides?.headMm ?? c.headMm,
+    };
+    setConfirmedOpenings(prev => [...prev, confirmed]);
+    setOpeningCandidates(prev => prev.filter(x => x.id !== id));
+    setActiveCandidateId(null);
+  }
+
+  function discardCandidate(id: string) {
+    setOpeningCandidates(prev => prev.filter(x => x.id !== id));
+    setActiveCandidateId(null);
+  }
+
+  function removeConfirmedOpening(id: string) {
+    setConfirmedOpenings(prev => prev.filter(o => o.id !== id));
+  }
+
+  function applyWindowDefaultsToAll() {
+    setConfirmedOpenings(prev => prev.map(o => o.type === 'window' ? { ...o, sillMm: windowSillMm, headMm: windowHeadMm } : o));
+    setOpeningCandidates(prev => prev.map(c => c.type === 'window' ? { ...c, sillMm: windowSillMm, headMm: windowHeadMm } : c));
+  }
+
   // ── Extracting flags ──────────────────────────────────────────────────────
   const [extracting,        setExtracting]        = useState(false);
   const [patternExtracting, setPatternExtracting] = useState(false);
@@ -123,6 +245,15 @@ export default function FloorPlanPage() {
   // ── 3D / review state ─────────────────────────────────────────────────────
   const [wallHeightMm,  setWallHeightMm]  = useState(2500);
   const [layerHeightMm, setLayerHeightMm] = useState(50);
+
+  // A building is assembled one floor plan at a time. Each floor keeps the
+  // selected plan geometry in its original coordinate system plus an explicit
+  // XY offset and Z elevation for alignment in the shared 3D viewer.
+  const [buildingFloors, setBuildingFloors] = useState<BuildingFloor[]>([]);
+  const [floorDraft, setFloorDraft] = useState<FloorDraft>({
+    name: 'Ground floor', wallHeightMm: 2500, elevationMm: 0,
+    offsetXmm: 0, offsetYmm: 0,
+  });
 
   // ── Slicer state ──────────────────────────────────────────────────────────
   const [nozzle,       setNozzle]       = useState(25);
@@ -139,15 +270,30 @@ export default function FloorPlanPage() {
 
   const layerHeightFromCompression = Math.round(nozzle * compression) / 10;
 
+  const previewFloors = useMemo<BuildingFloor[]>(() => {
+    const draft: BuildingFloor | null = wallSegments.length
+      ? { id: 'current-selection', segments: wallSegments, ...floorDraft, openings: confirmedOpenings }
+      : null;
+    return draft ? [...buildingFloors, draft] : buildingFloors;
+  }, [buildingFloors, floorDraft, wallSegments, confirmedOpenings]);
+
+  const totalBuildingSegments = useMemo(
+    () => previewFloors.reduce((total, floor) => total + floor.segments.length, 0),
+    [previewFloors],
+  );
+
   // ── File load ─────────────────────────────────────────────────────────────
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     setPdfFile(file);
-    setPreview(null); setGroups([]); setLegendColors([]);
+    setPreview(null); setGroups([]); setLegendColors([]); setSheet(null);
     setSelectedColors([]); setClickedSegments([]);
     setSelectedSignature(null);
     setSelectedSignatures([]); setPatternSegments([]); setColorSegments([]);
     setOutlineSegments([]);
+    setOpeningCandidates([]); setConfirmedOpenings([]); setActiveCandidateId(null); setEditingOpeningId(null);
+    setManualOpeningMode(false); setManualOpeningStart(null);
+    setCutGapMode(false); setCutGapStart(null);
     setView('select');
     if (!file) { setStatusMsg('Upload a PDF to begin'); return; }
     setLoading(true); setStatusMsg('Loading…');
@@ -165,13 +311,41 @@ export default function FloorPlanPage() {
       setPreview(pd as PreviewData);
       setGroups((sd.groups ?? []) as Group[]);
       setLegendColors((ld.legend_colors ?? []) as LegendColor[]);
-      setStatusMsg(
-        `${file.name} · ${sd.total_drawings ?? 0} objects` +
-        (ld.legend_colors?.length ? ` · ${ld.legend_colors.length} legend colors` : '')
+      setSheet((sd.sheet ?? null) as SheetAnalysis | null);
+      setStatusMsg(sd.sheet?.kind === 'site_plan'
+        ? `${file.name} · site plan - wall extraction disabled`
+        : `${file.name} · ${sd.total_drawings ?? 0} objects` +
+          (ld.legend_colors?.length ? ` · ${ld.legend_colors.length} legend colors` : '')
       );
     } catch (err: any) {
       setStatusMsg(`Error: ${err.message || 'Could not reach backend'}`);
     } finally { setLoading(false); }
+  }
+
+  function addCurrentFloorToBuilding() {
+    if (!wallSegments.length) return;
+    const nextFloor: BuildingFloor = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      ...floorDraft,
+      segments: wallSegments,
+      openings: confirmedOpenings,
+    };
+    setBuildingFloors(prev => [...prev, nextFloor]);
+    setStatusMsg(`${floorDraft.name} added to the building stack (${confirmedOpenings.length} opening${confirmedOpenings.length === 1 ? '' : 's'}). Upload the next floor plan to continue.`);
+    setFloorDraft(prev => ({
+      ...prev,
+      name: `Floor ${buildingFloors.length + 1}`,
+      elevationMm: prev.elevationMm + prev.wallHeightMm,
+    }));
+    clearAllWalls();
+    setOpeningCandidates([]); setConfirmedOpenings([]); setActiveCandidateId(null); setEditingOpeningId(null);
+    setManualOpeningMode(false); setManualOpeningStart(null);
+    setCutGapMode(false); setCutGapStart(null);
+    setPdfFile(null); setPreview(null); setGroups([]); setLegendColors([]);
+  }
+
+  function removeBuildingFloor(id: string) {
+    setBuildingFloors(prev => prev.filter(floor => floor.id !== id));
   }
 
   // ── Image click ───────────────────────────────────────────────────────────
@@ -181,13 +355,35 @@ export default function FloorPlanPage() {
     const pdfX = (e.clientX - rect.left) * (preview.page_width_pt  / rect.width);
     const pdfY = (e.clientY - rect.top)  * (preview.page_height_pt / rect.height);
 
+    if (cutGapMode) {
+      if (!cutGapStart) { setCutGapStart([pdfX, pdfY]); return; }
+      cutGapInWall(cutGapStart, [pdfX, pdfY]);
+      setCutGapStart(null);
+      return;
+    }
+
+    if (manualOpeningMode) { placeManualOpening(pdfX, pdfY); return; }
+
+    // Clicking directly on an already-selected wall line always deselects it,
+    // no matter which mode is active — no need to switch to Line mode first.
+    const hitSelected = findWallSegmentNear(pdfX, pdfY, 8);
+    if (hitSelected) {
+      removeSelectedSegment(hitSelected);
+      setStatusMsg('Line removed from selection.');
+      return;
+    }
+
     if (mode === 'line') {
       const fd = new FormData();
       fd.append('file', pdfFile); fd.append('px', String(pdfX));
       fd.append('py', String(pdfY)); fd.append('tol', '8');
       try {
         const data = await fetch(`${API}/floorplan/pick`, { method: 'POST', body: fd }).then(r => r.json());
-        if (data.hit && data.segment) setClickedSegments(prev => [...prev, data.segment as Seg]);
+        if (data.hit && data.segment) {
+          const seg = data.segment as Seg;
+          setClickedSegments(prev => [...prev, seg]);
+          setStatusMsg('Line added to selection.');
+        }
       } catch { /* silent */ }
     } else if (mode === 'color') {
       const fd = new FormData();
@@ -210,6 +406,127 @@ export default function FloorPlanPage() {
 
   function toggleColor(hex: string) {
     setSelectedColors(prev => prev.includes(hex) ? prev.filter(h => h !== hex) : [...prev, hex]);
+  }
+
+  function distToSegment(px: number, py: number, s: Seg): number {
+    const [x0, y0] = s[0], [x1, y1] = s[1];
+    const dx = x1 - x0, dy = y1 - y0;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-9) return Math.hypot(px - x0, py - y0);
+    const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / len2));
+    return Math.hypot(px - (x0 + t * dx), py - (y0 + t * dy));
+  }
+
+  function findWallSegmentNear(px: number, py: number, tolPt: number): Seg | null {
+    let best: Seg | null = null, bestD = tolPt;
+    for (const s of wallSegments) {
+      const d = distToSegment(px, py, s);
+      if (d <= bestD) { bestD = d; best = s; }
+    }
+    return best;
+  }
+
+  // Lets a single click undo a previous selection — needed because bulk
+  // tools (color, pattern, outline auto-detect) always include a few wrong
+  // segments on complex plans, and re-doing the whole selection to fix one
+  // line isn't practical.
+  function segsMatch(a: Seg, b: Seg, eps = 0.5): boolean {
+    const close = (p: [number, number], q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < eps;
+    return (close(a[0], b[0]) && close(a[1], b[1])) || (close(a[0], b[1]) && close(a[1], b[0]));
+  }
+
+  function removeSelectedSegment(seg: Seg): boolean {
+    const idxClicked = clickedSegments.findIndex(s => segsMatch(s, seg));
+    if (idxClicked !== -1) {
+      setClickedSegments(prev => prev.filter((_, i) => i !== idxClicked));
+      return true;
+    }
+    const idxColor = colorSegments.findIndex(s => segsMatch(s, seg));
+    if (idxColor !== -1) {
+      setColorSegments(prev => prev.filter((_, i) => i !== idxColor));
+      return true;
+    }
+    const idxOutline = outlineSegments.findIndex(s => segsMatch(s, seg));
+    if (idxOutline !== -1) {
+      setOutlineSegments(prev => prev.filter((_, i) => i !== idxOutline));
+      return true;
+    }
+    for (let i = 0; i < patternSegments.length; i++) {
+      const idx = patternSegments[i].findIndex(s => segsMatch(s, seg));
+      if (idx !== -1) {
+        setPatternSegments(prev => prev.map((arr, ai) => ai === i ? arr.filter((_, j) => j !== idx) : arr));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ── Cut a gap out of a selected wall line ─────────────────────────────────
+  // Some plans draw a wall as one continuous stroke across what is actually
+  // an opening (the window/door symbol just sits on top, no real break in
+  // the line) — click-to-remove can only drop the whole line in that case.
+  // This instead splits the line at two clicked points, keeping the two
+  // remaining stubs and discarding the span between them.
+  const [cutGapMode,  setCutGapMode]  = useState(false);
+  const [cutGapStart, setCutGapStart] = useState<[number, number] | null>(null);
+
+  function findSegmentSpanning(pA: [number, number], pB: [number, number], tolPt = 10) {
+    type Bucket = 'clicked' | 'color' | 'outline' | 'pattern';
+    const candidates: { bucket: Bucket; patternIdx?: number; segIdx: number; seg: Seg }[] = [
+      ...clickedSegments.map((seg, segIdx) => ({ bucket: 'clicked' as const, segIdx, seg })),
+      ...colorSegments.map((seg, segIdx) => ({ bucket: 'color' as const, segIdx, seg })),
+      ...outlineSegments.map((seg, segIdx) => ({ bucket: 'outline' as const, segIdx, seg })),
+      ...patternSegments.flatMap((arr, patternIdx) => arr.map((seg, segIdx) => ({ bucket: 'pattern' as const, patternIdx, segIdx, seg }))),
+    ];
+    let best: typeof candidates[0] | null = null;
+    let bestScore = Infinity;
+    for (const c of candidates) {
+      const [x0, y0] = c.seg[0], [x1, y1] = c.seg[1];
+      const dx = x1 - x0, dy = y1 - y0;
+      const len2 = dx * dx + dy * dy;
+      if (len2 < 1e-6) continue;
+      const proj = (p: [number, number]) => {
+        const t = ((p[0] - x0) * dx + (p[1] - y0) * dy) / len2;
+        const px = x0 + t * dx, py = y0 + t * dy;
+        return { t, perpDist: Math.hypot(p[0] - px, p[1] - py) };
+      };
+      const a = proj(pA), b = proj(pB);
+      if (a.perpDist > tolPt || b.perpDist > tolPt) continue;
+      if (a.t < -0.05 || a.t > 1.05 || b.t < -0.05 || b.t > 1.05) continue;
+      const score = a.perpDist + b.perpDist;
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    return best;
+  }
+
+  function cutGapInWall(pA: [number, number], pB: [number, number]) {
+    const found = findSegmentSpanning(pA, pB);
+    if (!found) { setStatusMsg('Both clicks need to land on the same selected wall line to cut a gap.'); return; }
+    const [x0, y0] = found.seg[0], [x1, y1] = found.seg[1];
+    const dx = x1 - x0, dy = y1 - y0;
+    const len2 = dx * dx + dy * dy;
+    const tOf = (p: [number, number]) => ((p[0] - x0) * dx + (p[1] - y0) * dy) / len2;
+    let tA = Math.max(0, Math.min(1, tOf(pA)));
+    let tB = Math.max(0, Math.min(1, tOf(pB)));
+    if (tA > tB) [tA, tB] = [tB, tA];
+    const pt = (t: number): [number, number] => [x0 + t * dx, y0 + t * dy];
+    const MIN_T = 0.01;
+    const replacement: Seg[] = [];
+    if (tA > MIN_T)     replacement.push([[x0, y0], pt(tA)]);
+    if (tB < 1 - MIN_T) replacement.push([pt(tB), [x1, y1]]);
+
+    const applyReplace = (arr: Seg[]) => {
+      const out = [...arr];
+      out.splice(found.segIdx, 1, ...replacement);
+      return out;
+    };
+    if (found.bucket === 'clicked') setClickedSegments(applyReplace);
+    else if (found.bucket === 'color') setColorSegments(applyReplace);
+    else if (found.bucket === 'outline') setOutlineSegments(applyReplace);
+    else if (found.bucket === 'pattern' && found.patternIdx !== undefined) {
+      setPatternSegments(prev => prev.map((arr, i) => i === found.patternIdx ? applyReplace(arr) : arr));
+    }
+    setStatusMsg('Gap cut into the wall.');
   }
 
   async function handleExtract() {
@@ -271,13 +588,25 @@ export default function FloorPlanPage() {
   }
 
   async function handleSlice() {
-    if (!wallSegments.length || !preview) return;
+    if (!previewFloors.length) return;
     setSlicing(true); setSliceResult(null); setShowResults(false);
     try {
       const fd = new FormData();
       fd.append('segments_json',      JSON.stringify(wallSegments));
-      fd.append('page_width_pt',      String(preview.page_width_pt));
-      fd.append('page_height_pt',     String(preview.page_height_pt));
+      fd.append('floors_json', JSON.stringify(previewFloors.map(floor => ({
+        name: floor.name,
+        segments: floor.segments,
+        wall_height_mm: floor.wallHeightMm,
+        elevation_mm: floor.elevationMm,
+        offset_x_mm: floor.offsetXmm,
+        offset_y_mm: floor.offsetYmm,
+        openings: (floor.openings ?? []).map(op => ({
+          gap_start: op.gapStart, gap_end: op.gapEnd,
+          sill_mm: op.sillMm, head_mm: op.headMm,
+        })),
+      }))));
+      fd.append('page_width_pt',      String(preview?.page_width_pt ?? 0));
+      fd.append('page_height_pt',     String(preview?.page_height_pt ?? 0));
       fd.append('wall_height_mm',     String(wallHeightMm));
       fd.append('layer_height_mm',    String(layerHeightMm));
       fd.append('nozzle_diameter_mm', String(nozzle));
@@ -337,11 +666,12 @@ export default function FloorPlanPage() {
   const hasColorSelection  = selectedColors.length > 0;
   const computedLayers     = Math.max(1, Math.round((wallHeightMm / 1000) / (layerHeightMm / 1000)));
   const totalPatternSegs   = patternSegments.reduce((a, s) => a + s.length, 0);
-  const modeHint = mode === 'line'
-    ? 'Click any line on the plan to select it individually.'
+  const modeHint = (mode === 'line'
+    ? 'Click a line to select it.'
     : mode === 'color'
     ? 'Click any element to select all objects of that color.'
-    : 'Click any hatch area to detect its pattern signature.';
+    : 'Click any hatch area to detect its pattern signature.'
+  ) + ' Clicking an already-selected line always removes it, in any mode.';
 
   // ══════════════════════════════════════════════════════════════════════════
   // REVIEW VIEW
@@ -454,7 +784,7 @@ export default function FloorPlanPage() {
           <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin" />
           <div className="text-center">
             <p className="text-white font-semibold text-base">Slicing floor plan…</p>
-            <p className="text-white/50 text-sm mt-1">{wallSegments.length} segments · {computedLayers} layers</p>
+            <p className="text-white/50 text-sm mt-1">{totalBuildingSegments} segments · {previewFloors.length} floor{previewFloors.length === 1 ? '' : 's'}</p>
           </div>
         </div>
       )}
@@ -479,7 +809,7 @@ export default function FloorPlanPage() {
                 className="px-4 py-2 border border-gray-200 text-sm font-medium rounded-xl text-black/50 hover:border-black hover:text-black transition-all">
                 ← Wall Selection
               </button>
-              <button onClick={handleSlice} disabled={slicing || !wallSegments.length}
+              <button onClick={handleSlice} disabled={slicing || !previewFloors.length}
                 className="px-5 py-2 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 disabled:opacity-40 transition-all">
                 {sliceResult ? 'Re-run Slicer' : 'Run Slicer'}
               </button>
@@ -520,6 +850,23 @@ export default function FloorPlanPage() {
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Building Stack</h2>
+                <span className="text-xs font-semibold text-black">{previewFloors.length} floor{previewFloors.length === 1 ? '' : 's'}</span>
+              </div>
+              {previewFloors.map((floor, index) => (
+                <div key={floor.id} className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-xs font-semibold text-black truncate">{index + 1}. {floor.name}</span>
+                    <span className="text-[10px] text-black/40 whitespace-nowrap">Z {floor.elevationMm} mm</span>
+                  </div>
+                  <p className="text-[10px] text-black/35 mt-1">{floor.segments.length} segments · {floor.wallHeightMm} mm walls · XY {floor.offsetXmm}, {floor.offsetYmm} mm</p>
+                </div>
+              ))}
+              <p className="text-[11px] text-black/35 leading-relaxed">Floors share one XY space. Adjust an offset when two drawing origins do not line up.</p>
             </div>
 
             {/* Wall dimensions */}
@@ -576,14 +923,14 @@ export default function FloorPlanPage() {
           {/* ── Right panel — 3D wall preview ── */}
           <div className="rounded-2xl overflow-hidden border border-gray-100 bg-black shadow-sm"
             style={{ minHeight: '560px', height: 'calc(100vh - 160px)', position: 'sticky', top: '120px' }}>
-            {wallSegments.length > 0
-              ? <WallViewer segments={wallSegments} wallHeightMm={wallHeightMm} />
+            {previewFloors.length > 0
+              ? <WallViewer floors={previewFloors} nozzleMm={nozzle} />
               : (
                 <div className="flex flex-col items-center justify-center h-full gap-3">
                   <svg className="w-10 h-10 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                   </svg>
-                  <p className="text-white/20 text-sm">No wall segments selected</p>
+                  <p className="text-white/20 text-sm">Add a floor plan to start the building stack</p>
                 </div>
               )
             }
@@ -609,11 +956,11 @@ export default function FloorPlanPage() {
           </button>
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium text-black/30">Floor Plan</span>
-            {wallSegments.length > 0 && (
+            {previewFloors.length > 0 && (
               <button onClick={() => setView('review')}
                 className="flex items-center gap-2 px-4 py-2 bg-black text-white text-sm
                   font-semibold rounded-xl hover:bg-black/80 transition-all">
-                Review selection
+                Review building
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
@@ -636,6 +983,205 @@ export default function FloorPlanPage() {
                   file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0
                   file:text-xs file:font-semibold file:bg-black file:text-white
                   hover:file:bg-black/80 file:cursor-pointer cursor-pointer transition-all" />
+              <p className="text-[10px] text-black/30 mt-2 leading-relaxed">Upload one architectural floor plan at a time. Site layouts are not supported in this flow.</p>
+            </section>
+
+            {sheet && (
+              <section className={`p-5 ${sheet.extractable ? 'bg-emerald-50/60' : 'bg-amber-50'}`}>
+                <SectionLabel>Drawing Check</SectionLabel>
+                <p className={`text-xs font-semibold capitalize ${sheet.extractable ? 'text-emerald-800' : 'text-amber-800'}`}>
+                  {sheet.kind.replaceAll('_', ' ')}
+                </p>
+                <p className="text-[11px] text-black/50 leading-relaxed mt-1">{sheet.message}</p>
+              </section>
+            )}
+
+            {wallSegments.length > 0 && (
+              <section className="p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <SectionLabel>Doors &amp; Windows</SectionLabel>
+                  {(confirmedOpenings.length > 0) && (
+                    <span className="text-[10px] font-semibold text-black/40 -mt-3">{confirmedOpenings.length} confirmed</span>
+                  )}
+                </div>
+
+                <div className="bg-gray-50 rounded-xl p-3 space-y-2.5">
+                  <p className="text-[10px] font-semibold text-black/40 uppercase tracking-wide">Window height above floor</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <NumInput label="Height" value={windowHeadMm - windowSillMm}
+                      onChange={v => setWindowHeadMm(windowSillMm + Math.max(50, v))}
+                      min={50} max={5000} step={10} unit="mm" />
+                    <NumInput label="Sill" value={windowSillMm}
+                      onChange={v => { const h = windowHeadMm - windowSillMm; setWindowSillMm(v); setWindowHeadMm(v + h); }}
+                      min={0} max={5000} step={10} unit="mm" />
+                    <NumInput label="Head" value={windowHeadMm}
+                      onChange={v => setWindowHeadMm(Math.max(windowSillMm + 50, v))}
+                      min={50} max={5000} step={10} unit="mm" />
+                  </div>
+                  <NumInput label="Door height (starts at floor)" value={doorHeadMm} onChange={setDoorHeadMm} min={0} max={5000} step={10} unit="mm" />
+                  {confirmedOpenings.some(o => o.type === 'window') && (
+                    <button onClick={applyWindowDefaultsToAll}
+                      className="w-full py-1.5 text-[10px] font-semibold text-black/50 hover:text-black underline underline-offset-2">
+                      Apply these heights to all windows already placed
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex gap-1.5">
+                  {(['window', 'door'] as const).map(t => (
+                    <button key={t}
+                      onClick={() => { setManualOpeningType(t); setManualOpeningMode(v => manualOpeningType === t ? !v : true); setManualOpeningStart(null); setCutGapMode(false); setCutGapStart(null); }}
+                      className={`flex-1 py-2 rounded-xl text-xs font-semibold capitalize transition-all
+                        ${manualOpeningMode && manualOpeningType === t ? 'bg-black text-white' : 'bg-white border border-gray-200 text-black/50 hover:border-black'}`}>
+                      {manualOpeningMode && manualOpeningType === t
+                        ? (manualOpeningStart ? 'Click end point…' : 'Click start point…')
+                        : `Place ${t} manually`}
+                    </button>
+                  ))}
+                </div>
+                {manualOpeningMode && (
+                  <p className="text-[10px] text-black/35 leading-relaxed">
+                    Click two points on the plan along the wall to mark the opening — width, and heights, can be fine-tuned to an exact mm value afterward in the list below.
+                  </p>
+                )}
+
+                <button onClick={handleDetectOpenings} disabled={detectingOpenings || !pdfFile}
+                  className="w-full py-2.5 border border-black text-black text-sm font-semibold rounded-xl
+                    hover:bg-black hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed
+                    flex items-center justify-center gap-2">
+                  {detectingOpenings ? (
+                    <span className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                  ) : null}
+                  {detectingOpenings ? 'Scanning…' : 'Detect doors & windows'}
+                </button>
+                {openingsTruncated && (
+                  <p className="text-[10px] text-amber-600 leading-relaxed">
+                    A lot of candidates were found — showing the most plausible ones. If this layer isn&apos;t your wall outline, try selecting the actual wall/window layer instead.
+                  </p>
+                )}
+
+                {openingCandidates.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-black/35">{openingCandidates.length} candidate{openingCandidates.length === 1 ? '' : 's'} — click a marker on the plan, or review below.</p>
+                    {openingCandidates.map(c => (
+                      <div key={c.id} className={`rounded-xl border px-3 py-2.5 space-y-2 ${activeCandidateId === c.id ? 'border-black bg-gray-50' : 'border-gray-100'}`}>
+                        <button onClick={() => setActiveCandidateId(prev => prev === c.id ? null : c.id)}
+                          className="w-full flex items-center justify-between gap-2 text-left">
+                          <span className="text-xs font-semibold text-black capitalize">{c.type} · {Math.round(c.widthMm)}mm</span>
+                          <span className="text-[10px] text-black/30">{Math.round(c.confidence * 100)}% match</span>
+                        </button>
+                        {activeCandidateId === c.id && (
+                          <div className="space-y-2 pt-1">
+                            <div className="flex gap-1.5">
+                              {(['door', 'window', 'opening'] as const).map(t => (
+                                <button key={t}
+                                  onClick={() => setOpeningCandidates(prev => prev.map(x => x.id === c.id
+                                    ? { ...x, type: t, ...defaultsFor(t) }
+                                    : x))}
+                                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-semibold capitalize transition-all
+                                    ${c.type === t ? 'bg-black text-white' : 'bg-white border border-gray-200 text-black/50 hover:border-black'}`}>
+                                  {t}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <NumInput label="Width" value={Math.round(c.widthMm)}
+                                onChange={v => setOpeningCandidates(prev => prev.map(x => x.id === c.id ? withWidthMm(x, v) : x))}
+                                min={50} max={10000} step={10} unit="mm" />
+                              <NumInput label="Height" value={c.headMm - c.sillMm}
+                                onChange={v => setOpeningCandidates(prev => prev.map(x => x.id === c.id ? { ...x, headMm: x.sillMm + Math.max(50, v) } : x))}
+                                min={50} max={5000} step={10} unit="mm" />
+                              <NumInput label="Sill" value={c.sillMm}
+                                onChange={v => setOpeningCandidates(prev => prev.map(x => x.id === c.id ? { ...x, sillMm: v, headMm: v + (x.headMm - x.sillMm) } : x))}
+                                min={0} max={5000} step={10} unit="mm" />
+                              <NumInput label="Head" value={c.headMm}
+                                onChange={v => setOpeningCandidates(prev => prev.map(x => x.id === c.id ? { ...x, headMm: Math.max(x.sillMm + 50, v) } : x))}
+                                min={50} max={5000} step={10} unit="mm" />
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => confirmCandidate(c.id)}
+                                className="flex-1 py-2 bg-black text-white text-[11px] font-semibold rounded-lg hover:bg-black/80">
+                                Confirm
+                              </button>
+                              <button onClick={() => discardCandidate(c.id)}
+                                className="flex-1 py-2 border border-gray-200 text-black/50 text-[11px] font-semibold rounded-lg hover:border-black hover:text-black">
+                                Discard
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {confirmedOpenings.length > 0 && (
+                  <div className="space-y-1.5 border-t border-gray-100 pt-2.5">
+                    {confirmedOpenings.map(o => (
+                      <div key={o.id} className={`rounded-lg ${editingOpeningId === o.id ? 'bg-gray-50 border border-gray-200 p-2' : ''}`}>
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <button onClick={() => setEditingOpeningId(prev => prev === o.id ? null : o.id)}
+                            className="min-w-0 truncate text-black/55 hover:text-black capitalize text-left">
+                            {o.type} · {Math.round(o.widthMm)}mm wide · {o.headMm - o.sillMm}mm tall (sill {o.sillMm}mm)
+                          </button>
+                          <button onClick={() => removeConfirmedOpening(o.id)} className="text-red-400 hover:text-red-600 flex-shrink-0">Remove</button>
+                        </div>
+                        {editingOpeningId === o.id && (
+                          <div className="space-y-2 mt-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <NumInput label="Width" value={Math.round(o.widthMm)}
+                                onChange={v => updateConfirmedOpening(o.id, withWidthMm(o, v))}
+                                min={50} max={10000} step={10} unit="mm" />
+                              <NumInput label="Height" value={o.headMm - o.sillMm}
+                                onChange={v => updateConfirmedOpening(o.id, { headMm: o.sillMm + Math.max(50, v) })}
+                                min={50} max={5000} step={10} unit="mm" />
+                              <NumInput label="Sill" value={o.sillMm}
+                                onChange={v => updateConfirmedOpening(o.id, { sillMm: v, headMm: v + (o.headMm - o.sillMm) })}
+                                min={0} max={5000} step={10} unit="mm" />
+                              <NumInput label="Head" value={o.headMm}
+                                onChange={v => updateConfirmedOpening(o.id, { headMm: Math.max(o.sillMm + 50, v) })}
+                                min={50} max={5000} step={10} unit="mm" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            <section className="p-5 space-y-3">
+              <SectionLabel>Current Floor Placement</SectionLabel>
+              <div>
+                <label className="block text-[11px] text-black/40 mb-1">Floor name</label>
+                <input value={floorDraft.name} onChange={e => setFloorDraft(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g. Ground floor" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-black" />
+              </div>
+              <NumInput label="Base elevation" value={floorDraft.elevationMm}
+                onChange={v => setFloorDraft(prev => ({ ...prev, elevationMm: v }))} min={0} max={100000} step={50} unit="mm" />
+              <NumInput label="Wall height" value={floorDraft.wallHeightMm}
+                onChange={v => { setFloorDraft(prev => ({ ...prev, wallHeightMm: v })); setWallHeightMm(v); }} min={100} max={20000} step={50} unit="mm" />
+              <div className="grid grid-cols-2 gap-3">
+                <NumInput label="X offset" value={floorDraft.offsetXmm}
+                  onChange={v => setFloorDraft(prev => ({ ...prev, offsetXmm: v }))} min={-50000} max={50000} step={10} unit="mm" />
+                <NumInput label="Y offset" value={floorDraft.offsetYmm}
+                  onChange={v => setFloorDraft(prev => ({ ...prev, offsetYmm: v }))} min={-50000} max={50000} step={10} unit="mm" />
+              </div>
+              <button onClick={addCurrentFloorToBuilding} disabled={!wallSegments.length}
+                className="w-full py-2.5 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/80 disabled:opacity-30 disabled:cursor-not-allowed">
+                Add current floor to building
+              </button>
+              {buildingFloors.length > 0 && (
+                <div className="border-t border-gray-100 pt-3 space-y-2">
+                  {buildingFloors.map((floor, index) => (
+                    <div key={floor.id} className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="min-w-0 truncate text-black/55">{index + 1}. {floor.name} · Z {floor.elevationMm} mm</span>
+                      <button onClick={() => removeBuildingFloor(floor.id)} className="text-red-400 hover:text-red-600">Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {pdfFile && (
@@ -643,7 +1189,7 @@ export default function FloorPlanPage() {
                 <SectionLabel>Wall Outline Extraction</SectionLabel>
                 <button
                   onClick={handleExtractOutlines}
-                  disabled={outlining}
+                  disabled={outlining || sheet?.extractable === false}
                   className="w-full py-3 bg-black text-white text-sm font-bold rounded-xl
                     hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all
                     flex items-center justify-center gap-2">
@@ -694,6 +1240,22 @@ export default function FloorPlanPage() {
                   ))}
                 </div>
                 <p className="text-[11px] text-black/30 mt-2 leading-relaxed">{modeHint}</p>
+
+                {wallSegments.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                    <button
+                      onClick={() => { setCutGapMode(v => !v); setCutGapStart(null); setMode('line'); setManualOpeningMode(false); setManualOpeningStart(null); }}
+                      className={`w-full py-2.5 rounded-xl text-xs font-semibold transition-all
+                        ${cutGapMode ? 'bg-black text-white' : 'border border-gray-200 text-black/50 hover:border-black hover:text-black'}`}>
+                      {cutGapMode ? (cutGapStart ? 'Click end of gap…' : 'Click start of gap…') : 'Cut a gap in a wall'}
+                    </button>
+                    {cutGapMode && (
+                      <p className="text-[10px] text-black/30 leading-relaxed">
+                        Click two points along one selected (highlighted) wall line — the span between them is removed, splitting the line into two.
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
             )}
 
@@ -977,7 +1539,7 @@ export default function FloorPlanPage() {
                     src={`data:image/png;base64,${preview.image_base64}`}
                     alt="PDF preview"
                     className="w-full h-auto block"
-                    style={{ cursor: mode === 'color' ? 'cell' : 'crosshair' }}
+                    style={{ cursor: cutGapMode ? 'not-allowed' : manualOpeningMode ? 'copy' : mode === 'color' ? 'cell' : 'crosshair' }}
                     onClick={handleImageClick}
                   />
                   <svg
@@ -996,6 +1558,39 @@ export default function FloorPlanPage() {
                         x1={seg[0][0]} y1={seg[0][1]} x2={seg[1][0]} y2={seg[1][1]}
                         stroke="#ef4444" strokeWidth={3} vectorEffect="non-scaling-stroke" />
                     ))}
+                    {confirmedOpenings.map(o => {
+                      const mx = (o.gapStart[0] + o.gapEnd[0]) / 2, my = (o.gapStart[1] + o.gapEnd[1]) / 2;
+                      const color = o.type === 'door' ? '#f97316' : o.type === 'window' ? '#06b6d4' : '#6b7280';
+                      return (
+                        <g key={o.id}>
+                          <line x1={o.gapStart[0]} y1={o.gapStart[1]} x2={o.gapEnd[0]} y2={o.gapEnd[1]}
+                            stroke={color} strokeWidth={4} vectorEffect="non-scaling-stroke" />
+                          <circle cx={mx} cy={my} r={10} fill={color} stroke="white" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                        </g>
+                      );
+                    })}
+                    {openingCandidates.map(c => {
+                      const mx = (c.gapStart[0] + c.gapEnd[0]) / 2, my = (c.gapStart[1] + c.gapEnd[1]) / 2;
+                      const color = c.type === 'door' ? '#f97316' : c.type === 'window' ? '#06b6d4' : '#6b7280';
+                      const active = activeCandidateId === c.id;
+                      return (
+                        <g key={c.id} style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                          onClick={() => setActiveCandidateId(prev => prev === c.id ? null : c.id)}>
+                          <line x1={c.gapStart[0]} y1={c.gapStart[1]} x2={c.gapEnd[0]} y2={c.gapEnd[1]}
+                            stroke={color} strokeWidth={active ? 4 : 2.5} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+                          <circle cx={mx} cy={my} r={active ? 14 : 10} fill={active ? color : 'white'}
+                            stroke={color} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+                        </g>
+                      );
+                    })}
+                    {manualOpeningStart && (
+                      <circle cx={manualOpeningStart[0]} cy={manualOpeningStart[1]} r={9}
+                        fill="#facc15" stroke="white" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                    )}
+                    {cutGapStart && (
+                      <circle cx={cutGapStart[0]} cy={cutGapStart[1]} r={9}
+                        fill="#dc2626" stroke="white" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                    )}
                   </svg>
                 </div>
               )}

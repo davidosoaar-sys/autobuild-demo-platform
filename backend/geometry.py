@@ -18,8 +18,17 @@ FAST_PATH_THRESHOLD is computed dynamically from nozzle_width:
 """
 
 import io
+import os
+import collections
 import numpy as np
 import trimesh
+import networkx as nx
+from concurrent.futures import ProcessPoolExecutor
+from scipy.ndimage import gaussian_filter
+from shapely.geometry import MultiLineString, LineString
+from shapely.ops import unary_union
+from skimage.morphology import medial_axis
+from skimage.draw import polygon as sk_polygon
 from typing import List, Optional, Tuple
 
 from sika733 import (
@@ -105,6 +114,33 @@ def _load_ifc(file_bytes: bytes) -> trimesh.Trimesh:
         return trimesh.util.concatenate(meshes) if len(meshes) > 1 else meshes[0]
     finally:
         os.unlink(tmp_path)
+
+
+# ── Parallel per-layer slicing ───────────────────────────────────────────────
+# Geometry mode's raster skeletonization (rasterize → smooth → medial axis →
+# prune → simplify) is what makes it correct on a real, messy model, but
+# it's also the reason a full slice went from ~15-40s to several minutes —
+# each layer costs roughly 0.5-2s on its own. Layers are otherwise fully
+# independent, so this spreads them across worker processes rather than
+# trying to make any single layer faster. State is set up ONCE per worker
+# (via the pool's initializer), not once per layer, since re-sending the
+# whole mesh on every one of e.g. 300 tasks would eat most of the savings.
+_worker_state: dict = {}
+
+
+def _init_slice_worker(mesh, nozzle_width: float, slicing_mode: str, max_seg_len: float) -> None:
+    _worker_state['mesh'] = mesh
+    _worker_state['nozzle_width'] = nozzle_width
+    _worker_state['slicing_mode'] = slicing_mode
+    _worker_state['max_seg_len'] = max_seg_len
+
+
+def _slice_layer_worker(args: Tuple[int, float]) -> Layer:
+    idx, z = args
+    return _slice_layer(
+        _worker_state['mesh'], z, _worker_state['nozzle_width'],
+        _worker_state['slicing_mode'], idx, _worker_state['max_seg_len'],
+    )
 
 
 def parse_and_slice(
@@ -196,14 +232,34 @@ def parse_and_slice(
     num_layers    = min(total_layers, max_layers) if max_layers else total_layers
     layer_indices = list(range(num_layers))
 
-    geometry:    Geometry   = []
+    z_heights = [(layer_i + 0.5) * layer_height for layer_i in layer_indices]
+
+    # Geometry mode's per-layer cost (raster skeletonization) makes a serial
+    # loop take minutes on a real building — spread layers across worker
+    # processes instead. Shell mode is already fast per layer, so the pool's
+    # own worker-startup cost (each has to re-import numpy/scipy/skimage on
+    # Windows) usually isn't worth paying there, and for a handful of layers
+    # the serial loop is faster outright — only pay pool overhead when both
+    # the mode benefits and there's enough work to amortize it.
+    use_pool = slicing_mode == 'geometry' and len(z_heights) >= 8
+    if use_pool:
+        workers = max(1, min(os.cpu_count() or 4, 8, len(z_heights)))
+        with ProcessPoolExecutor(
+            max_workers=workers, initializer=_init_slice_worker,
+            initargs=(mesh, nozzle_width, slicing_mode, MAX_SEG_LEN),
+        ) as pool:
+            geometry = list(pool.map(_slice_layer_worker, enumerate(z_heights), chunksize=4))
+    else:
+        geometry = [
+            _slice_layer(mesh, z, nozzle_width, slicing_mode, idx, MAX_SEG_LEN)
+            for idx, z in enumerate(z_heights)
+        ]
+
     layer_metas: List[dict] = []
     max_segs = 0
 
-    for idx, layer_i in enumerate(layer_indices):
-        z        = (layer_i + 0.5) * layer_height
-        segments = _slice_layer(mesh, z, nozzle_width, slicing_mode, idx, MAX_SEG_LEN)
-        geometry.append(segments)
+    for idx, z in enumerate(z_heights):
+        segments = geometry[idx]
 
         n        = len(segments)
         max_segs = max(max_segs, n)
@@ -249,6 +305,207 @@ def parse_and_slice(
     return geometry, layer_metas, meta
 
 
+# ── Geometry-mode centerline extraction ─────────────────────────────────────
+# Turns raw boundary segments (from mesh.section() — an outer face, an inner
+# face, an infill rib, whatever the mesh actually has) into ONE centerline
+# per wall/element, the way "geometry mode" is meant to work: regardless of
+# how many surfaces a wall is modeled with, print one bead-wide pass down
+# its middle. This replaced several earlier attempts (nested-loop pairing,
+# whole-contour matching, per-point nearest-neighbour matching) that were
+# each too fragile on a real, messy, non-watertight architectural export —
+# verified end-to-end against a real model (Wellness Beckum), not synthetic
+# test shapes.
+#
+# The technique — standard in road/vessel centerline extraction, not
+# bespoke to this project — is: turn the boundary lines into a solid shape
+# (thicken every line into a thin ribbon and merge overlapping ribbons —
+# two nearby lines belonging to the same wall fuse into one ribbon, while
+# genuinely open/hollow space is never filled, since only the lines
+# themselves get thickened, not the areas they enclose), then find that
+# shape's own skeleton/centerline — a well-defined operation for ANY shape,
+# corners and curves included, that doesn't need to know in advance which
+# lines "belong together".
+GEOM_BUFFER_RADIUS   = 0.15  # metres — half the largest wall thickness two nearby faces still merge across
+GEOM_PIXEL_SIZE      = 0.01  # metres/pixel for the raster skeleton
+GEOM_SMOOTH_SIGMA    = 1.2   # pixels — blurs raster "staircase" noise that otherwise fractures curves into a braided mess
+GEOM_PRUNE_RATIO     = 2.5   # a leaf branch survives only if longer than this × the local wall thickness there
+GEOM_MIN_SPUR_LEN    = 0.04  # metres — a leaf branch this short is pruned regardless of the ratio above (catches spurs at points where the local thickness estimate is itself small/noisy, which the ratio test alone lets through)
+GEOM_MIN_COMPONENT_LEN = 0.05  # metres — drops any small fragment entirely, including a pure loop with no dead end at all for the ratio-based pruning above to ever reach
+GEOM_SIMPLIFY_TOL    = 0.02  # metres — Douglas-Peucker tolerance on the final centerline chains
+
+
+def _rasterize_solid(solid, px_size: float):
+    minx, miny, maxx, maxy = solid.bounds
+    w = int((maxx - minx) / px_size) + 4
+    h = int((maxy - miny) / px_size) + 4
+    mask = np.zeros((h, w), dtype=bool)
+    polys = list(solid.geoms) if solid.geom_type == 'MultiPolygon' else [solid]
+    for poly in polys:
+        for ring, fill in [(poly.exterior, True)] + [(r, False) for r in poly.interiors]:
+            xs, ys = ring.xy
+            cols = (np.asarray(xs) - minx) / px_size
+            rows = (np.asarray(ys) - miny) / px_size
+            rr, cc = sk_polygon(rows, cols, shape=(h, w))
+            mask[rr, cc] = fill
+    return mask, minx, miny
+
+
+def _prune_skeleton_graph(
+    G: 'nx.Graph', dist: np.ndarray, px_size: float, prune_ratio: float, min_abs_len: float,
+) -> 'nx.Graph':
+    """Removes leaf branches (dead ends) that are short relative to the local
+    wall thickness there — that ratio is what tells a real branch (e.g. a
+    T-junction where a partition wall meets an exterior wall) apart from
+    raster noise (which is short no matter how thick the wall is). A queue
+    of only-just-changed nodes keeps this from rescanning the whole graph on
+    every single removal, which is what made an earlier version of this
+    pruning pass far too slow to run on every layer of a real slice.
+
+    min_abs_len is a second, absolute floor on top of the ratio: right where
+    the local thickness estimate is itself small or noisy, the ratio test's
+    own threshold shrinks along with it and a short spur can slip through —
+    an absolute length catches those regardless of what the local thickness
+    looked like."""
+    degree = dict(G.degree())
+    queue  = collections.deque(n for n, d in degree.items() if d == 1)
+    removed = set()
+    while queue:
+        node = queue.popleft()
+        if node in removed or degree.get(node, 0) != 1:
+            continue
+        nbrs = list(G.neighbors(node))
+        if not nbrs:
+            continue
+        nb = nbrs[0]
+        edge_len = G[node][nb]['weight']
+        local_r  = max(dist[node] * px_size, dist[nb] * px_size, 1e-6)
+        if edge_len < prune_ratio * local_r or edge_len < min_abs_len:
+            G.remove_edge(node, nb)
+            removed.add(node)
+            degree[node] = 0
+            degree[nb] = degree.get(nb, 1) - 1
+            if degree[nb] == 1:
+                queue.append(nb)
+    G.remove_nodes_from(removed)
+    return G
+
+
+def _drop_tiny_components(G: 'nx.Graph', min_component_len: float) -> 'nx.Graph':
+    """Leaf-pruning can only ever chew in from a dead end — a small isolated
+    LOOP of raster noise (no degree-1 node anywhere in it) is invisible to
+    it no matter how aggressively tuned, and shows up as a stray disconnected
+    speck in the output. This drops any connected component (loop or chain)
+    whose total length is small, regardless of its internal shape."""
+    for comp in list(nx.connected_components(G)):
+        total_len = sum(G[a][b]['weight'] for a, b in G.subgraph(comp).edges())
+        if total_len < min_component_len:
+            G.remove_nodes_from(comp)
+    return G
+
+
+def _chains_from_skeleton_graph(G: 'nx.Graph', minx: float, miny: float, px_size: float) -> List[list]:
+    """Breaks the pixel graph into polylines between junction/leaf nodes
+    (walking straight through degree-2 runs in between), plus any pure
+    cycles left over (a closed loop with no junction at all)."""
+    def to_xy(node):
+        y, x = node
+        return (minx + (x + 0.5) * px_size, miny + (y + 0.5) * px_size)
+
+    visited_edges = set()
+    chains = []
+
+    special_nodes = [n for n in G.nodes if G.degree(n) != 2]
+    for start in special_nodes:
+        for nb in list(G.neighbors(start)):
+            e = frozenset((start, nb))
+            if e in visited_edges:
+                continue
+            chain = [start, nb]
+            visited_edges.add(e)
+            prev, cur = start, nb
+            while G.degree(cur) == 2:
+                nxts = [n for n in G.neighbors(cur) if n != prev]
+                if not nxts:
+                    break
+                nxt = nxts[0]
+                e2 = frozenset((cur, nxt))
+                if e2 in visited_edges:
+                    break
+                visited_edges.add(e2)
+                chain.append(nxt)
+                prev, cur = cur, nxt
+            chains.append([to_xy(n) for n in chain])
+
+    for comp in nx.connected_components(G):
+        sub = G.subgraph(comp)
+        if all(frozenset(e) in visited_edges for e in sub.edges()):
+            continue
+        start = next(iter(comp))
+        chain = [start]
+        prev, cur = None, start
+        while True:
+            nxts = [n for n in sub.neighbors(cur) if n != prev]
+            if not nxts:
+                break
+            nxt = nxts[0]
+            chain.append(nxt)
+            if nxt == start:
+                break
+            prev, cur = cur, nxt
+        chains.append([to_xy(n) for n in chain])
+
+    return chains
+
+
+def _skeletonize_geometry_mode(segments: List[Segment], min_len: float, max_seg_len: float) -> List[Segment]:
+    if not segments:
+        return []
+    mls = MultiLineString(segments)
+    solid = unary_union(mls).buffer(GEOM_BUFFER_RADIUS, cap_style=2, join_style=2)
+    if solid.is_empty:
+        return []
+
+    mask, minx, miny = _rasterize_solid(solid, GEOM_PIXEL_SIZE)
+    smoothed = gaussian_filter(mask.astype(float), sigma=GEOM_SMOOTH_SIGMA) > 0.5
+    skel, dist = medial_axis(smoothed, return_distance=True)
+
+    G = nx.Graph()
+    ys_idx, xs_idx = np.nonzero(skel)
+    pix = set(zip(ys_idx.tolist(), xs_idx.tolist()))
+    for (y, x) in pix:
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dy == 0 and dx == 0:
+                    continue
+                if (y + dy, x + dx) in pix:
+                    w = GEOM_PIXEL_SIZE * ((dy * dy + dx * dx) ** 0.5)
+                    G.add_edge((y, x), (y + dy, x + dx), weight=w)
+
+    # _collapse_small_cycles was tried here and reverted: on a real building
+    # outline, which is itself topologically one long loop, "remove the
+    # longest edge in any locally-small cycle" isn't actually safe — it cut
+    # large real stretches of wall out entirely rather than only clearing
+    # the small redundant bubbles it was meant to target. Needs a better
+    # approach (e.g. only collapsing a cycle whose two junction nodes have
+    # no OTHER connection to the rest of the graph) before it's safe to use.
+    G = _prune_skeleton_graph(G, dist, GEOM_PIXEL_SIZE, GEOM_PRUNE_RATIO, GEOM_MIN_SPUR_LEN)
+    G = _drop_tiny_components(G, GEOM_MIN_COMPONENT_LEN)
+    chains = _chains_from_skeleton_graph(G, minx, miny, GEOM_PIXEL_SIZE)
+
+    out: List[Segment] = []
+    for chain in chains:
+        if len(chain) < 2:
+            continue
+        simplified = LineString(chain).simplify(GEOM_SIMPLIFY_TOL, preserve_topology=False)
+        coords = list(simplified.coords)
+        for i in range(len(coords) - 1):
+            p0, p1 = coords[i], coords[i + 1]
+            slen = ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2) ** 0.5
+            if min_len <= slen <= max_seg_len:
+                out.append((p0, p1))
+    return out
+
+
 def _slice_layer(
     mesh,
     z_height:     float,
@@ -262,14 +519,14 @@ def _slice_layer(
     MIN_PERIM = float(nozzle_width) * 4.0
 
     # ── Geometry mode ─────────────────────────────────────────────────────────────
-    # Slices at Z and traces only SOLID contours — outer boundaries + designed
-    # infill islands. Cavity holes are skipped via winding order (shoelace):
-    # outer/solid contours share the same sign as the largest contour;
-    # holes have the opposite sign and are discarded.
-    #
-    #   Solid wall       → one loop  (A)
-    #   Hollow/cavity    → one outer rectangle, hole skipped  (B)
-    #   Designed infill  → outer + infill islands  (C)
+    # Every raw boundary line from the mesh section (an outer wall face, an
+    # inner wall face, a designed infill rib — whatever's actually there) is
+    # thickened into a ribbon and merged with any others nearby, then that
+    # solid shape's own centerline is extracted (see _skeletonize_geometry_
+    # mode above). A real hollow interior or window is never part of any
+    # ribbon in the first place (only the lines get thickened, not the areas
+    # they enclose), so it's correctly never traced, without needing a
+    # separate "is this a hole" classification step at all.
     if slicing_mode == 'geometry':
         try:
             section = mesh.section(plane_origin=[0, 0, z_sample], plane_normal=[0, 0, 1])
@@ -286,8 +543,16 @@ def _slice_layer(
         if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
             return []
 
-        # ── Pass 1: extract point lists, perimeter, and signed area ──────────
-        contours = []
+        # Raw boundary edges, exactly as the mesh has them — an outer face,
+        # an inner face, a designed infill rib, whatever's there. A
+        # non-watertight mesh (common in real architectural exports) can
+        # make trimesh return some of these as OPEN chains (entity.closed is
+        # False) rather than closed loops — wrapping one closed anyway draws
+        # a bogus edge from its last point straight back to its first, which
+        # is what used to cut a long diagonal "wall" across empty space that
+        # was never part of the model, so open chains never get that
+        # wraparound edge.
+        raw_segments: List[Segment] = []
         for entity in section_2d.entities:
             try:
                 indices = entity.points
@@ -295,84 +560,22 @@ def _slice_layer(
                 n = len(pts_raw)
                 if n < 2:
                     continue
-
                 pts = [(float(pts_raw[i][0]), float(pts_raw[i][1])) for i in range(n)]
-
-                perim = sum(
-                    ((pts[(i+1)%n][0]-pts[i][0])**2 + (pts[(i+1)%n][1]-pts[i][1])**2)**0.5
-                    for i in range(n)
-                )
-                if perim < MIN_PERIM:
-                    continue
-
-                # Shoelace signed area: positive = CCW, negative = CW
-                area = 0.0
-                for i in range(n):
-                    x0, y0 = pts[i]
-                    x1, y1 = pts[(i + 1) % n]
-                    area += x0 * y1 - x1 * y0
-                area /= 2.0
-
-                contours.append((pts, perim, area))
+                is_closed = bool(getattr(entity, 'closed', True))
+                edge_count = n if is_closed else n - 1
+                for i in range(edge_count):
+                    p0, p1 = pts[i], pts[(i + 1) % n]
+                    slen = ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2) ** 0.5
+                    if MIN_LEN <= slen <= max_seg_len:
+                        raw_segments.append((p0, p1))
             except Exception as e:
                 print(f"[geometry] layer={layer_idx} entity error: {e}", flush=True)
                 continue
 
-        if not contours:
-            return []
-
-        def _pip(px: float, py: float, poly: list) -> bool:
-            inside = False
-            n = len(poly)
-            j = n - 1
-            for i in range(n):
-                xi, yi = poly[i]
-                xj, yj = poly[j]
-                if (yi > py) != (yj > py):
-                    if px < (xj - xi) * (py - yi) / (yj - yi + 1e-12) + xi:
-                        inside = not inside
-                j = i
-            return inside
-
-        def _depth(i: int) -> int:
-            pts_i = contours[i][0]
-            # Use leftmost boundary point (not centroid) so concentric shapes get correct depth.
-            lx, ly = min(pts_i, key=lambda p: p[0])
-            px, py = lx + 1e-9, ly
-            return sum(1 for j, (pts_j, _, _) in enumerate(contours) if j != i and _pip(px, py, pts_j))
-
-        depths = [_depth(i) for i in range(len(contours))]
-
-        if layer_idx == 0:
-            for i, (pts_i, perim_i, area_i) in enumerate(contours):
-                comp = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
-                print(f"[geomdbg] contour={i} depth={depths[i]} perim={perim_i:.3f} "
-                      f"area={abs(area_i):.4f} compactness={comp:.4f} npts={len(pts_i)}",
-                      flush=True)
-
-        # Even-odd rule: even depth = solid material → trace.
-        # Odd depth + compact shape (area/perim² > 0.01) = cavity wall boundary → skip.
-        # Odd depth + thin/elongated (near-zero compactness) = infill path → trace.
-        HOLE_COMPACTNESS = 0.01
-        segments: List[Segment] = []
-        traced = skipped = 0
-        for i, (pts_i, perim_i, area_i) in enumerate(contours):
-            if depths[i] % 2 == 1:
-                compactness = abs(area_i) / (perim_i ** 2) if perim_i > 0 else 0
-                if compactness > HOLE_COMPACTNESS:
-                    skipped += 1
-                    continue
-            traced += 1
-            n = len(pts_i)
-            for k in range(n):
-                p0 = pts_i[k]
-                p1 = pts_i[(k + 1) % n]
-                slen = ((p1[0]-p0[0])**2 + (p1[1]-p0[1])**2)**0.5
-                if MIN_LEN <= slen <= max_seg_len:
-                    segments.append((p0, p1))
+        segments = _skeletonize_geometry_mode(raw_segments, MIN_LEN, max_seg_len)
         print(
             f"[geometry] layer={layer_idx} z={z_height:.3f}m "
-            f"contours={len(contours)} segments={len(segments)}",
+            f"raw_segments={len(raw_segments)} segments={len(segments)}",
             flush=True,
         )
         return segments
@@ -413,8 +616,17 @@ def _slice_layer(
             if n < 3:
                 continue
 
+            # A non-watertight mesh can produce an OPEN boundary chain here
+            # (entity.closed is False) rather than a real closed loop — see
+            # the matching note in geometry mode above. Wrapping it closed
+            # anyway draws a bogus edge from its last point straight back to
+            # its first, which is what showed up as a long diagonal line
+            # slicing across empty space in the toolpath preview.
+            is_closed = bool(getattr(entity, 'closed', True))
+            edge_count = n if is_closed else n - 1
+
             perim = 0.0
-            for i in range(n):
+            for i in range(edge_count):
                 dx = float(pts_raw[(i + 1) % n][0]) - float(pts_raw[i][0])
                 dy = float(pts_raw[(i + 1) % n][1]) - float(pts_raw[i][1])
                 perim += (dx * dx + dy * dy) ** 0.5
@@ -423,7 +635,7 @@ def _slice_layer(
                 continue
 
             points_list = [(float(pts_raw[i][0]), float(pts_raw[i][1])) for i in range(n)]
-            contours.append({'points': points_list, 'perimeter': perim})
+            contours.append({'points': points_list, 'perimeter': perim, 'closed': is_closed})
         except Exception as e:
             print(f"[geometry] layer={layer_idx} contour error: {e}", flush=True)
             continue
@@ -445,7 +657,7 @@ def _slice_layer(
 
     segments: List[Segment] = []
     for contour in contours:
-        segments.extend(contour_to_segments(contour['points'], closed=True))
+        segments.extend(contour_to_segments(contour['points'], closed=contour['closed']))
 
     print(
         f"[geometry] layer={layer_idx} z={z_height:.3f}m "
