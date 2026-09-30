@@ -24,10 +24,10 @@ import numpy as np
 import trimesh
 import networkx as nx
 from concurrent.futures import ProcessPoolExecutor
-from scipy.ndimage import gaussian_filter
-from shapely.geometry import MultiLineString, LineString
-from shapely.ops import unary_union
-from skimage.morphology import medial_axis
+from scipy.ndimage import gaussian_filter, distance_transform_edt
+from shapely.geometry import MultiLineString, LineString, Point
+from shapely.ops import unary_union, substring
+from skimage.morphology import medial_axis, remove_small_holes, thin
 from skimage.draw import polygon as sk_polygon
 from typing import List, Optional, Tuple
 
@@ -328,16 +328,21 @@ def parse_and_slice(
 GEOM_BUFFER_RADIUS   = 0.15  # metres — half the largest wall thickness two nearby faces still merge across
 GEOM_PIXEL_SIZE      = 0.01  # metres/pixel for the raster skeleton
 GEOM_SMOOTH_SIGMA    = 1.2   # pixels — blurs raster "staircase" noise that otherwise fractures curves into a braided mess
-GEOM_PRUNE_RATIO     = 2.5   # a leaf branch survives only if longer than this × the local wall thickness there
-GEOM_MIN_SPUR_LEN    = 0.04  # metres — a leaf branch this short is pruned regardless of the ratio above (catches spurs at points where the local thickness estimate is itself small/noisy, which the ratio test alone lets through)
+GEOM_PRUNE_RATIO     = 1.6   # a dead-end branch survives only if longer than this × the ribbon half-width where it joins the rest (a corner or wall-end spur is ~1.4×, a real partition wall is far longer)
+GEOM_MIN_SPUR_LEN    = 0.04  # metres — a dead-end branch this short is pruned regardless of the ratio above
 GEOM_MIN_COMPONENT_LEN = 0.05  # metres — drops any small fragment entirely, including a pure loop with no dead end at all for the ratio-based pruning above to ever reach
 GEOM_SIMPLIFY_TOL    = 0.02  # metres — Douglas-Peucker tolerance on the final centerline chains
 
 
+GEOM_RASTER_PAD_PX   = 8     # background margin on every side; the medial axis and the Gaussian blur both treat the image edge as solid, so a shape touching it gets its centerline pulled onto the edge
+
+
 def _rasterize_solid(solid, px_size: float):
+    pad = GEOM_RASTER_PAD_PX * px_size
     minx, miny, maxx, maxy = solid.bounds
-    w = int((maxx - minx) / px_size) + 4
-    h = int((maxy - miny) / px_size) + 4
+    minx, miny = minx - pad, miny - pad
+    w = int((maxx - minx) / px_size) + GEOM_RASTER_PAD_PX + 2
+    h = int((maxy - miny) / px_size) + GEOM_RASTER_PAD_PX + 2
     mask = np.zeros((h, w), dtype=bool)
     polys = list(solid.geoms) if solid.geom_type == 'MultiPolygon' else [solid]
     for poly in polys:
@@ -353,40 +358,39 @@ def _rasterize_solid(solid, px_size: float):
 def _prune_skeleton_graph(
     G: 'nx.Graph', dist: np.ndarray, px_size: float, prune_ratio: float, min_abs_len: float,
 ) -> 'nx.Graph':
-    """Removes leaf branches (dead ends) that are short relative to the local
-    wall thickness there — that ratio is what tells a real branch (e.g. a
-    T-junction where a partition wall meets an exterior wall) apart from
-    raster noise (which is short no matter how thick the wall is). A queue
-    of only-just-changed nodes keeps this from rescanning the whole graph on
-    every single removal, which is what made an earlier version of this
-    pruning pass far too slow to run on every layer of a real slice.
-
-    min_abs_len is a second, absolute floor on top of the ratio: right where
-    the local thickness estimate is itself small or noisy, the ratio test's
-    own threshold shrinks along with it and a short spur can slip through —
-    an absolute length catches those regardless of what the local thickness
-    looked like."""
-    degree = dict(G.degree())
-    queue  = collections.deque(n for n, d in degree.items() if d == 1)
-    removed = set()
-    while queue:
-        node = queue.popleft()
-        if node in removed or degree.get(node, 0) != 1:
-            continue
-        nbrs = list(G.neighbors(node))
-        if not nbrs:
-            continue
-        nb = nbrs[0]
-        edge_len = G[node][nb]['weight']
-        local_r  = max(dist[node] * px_size, dist[nb] * px_size, 1e-6)
-        if edge_len < prune_ratio * local_r or edge_len < min_abs_len:
-            G.remove_edge(node, nb)
-            removed.add(node)
-            degree[node] = 0
-            degree[nb] = degree.get(nb, 1) - 1
-            if degree[nb] == 1:
-                queue.append(nb)
-    G.remove_nodes_from(removed)
+    """Removes dead-end branches that are short relative to the ribbon's
+    half-width where they join the rest of the skeleton. A medial axis grows
+    one such spur into every corner and two at every wall end; a real branch
+    (a partition wall meeting an exterior wall at a T) is much longer than
+    the wall is thick. Lengths are measured over the whole branch, from its
+    leaf to the junction, not per pixel step. Repeats until nothing changes,
+    because removing one spur can leave another branch newly dead-ended."""
+    for _ in range(8):
+        # Measure every dead end against the graph as it stands, then remove
+        # them together. Removing one spur of a wall-end fork first would turn
+        # the fork into a plain point and let its twin pass as part of the wall.
+        doomed = []
+        for leaf in [n for n in G.nodes if G.degree(n) == 1]:
+            branch, length = [leaf], 0.0
+            prev, cur = None, leaf
+            while True:
+                nxts = [n for n in G.neighbors(cur) if n != prev]
+                if not nxts:
+                    break
+                nxt = nxts[0]
+                length += G[cur][nxt]['weight']
+                prev, cur = cur, nxt
+                if G.degree(cur) != 2:
+                    break
+                branch.append(cur)
+            if G.degree(cur) < 3:
+                continue  # leaf-to-leaf chain: an isolated piece, handled by _drop_tiny_components
+            half_width = dist[cur] * px_size
+            if length < max(prune_ratio * half_width, min_abs_len):
+                doomed.extend(branch)
+        if not doomed:
+            break
+        G.remove_nodes_from(doomed)
     return G
 
 
@@ -457,6 +461,38 @@ def _chains_from_skeleton_graph(G: 'nx.Graph', minx: float, miny: float, px_size
     return chains
 
 
+def _extend_to_face(chain: list, solid) -> list:
+    """Extends the END of a centerline chain (a real open wall end) out to
+    the wall face. The medial axis stops about one ribbon half-width short
+    of an open end and curls toward a corner on the way, so the last bit is
+    dropped and the direction comes from the stretch of chain behind it.
+    The ray runs to the ribbon boundary and is pulled back by the buffer
+    radius, which is where the actual wall face is."""
+    line = LineString(chain)
+    hook, run = GEOM_BUFFER_RADIUS, GEOM_BUFFER_RADIUS * 3
+    if line.length <= hook + run:
+        return chain
+    near = line.interpolate(line.length - hook)
+    far  = line.interpolate(line.length - hook - run)
+    dx, dy = near.x - far.x, near.y - far.y
+    d = (dx * dx + dy * dy) ** 0.5
+    if d < 1e-9:
+        return chain
+    ux, uy = dx / d, dy / d
+    reach = GEOM_BUFFER_RADIUS * 8
+    ray = LineString([(near.x, near.y), (near.x + ux * reach, near.y + uy * reach)])
+    hit = ray.intersection(solid)
+    parts = list(hit.geoms) if hasattr(hit, 'geoms') else [hit]
+    parts = [g for g in parts if not g.is_empty and g.distance(near) < GEOM_PIXEL_SIZE * 2]
+    if not parts:
+        return chain
+    inside = parts[0].length - GEOM_BUFFER_RADIUS
+    if inside <= 0:
+        return chain
+    trimmed = list(substring(line, 0, line.length - hook).coords)
+    return trimmed + [(near.x + ux * inside, near.y + uy * inside)]
+
+
 def _skeletonize_geometry_mode(segments: List[Segment], min_len: float, max_seg_len: float) -> List[Segment]:
     if not segments:
         return []
@@ -467,19 +503,28 @@ def _skeletonize_geometry_mode(segments: List[Segment], min_len: float, max_seg_
 
     mask, minx, miny = _rasterize_solid(solid, GEOM_PIXEL_SIZE)
     smoothed = gaussian_filter(mask.astype(float), sigma=GEOM_SMOOTH_SIGMA) > 0.5
-    skel, dist = medial_axis(smoothed, return_distance=True)
+    skel = medial_axis(smoothed)
+    # medial_axis leaves 2x2 blocks and tiny pixel loops, worst at wall ends,
+    # which read as junctions and block both spur pruning and end extension.
+    # Fill loops smaller than a fragment we'd drop anyway, then thin to one
+    # pixel wide. Real building outlines enclose far more than this.
+    skel = thin(remove_small_holes(skel, max_size=int((GEOM_MIN_COMPONENT_LEN / GEOM_PIXEL_SIZE) ** 2)))
+    dist = distance_transform_edt(smoothed)
 
     G = nx.Graph()
     ys_idx, xs_idx = np.nonzero(skel)
     pix = set(zip(ys_idx.tolist(), xs_idx.tolist()))
+    # Orthogonal neighbours always connect; a diagonal only when no
+    # orthogonal two-step path joins the same pixels. Otherwise every
+    # staircase step on the skeleton becomes a tiny triangle, i.e. a fake
+    # junction, which fragments chains and stops spur pruning at random.
     for (y, x) in pix:
-        for dy in (-1, 0, 1):
-            for dx in (-1, 0, 1):
-                if dy == 0 and dx == 0:
-                    continue
-                if (y + dy, x + dx) in pix:
-                    w = GEOM_PIXEL_SIZE * ((dy * dy + dx * dx) ** 0.5)
-                    G.add_edge((y, x), (y + dy, x + dx), weight=w)
+        for dy, dx in ((0, 1), (1, 0)):
+            if (y + dy, x + dx) in pix:
+                G.add_edge((y, x), (y + dy, x + dx), weight=GEOM_PIXEL_SIZE)
+        for dy, dx in ((1, 1), (1, -1)):
+            if (y + dy, x + dx) in pix and (y + dy, x) not in pix and (y, x + dx) not in pix:
+                G.add_edge((y, x), (y + dy, x + dx), weight=GEOM_PIXEL_SIZE * 2 ** 0.5)
 
     # _collapse_small_cycles was tried here and reverted: on a real building
     # outline, which is itself topologically one long loop, "remove the
@@ -492,10 +537,23 @@ def _skeletonize_geometry_mode(segments: List[Segment], min_len: float, max_seg_
     G = _drop_tiny_components(G, GEOM_MIN_COMPONENT_LEN)
     chains = _chains_from_skeleton_graph(G, minx, miny, GEOM_PIXEL_SIZE)
 
+    # Degree-1 nodes are real open wall ends (a window or door jamb, a free
+    # partition end). The medial axis stops about one half-width short of
+    # them, so extend each one out to the ribbon boundary and back off by
+    # the buffer radius, which puts it on the actual wall face.
+    leaf_xy = {
+        (minx + (x + 0.5) * GEOM_PIXEL_SIZE, miny + (y + 0.5) * GEOM_PIXEL_SIZE)
+        for (y, x) in G.nodes if G.degree((y, x)) == 1
+    }
+
     out: List[Segment] = []
     for chain in chains:
         if len(chain) < 2:
             continue
+        if chain[-1] in leaf_xy:
+            chain = _extend_to_face(chain, solid)
+        if chain[0] in leaf_xy:
+            chain = _extend_to_face(chain[::-1], solid)[::-1]
         simplified = LineString(chain).simplify(GEOM_SIMPLIFY_TOL, preserve_topology=False)
         coords = list(simplified.coords)
         for i in range(len(coords) - 1):
@@ -504,6 +562,26 @@ def _skeletonize_geometry_mode(segments: List[Segment], min_len: float, max_seg_
             if min_len <= slen <= max_seg_len:
                 out.append((p0, p1))
     return out
+
+
+def _section_xy(mesh, z_sample: float, layer_idx: int):
+    """Cross-section the mesh at z_sample and return (entities, xy_vertices)
+    in the model's own X/Y frame.
+
+    trimesh's to_planar()/to_2D() with no explicit transform fits a plane to
+    each layer's own points and moves that layer's centroid to the origin
+    (and can flip it if the fitted normal comes out pointing down). Every
+    layer then lands in a different 2D frame, so walls shift sideways
+    wherever the cross-section changes, e.g. at a window. The section plane
+    is horizontal, so dropping Z keeps every layer in the model frame."""
+    try:
+        section = mesh.section(plane_origin=[0, 0, z_sample], plane_normal=[0, 0, 1])
+    except Exception as e:
+        print(f"[geometry] layer={layer_idx} section failed: {e}", flush=True)
+        return None, None
+    if section is None or len(getattr(section, 'entities', [])) == 0:
+        return None, None
+    return section.entities, np.asarray(section.vertices)[:, :2]
 
 
 def _slice_layer(
@@ -528,19 +606,8 @@ def _slice_layer(
     # they enclose), so it's correctly never traced, without needing a
     # separate "is this a hole" classification step at all.
     if slicing_mode == 'geometry':
-        try:
-            section = mesh.section(plane_origin=[0, 0, z_sample], plane_normal=[0, 0, 1])
-        except Exception as e:
-            print(f"[geometry] layer={layer_idx} section failed: {e}", flush=True)
-            return []
-        if section is None:
-            return []
-        try:
-            section_2d, _ = section.to_planar()
-        except Exception as e:
-            print(f"[geometry] layer={layer_idx} to_planar failed: {e}", flush=True)
-            return []
-        if section_2d is None or not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
+        entities, xy = _section_xy(mesh, z_sample, layer_idx)
+        if entities is None:
             return []
 
         # Raw boundary edges, exactly as the mesh has them — an outer face,
@@ -553,10 +620,9 @@ def _slice_layer(
         # was never part of the model, so open chains never get that
         # wraparound edge.
         raw_segments: List[Segment] = []
-        for entity in section_2d.entities:
+        for entity in entities:
             try:
-                indices = entity.points
-                pts_raw = section_2d.vertices[indices]
+                pts_raw = xy[entity.points]
                 n = len(pts_raw)
                 if n < 2:
                     continue
@@ -581,39 +647,23 @@ def _slice_layer(
         return segments
 
     # ── Shell mode: section contours = closed loops (both sides of each element) ──
-    try:
-        section = mesh.section(
-            plane_origin=[0, 0, z_sample],
-            plane_normal=[0, 0, 1],
-        )
-    except Exception as e:
-        print(f"[geometry] layer={layer_idx} section failed: {e}", flush=True)
-        return []
-
-    if section is None:
-        return []
-
-    try:
-        section_2d, _ = section.to_planar()
-    except Exception as e:
-        print(f"[geometry] layer={layer_idx} to_planar failed: {e}", flush=True)
-        return []
-
-    if section_2d is None:
-        return []
-
-    if not hasattr(section_2d, 'entities') or len(section_2d.entities) == 0:
+    entities, xy = _section_xy(mesh, z_sample, layer_idx)
+    if entities is None:
         return []
 
     MIN_PERIM = float(nozzle_width) * 4.0
     contours  = []
 
-    for entity in section_2d.entities:
+    for entity in entities:
         try:
-            indices = entity.points
-            pts_raw = section_2d.vertices[indices]
+            pts_raw = xy[entity.points]
             n = len(pts_raw)
-            if n < 3:
+            # Two-point entities are real wall faces too: wherever wall
+            # solids meet or overlap (common in architectural exports) the
+            # section graph has junction vertices and trimesh splits faces
+            # into single-segment chains there. Dropping them left whole
+            # wall faces out of the toolpath.
+            if n < 2:
                 continue
 
             # A non-watertight mesh can produce an OPEN boundary chain here

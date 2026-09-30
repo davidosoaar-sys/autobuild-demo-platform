@@ -61,7 +61,7 @@ type FloorDraft = Omit<BuildingFloor, 'id' | 'segments'>;
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-black/30 mb-3">
+    <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-3">
       {children}
     </p>
   );
@@ -73,13 +73,13 @@ function NumInput({ label, value, onChange, min, max, step, unit }: {
 }) {
   return (
     <div>
-      <label className="block text-[11px] text-black/40 mb-1">{label}</label>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
       <div className="flex items-center gap-2">
         <input type="number" min={min} max={max} step={step} value={value}
           onChange={e => onChange(Math.max(min ?? 0, Number(e.target.value)))}
           className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm
             outline-none focus:border-black transition-colors" />
-        {unit && <span className="text-[11px] text-black/30 flex-shrink-0">{unit}</span>}
+        {unit && <span className="text-xs text-gray-500 flex-shrink-0">{unit}</span>}
       </div>
     </div>
   );
@@ -798,7 +798,7 @@ export default function FloorPlanPage() {
                 className="h-24 sm:h-36 w-auto" />
             </button>
             <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-black/40">Floor Plan</span>
+              <span className="text-sm font-medium text-gray-500">Floor Plan</span>
               {sliceResult && !slicing && (
                 <button onClick={() => setShowResults(true)}
                   className="px-5 py-2 border border-black text-black text-sm font-semibold rounded-xl hover:bg-black hover:text-white transition-all">
@@ -806,7 +806,7 @@ export default function FloorPlanPage() {
                 </button>
               )}
               <button onClick={() => setView('select')}
-                className="px-4 py-2 border border-gray-200 text-sm font-medium rounded-xl text-black/50 hover:border-black hover:text-black transition-all">
+                className="px-4 py-2 border border-gray-200 text-sm font-medium rounded-xl text-gray-500 hover:border-black hover:text-black transition-all">
                 ← Wall Selection
               </button>
               <button onClick={handleSlice} disabled={slicing || !previewFloors.length}
@@ -824,15 +824,15 @@ export default function FloorPlanPage() {
 
             {/* Wall summary */}
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Wall Selection</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-3">Wall Selection</h2>
               <div className="space-y-1">
                 <div className="flex justify-between text-sm">
-                  <span className="text-black/40">Segments</span>
+                  <span className="text-gray-500">Segments</span>
                   <span className="font-semibold text-black">{wallSegments.length}</span>
                 </div>
                 {selectedSignatures.length > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-black/40">Patterns</span>
+                    <span className="text-gray-500">Patterns</span>
                     <span className="font-semibold text-black">{selectedSignatures.length}</span>
                   </div>
                 )}
@@ -854,38 +854,38 @@ export default function FloorPlanPage() {
 
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Building Stack</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500">Building Stack</h2>
                 <span className="text-xs font-semibold text-black">{previewFloors.length} floor{previewFloors.length === 1 ? '' : 's'}</span>
               </div>
               {previewFloors.map((floor, index) => (
                 <div key={floor.id} className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5">
                   <div className="flex justify-between gap-3">
                     <span className="text-xs font-semibold text-black truncate">{index + 1}. {floor.name}</span>
-                    <span className="text-[10px] text-black/40 whitespace-nowrap">Z {floor.elevationMm} mm</span>
+                    <span className="text-xs text-gray-500 whitespace-nowrap">Z {floor.elevationMm} mm</span>
                   </div>
-                  <p className="text-[10px] text-black/35 mt-1">{floor.segments.length} segments · {floor.wallHeightMm} mm walls · XY {floor.offsetXmm}, {floor.offsetYmm} mm</p>
+                  <p className="text-xs text-gray-500 mt-1">{floor.segments.length} segments · {floor.wallHeightMm} mm walls · XY {floor.offsetXmm}, {floor.offsetYmm} mm</p>
                 </div>
               ))}
-              <p className="text-[11px] text-black/35 leading-relaxed">Floors share one XY space. Adjust an offset when two drawing origins do not line up.</p>
+              <p className="text-xs text-gray-500 leading-relaxed">Floors share one XY space. Adjust an offset when two drawing origins do not line up.</p>
             </div>
 
             {/* Wall dimensions */}
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Wall Dimensions</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500">Wall Dimensions</h2>
               <div className="grid grid-cols-2 gap-4">
                 <RField label="Wall height (mm)">
                   <RNum value={wallHeightMm} onChange={setWallHeightMm} min={100} max={20000} step={50} />
                 </RField>
                 <RField label="Print layers">
-                  <div className={`${inputCls} bg-gray-50 text-black/40`}>{computedLayers} layers</div>
+                  <div className={`${inputCls} bg-gray-50 text-gray-500`}>{computedLayers} layers</div>
                 </RField>
               </div>
-              <p className="text-[11px] text-black/25">Scale 1:50 · Layer height set by bead compression below</p>
+              <p className="text-xs text-gray-500">Scale 1:50 · Layer height set by bead compression below</p>
             </div>
 
             {/* Printer */}
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Printer</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500">Printer</h2>
               <div className="grid grid-cols-2 gap-4">
                 <RField label="Nozzle (mm)">
                   <RNum value={nozzle} onChange={setNozzle} min={10} max={80} />
@@ -910,12 +910,12 @@ export default function FloorPlanPage() {
 
             {/* Weather */}
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Weather</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500">Weather</h2>
               <RField label="City (optional)">
                 <input type="text" value={cityInput} onChange={e => setCityInput(e.target.value)}
                   placeholder="e.g. Berlin" className={inputCls} />
               </RField>
-              <p className="text-[10px] text-black/25">Leave blank to use default conditions</p>
+              <p className="text-xs text-gray-500">Leave blank to use default conditions</p>
             </div>
 
           </div>
@@ -955,7 +955,7 @@ export default function FloorPlanPage() {
               className="h-24 sm:h-36 w-auto" />
           </button>
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-black/30">Floor Plan</span>
+            <span className="text-sm font-medium text-gray-500">Floor Plan</span>
             {previewFloors.length > 0 && (
               <button onClick={() => setView('review')}
                 className="flex items-center gap-2 px-4 py-2 bg-black text-white text-sm
@@ -979,11 +979,11 @@ export default function FloorPlanPage() {
             <section className="p-5">
               <SectionLabel>Floor Plan PDF</SectionLabel>
               <input type="file" accept=".pdf" onChange={handleFileChange}
-                className="block w-full text-sm text-black/50
+                className="block w-full text-sm text-gray-500
                   file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0
                   file:text-xs file:font-semibold file:bg-black file:text-white
                   hover:file:bg-black/80 file:cursor-pointer cursor-pointer transition-all" />
-              <p className="text-[10px] text-black/30 mt-2 leading-relaxed">Upload one architectural floor plan at a time. Site layouts are not supported in this flow.</p>
+              <p className="text-xs text-gray-500 mt-2 leading-relaxed">Upload one architectural floor plan at a time. Site layouts are not supported in this flow.</p>
             </section>
 
             {sheet && (
@@ -992,7 +992,7 @@ export default function FloorPlanPage() {
                 <p className={`text-xs font-semibold capitalize ${sheet.extractable ? 'text-emerald-800' : 'text-amber-800'}`}>
                   {sheet.kind.replaceAll('_', ' ')}
                 </p>
-                <p className="text-[11px] text-black/50 leading-relaxed mt-1">{sheet.message}</p>
+                <p className="text-xs text-gray-500 leading-relaxed mt-1">{sheet.message}</p>
               </section>
             )}
 
@@ -1001,12 +1001,12 @@ export default function FloorPlanPage() {
                 <div className="flex items-center justify-between">
                   <SectionLabel>Doors &amp; Windows</SectionLabel>
                   {(confirmedOpenings.length > 0) && (
-                    <span className="text-[10px] font-semibold text-black/40 -mt-3">{confirmedOpenings.length} confirmed</span>
+                    <span className="text-xs font-semibold text-gray-500 -mt-3">{confirmedOpenings.length} confirmed</span>
                   )}
                 </div>
 
                 <div className="bg-gray-50 rounded-xl p-3 space-y-2.5">
-                  <p className="text-[10px] font-semibold text-black/40 uppercase tracking-wide">Window height above floor</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Window height above floor</p>
                   <div className="grid grid-cols-3 gap-2">
                     <NumInput label="Height" value={windowHeadMm - windowSillMm}
                       onChange={v => setWindowHeadMm(windowSillMm + Math.max(50, v))}
@@ -1021,7 +1021,7 @@ export default function FloorPlanPage() {
                   <NumInput label="Door height (starts at floor)" value={doorHeadMm} onChange={setDoorHeadMm} min={0} max={5000} step={10} unit="mm" />
                   {confirmedOpenings.some(o => o.type === 'window') && (
                     <button onClick={applyWindowDefaultsToAll}
-                      className="w-full py-1.5 text-[10px] font-semibold text-black/50 hover:text-black underline underline-offset-2">
+                      className="w-full py-1.5 text-xs font-semibold text-gray-500 hover:text-black underline underline-offset-2">
                       Apply these heights to all windows already placed
                     </button>
                   )}
@@ -1032,7 +1032,7 @@ export default function FloorPlanPage() {
                     <button key={t}
                       onClick={() => { setManualOpeningType(t); setManualOpeningMode(v => manualOpeningType === t ? !v : true); setManualOpeningStart(null); setCutGapMode(false); setCutGapStart(null); }}
                       className={`flex-1 py-2 rounded-xl text-xs font-semibold capitalize transition-all
-                        ${manualOpeningMode && manualOpeningType === t ? 'bg-black text-white' : 'bg-white border border-gray-200 text-black/50 hover:border-black'}`}>
+                        ${manualOpeningMode && manualOpeningType === t ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-500 hover:border-black'}`}>
                       {manualOpeningMode && manualOpeningType === t
                         ? (manualOpeningStart ? 'Click end point…' : 'Click start point…')
                         : `Place ${t} manually`}
@@ -1040,7 +1040,7 @@ export default function FloorPlanPage() {
                   ))}
                 </div>
                 {manualOpeningMode && (
-                  <p className="text-[10px] text-black/35 leading-relaxed">
+                  <p className="text-xs text-gray-500 leading-relaxed">
                     Click two points on the plan along the wall to mark the opening — width, and heights, can be fine-tuned to an exact mm value afterward in the list below.
                   </p>
                 )}
@@ -1055,20 +1055,20 @@ export default function FloorPlanPage() {
                   {detectingOpenings ? 'Scanning…' : 'Detect doors & windows'}
                 </button>
                 {openingsTruncated && (
-                  <p className="text-[10px] text-amber-600 leading-relaxed">
+                  <p className="text-xs text-amber-600 leading-relaxed">
                     A lot of candidates were found — showing the most plausible ones. If this layer isn&apos;t your wall outline, try selecting the actual wall/window layer instead.
                   </p>
                 )}
 
                 {openingCandidates.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-[10px] text-black/35">{openingCandidates.length} candidate{openingCandidates.length === 1 ? '' : 's'} — click a marker on the plan, or review below.</p>
+                    <p className="text-xs text-gray-500">{openingCandidates.length} candidate{openingCandidates.length === 1 ? '' : 's'} — click a marker on the plan, or review below.</p>
                     {openingCandidates.map(c => (
                       <div key={c.id} className={`rounded-xl border px-3 py-2.5 space-y-2 ${activeCandidateId === c.id ? 'border-black bg-gray-50' : 'border-gray-100'}`}>
                         <button onClick={() => setActiveCandidateId(prev => prev === c.id ? null : c.id)}
                           className="w-full flex items-center justify-between gap-2 text-left">
                           <span className="text-xs font-semibold text-black capitalize">{c.type} · {Math.round(c.widthMm)}mm</span>
-                          <span className="text-[10px] text-black/30">{Math.round(c.confidence * 100)}% match</span>
+                          <span className="text-xs text-gray-500">{Math.round(c.confidence * 100)}% match</span>
                         </button>
                         {activeCandidateId === c.id && (
                           <div className="space-y-2 pt-1">
@@ -1078,8 +1078,8 @@ export default function FloorPlanPage() {
                                   onClick={() => setOpeningCandidates(prev => prev.map(x => x.id === c.id
                                     ? { ...x, type: t, ...defaultsFor(t) }
                                     : x))}
-                                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-semibold capitalize transition-all
-                                    ${c.type === t ? 'bg-black text-white' : 'bg-white border border-gray-200 text-black/50 hover:border-black'}`}>
+                                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all
+                                    ${c.type === t ? 'bg-black text-white' : 'bg-white border border-gray-200 text-gray-500 hover:border-black'}`}>
                                   {t}
                                 </button>
                               ))}
@@ -1100,11 +1100,11 @@ export default function FloorPlanPage() {
                             </div>
                             <div className="flex gap-2">
                               <button onClick={() => confirmCandidate(c.id)}
-                                className="flex-1 py-2 bg-black text-white text-[11px] font-semibold rounded-lg hover:bg-black/80">
+                                className="flex-1 py-2 bg-black text-white text-xs font-semibold rounded-lg hover:bg-black/80">
                                 Confirm
                               </button>
                               <button onClick={() => discardCandidate(c.id)}
-                                className="flex-1 py-2 border border-gray-200 text-black/50 text-[11px] font-semibold rounded-lg hover:border-black hover:text-black">
+                                className="flex-1 py-2 border border-gray-200 text-gray-500 text-xs font-semibold rounded-lg hover:border-black hover:text-black">
                                 Discard
                               </button>
                             </div>
@@ -1119,12 +1119,12 @@ export default function FloorPlanPage() {
                   <div className="space-y-1.5 border-t border-gray-100 pt-2.5">
                     {confirmedOpenings.map(o => (
                       <div key={o.id} className={`rounded-lg ${editingOpeningId === o.id ? 'bg-gray-50 border border-gray-200 p-2' : ''}`}>
-                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <div className="flex items-center justify-between gap-2 text-xs">
                           <button onClick={() => setEditingOpeningId(prev => prev === o.id ? null : o.id)}
                             className="min-w-0 truncate text-black/55 hover:text-black capitalize text-left">
                             {o.type} · {Math.round(o.widthMm)}mm wide · {o.headMm - o.sillMm}mm tall (sill {o.sillMm}mm)
                           </button>
-                          <button onClick={() => removeConfirmedOpening(o.id)} className="text-red-400 hover:text-red-600 flex-shrink-0">Remove</button>
+                          <button onClick={() => removeConfirmedOpening(o.id)} className="text-red-600 hover:text-red-800 flex-shrink-0">Remove</button>
                         </div>
                         {editingOpeningId === o.id && (
                           <div className="space-y-2 mt-2">
@@ -1154,7 +1154,7 @@ export default function FloorPlanPage() {
             <section className="p-5 space-y-3">
               <SectionLabel>Current Floor Placement</SectionLabel>
               <div>
-                <label className="block text-[11px] text-black/40 mb-1">Floor name</label>
+                <label className="block text-xs text-gray-500 mb-1">Floor name</label>
                 <input value={floorDraft.name} onChange={e => setFloorDraft(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="e.g. Ground floor" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-black" />
               </div>
@@ -1175,9 +1175,9 @@ export default function FloorPlanPage() {
               {buildingFloors.length > 0 && (
                 <div className="border-t border-gray-100 pt-3 space-y-2">
                   {buildingFloors.map((floor, index) => (
-                    <div key={floor.id} className="flex items-center justify-between gap-2 text-[11px]">
+                    <div key={floor.id} className="flex items-center justify-between gap-2 text-xs">
                       <span className="min-w-0 truncate text-black/55">{index + 1}. {floor.name} · Z {floor.elevationMm} mm</span>
-                      <button onClick={() => removeBuildingFloor(floor.id)} className="text-red-400 hover:text-red-600">Remove</button>
+                      <button onClick={() => removeBuildingFloor(floor.id)} className="text-red-600 hover:text-red-800">Remove</button>
                     </div>
                   ))}
                 </div>
@@ -1199,15 +1199,15 @@ export default function FloorPlanPage() {
                 </button>
                 {outlineSegments.length > 0 && (
                   <div className="flex items-center justify-between">
-                    <p className="text-[11px] text-black/50">{outlineSegments.length} outline segments</p>
+                    <p className="text-xs text-gray-500">{outlineSegments.length} outline segments</p>
                     <button onClick={() => setOutlineSegments([])}
-                      className="text-[11px] text-black/30 hover:text-black transition-colors">
+                      className="text-xs text-gray-500 hover:text-black transition-colors">
                       Clear
                     </button>
                   </div>
                 )}
                 <div className="space-y-3 pt-1 border-t border-gray-100">
-                  <p className="text-[10px] text-black/30 pt-1">Tuning thresholds</p>
+                  <p className="text-xs text-gray-500 pt-1">Tuning thresholds</p>
                   <NumInput label="Min line length (pt)" value={minLenPt}
                     onChange={setMinLenPt} min={1} max={200} step={1} unit="pt" />
                   <NumInput label="Hatch min segments" value={hatchMinSegs}
@@ -1234,23 +1234,23 @@ export default function FloorPlanPage() {
                   {(['line', 'color', 'pattern'] as Mode[]).map(m => (
                     <button key={m} onClick={() => setMode(m)}
                       className={`flex-1 py-2 transition-colors capitalize ${mode === m
-                        ? 'bg-black text-white' : 'text-black/40 hover:text-black'}`}>
+                        ? 'bg-black text-white' : 'text-gray-500 hover:text-black'}`}>
                       {m}
                     </button>
                   ))}
                 </div>
-                <p className="text-[11px] text-black/30 mt-2 leading-relaxed">{modeHint}</p>
+                <p className="text-xs text-gray-500 mt-2 leading-relaxed">{modeHint}</p>
 
                 {wallSegments.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
                     <button
                       onClick={() => { setCutGapMode(v => !v); setCutGapStart(null); setMode('line'); setManualOpeningMode(false); setManualOpeningStart(null); }}
                       className={`w-full py-2.5 rounded-xl text-xs font-semibold transition-all
-                        ${cutGapMode ? 'bg-black text-white' : 'border border-gray-200 text-black/50 hover:border-black hover:text-black'}`}>
+                        ${cutGapMode ? 'bg-black text-white' : 'border border-gray-200 text-gray-500 hover:border-black hover:text-black'}`}>
                       {cutGapMode ? (cutGapStart ? 'Click end of gap…' : 'Click start of gap…') : 'Cut a gap in a wall'}
                     </button>
                     {cutGapMode && (
-                      <p className="text-[10px] text-black/30 leading-relaxed">
+                      <p className="text-xs text-gray-500 leading-relaxed">
                         Click two points along one selected (highlighted) wall line — the span between them is removed, splitting the line into two.
                       </p>
                     )}
@@ -1268,27 +1268,27 @@ export default function FloorPlanPage() {
                   <div className="space-y-1.5">
                     {selectedSignatures.map((sig, i) => (
                       <div key={i} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
-                        <span className="text-[10px] font-mono text-black/50 flex-1 truncate">
+                        <span className="text-xs font-mono text-gray-500 flex-1 truncate">
                           {sig.angle.toFixed(1)}° · {sig.spacing.toFixed(1)}pt
                           {(sig as any).matchMode === 'angle' && (
-                            <span className="ml-1 text-orange-400">loose</span>
+                            <span className="ml-1 text-orange-700">loose</span>
                           )}
                         </span>
-                        <span className="text-[10px] text-black/25 flex-shrink-0">
+                        <span className="text-xs text-gray-500 flex-shrink-0">
                           {patternSegments[i]?.length ?? 0}
                         </span>
                         <button onClick={() => removePattern(i)}
-                          className="text-[11px] text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
+                          className="text-xs text-red-600 hover:text-red-800 transition-colors flex-shrink-0">
                           ×
                         </button>
                       </div>
                     ))}
                     <div className="flex items-center justify-between pt-0.5">
-                      <p className="text-[11px] text-black/40">
+                      <p className="text-xs text-gray-500">
                         {selectedSignatures.length} pattern{selectedSignatures.length !== 1 ? 's' : ''} · {totalPatternSegs} seg
                       </p>
                       <button onClick={() => { setSelectedSignatures([]); setPatternSegments([]); }}
-                        className="text-[11px] text-black/30 hover:text-black transition-colors">
+                        className="text-xs text-gray-500 hover:text-black transition-colors">
                         Clear all
                       </button>
                     </div>
@@ -1297,17 +1297,17 @@ export default function FloorPlanPage() {
 
                 {selectedSignature ? (
                   <div className="bg-gray-50 rounded-xl p-3 space-y-1 border border-gray-200">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-black/40">Detected</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Detected</p>
                     <p className="text-xs font-mono text-black/70">
                       {selectedSignature.angle.toFixed(1)}° · spacing {selectedSignature.spacing.toFixed(1)} pt
                     </p>
                     <button onClick={() => setSelectedSignature(null)}
-                      className="text-[11px] text-black/30 hover:text-black transition-colors">
+                      className="text-xs text-gray-500 hover:text-black transition-colors">
                       Discard
                     </button>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-black/25 italic leading-relaxed">
+                  <p className="text-xs text-gray-500 italic leading-relaxed">
                     {selectedSignatures.length > 0
                       ? 'Click another hatch to add more patterns.'
                       : 'Click a hatch area to detect its signature.'}
@@ -1324,20 +1324,20 @@ export default function FloorPlanPage() {
 
                 {/* Match mode toggle */}
                 <div>
-                  <p className="text-[11px] text-black/40 mb-2">Matching precision</p>
+                  <p className="text-xs text-gray-500 mb-2">Matching precision</p>
                   <div className="flex rounded-xl overflow-hidden border border-gray-200 text-xs font-semibold w-full">
                     <button onClick={() => setMatchMode('both')}
                       className={`flex-1 py-2 px-1 transition-colors text-center ${matchMode === 'both'
-                        ? 'bg-black text-white' : 'text-black/40 hover:text-black'}`}>
+                        ? 'bg-black text-white' : 'text-gray-500 hover:text-black'}`}>
                       Precise
                     </button>
                     <button onClick={() => setMatchMode('angle')}
                       className={`flex-1 py-2 px-1 transition-colors text-center ${matchMode === 'angle'
-                        ? 'bg-orange-500 text-white' : 'text-black/40 hover:text-black'}`}>
+                        ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-black'}`}>
                       Loose
                     </button>
                   </div>
-                  <p className="text-[10px] text-black/30 mt-1.5 leading-relaxed">
+                  <p className="text-xs text-gray-500 mt-1.5 leading-relaxed">
                     {matchMode === 'both'
                       ? 'Angle + spacing must match. Avoids grabbing other materials.'
                       : 'Angle only. Catches walls where spacing varies.'}
@@ -1371,7 +1371,7 @@ export default function FloorPlanPage() {
                             <span className="w-5 h-5 rounded-md flex-shrink-0 border border-black/10"
                               style={{ background: lc.hex }} />
                             <span className="font-mono flex-1">{lc.hex}</span>
-                            <span className={`text-[11px] ${on ? 'text-white/50' : 'text-black/30'}`}>
+                            <span className={`text-xs ${on ? 'text-white/50' : 'text-gray-500'}`}>
                               {lc.plan_count} obj
                             </span>
                           </button>
@@ -1394,12 +1394,12 @@ export default function FloorPlanPage() {
                               text-left transition-colors ${on ? 'bg-black/5' : 'hover:bg-gray-50'}`}>
                             <span className="w-4 h-4 rounded flex-shrink-0 border border-gray-200"
                               style={{ background: swatchOf(g) }} />
-                            <span className="text-[10px] font-mono text-black/40 w-16 flex-shrink-0 truncate">
+                            <span className="text-xs font-mono text-gray-500 w-16 flex-shrink-0 truncate">
                               {sc || '-'}
                             </span>
-                            <span className="text-[11px] text-black/50 flex-1 truncate">{g.kind}</span>
-                            <span className="text-[10px] text-black/25 flex-shrink-0">{g.count}</span>
-                            {on && <span className="text-[10px] text-black/60 flex-shrink-0">✓</span>}
+                            <span className="text-xs text-gray-500 flex-1 truncate">{g.kind}</span>
+                            <span className="text-xs text-gray-500 flex-shrink-0">{g.count}</span>
+                            {on && <span className="text-xs text-black/60 flex-shrink-0">✓</span>}
                           </button>
                         );
                       })}
@@ -1419,38 +1419,38 @@ export default function FloorPlanPage() {
                             style={{ background: h }} />
                         ))}
                       </div>
-                      <p className="text-[11px] text-black/40">
+                      <p className="text-xs text-gray-500">
                         {selectedColors.length} color{selectedColors.length !== 1 ? 's' : ''}
                       </p>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-black/25 italic">No colors selected</p>
+                    <p className="text-xs text-gray-500 italic">No colors selected</p>
                   )}
                   <div className="flex items-start justify-between gap-2">
                     <div className="space-y-0.5">
-                      <p className="text-[11px] text-black/40">
+                      <p className="text-xs text-gray-500">
                         {clickedSegments.length} line{clickedSegments.length !== 1 ? 's' : ''} picked
                       </p>
                       {colorSegments.length > 0 && (
-                        <p className="text-[11px] text-black/40">{colorSegments.length} color seg</p>
+                        <p className="text-xs text-gray-500">{colorSegments.length} color seg</p>
                       )}
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       {selectedColors.length > 0 && (
                         <button onClick={() => setSelectedColors([])}
-                          className="text-[11px] text-black/30 hover:text-black transition-colors">
+                          className="text-xs text-gray-500 hover:text-black transition-colors">
                           Clear colors
                         </button>
                       )}
                       {clickedSegments.length > 0 && (
                         <button onClick={() => setClickedSegments([])}
-                          className="text-[11px] text-red-400 hover:text-red-600 transition-colors">
+                          className="text-xs text-red-600 hover:text-red-800 transition-colors">
                           Clear lines
                         </button>
                       )}
                       {colorSegments.length > 0 && (
                         <button onClick={() => setColorSegments([])}
-                          className="text-[11px] text-blue-400 hover:text-blue-600 transition-colors">
+                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors">
                           Clear extracted
                         </button>
                       )}
@@ -1469,11 +1469,11 @@ export default function FloorPlanPage() {
             {wallSegments.length > 0 && (
               <section className="p-5 space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-[11px] text-black/50 font-medium">
+                  <p className="text-xs text-gray-500 font-medium">
                     {wallSegments.length} total segments
                   </p>
                   <button onClick={clearAllWalls}
-                    className="text-[11px] text-black/30 hover:text-black transition-colors">
+                    className="text-xs text-gray-500 hover:text-black transition-colors">
                     Clear all
                   </button>
                 </div>
@@ -1497,22 +1497,22 @@ export default function FloorPlanPage() {
             {loading && (
               <div className="w-3.5 h-3.5 border-2 border-black/20 border-t-black rounded-full animate-spin flex-shrink-0" />
             )}
-            <p className="text-xs text-black/40 truncate">{statusMsg}</p>
+            <p className="text-xs text-gray-500 truncate">{statusMsg}</p>
             <div className="flex items-center gap-4 ml-auto flex-shrink-0">
               {selectedSignatures.length > 0 && (
-                <div className="flex items-center gap-1.5 text-[11px] text-black/40">
+                <div className="flex items-center gap-1.5 text-xs text-gray-500">
                   <div className="w-4 h-0.5 bg-violet-400 rounded" />
                   {selectedSignatures.length} pattern{selectedSignatures.length !== 1 ? 's' : ''}
                 </div>
               )}
               {clickedSegments.length > 0 && (
-                <div className="flex items-center gap-1.5 text-[11px] text-black/40">
+                <div className="flex items-center gap-1.5 text-xs text-gray-500">
                   <div className="w-4 h-0.5 bg-red-400 rounded" />
                   {clickedSegments.length} picked
                 </div>
               )}
               {wallSegments.length > 0 && (
-                <div className="flex items-center gap-1.5 text-[11px] text-black/40">
+                <div className="flex items-center gap-1.5 text-xs text-gray-500">
                   <div className="w-4 h-0.5 bg-blue-500 rounded" />
                   {wallSegments.length} total
                 </div>
@@ -1528,7 +1528,7 @@ export default function FloorPlanPage() {
               {loading && (
                 <div className="flex flex-col items-center gap-3 py-20">
                   <div className="w-7 h-7 border-2 border-black/20 border-t-black rounded-full animate-spin" />
-                  <p className="text-sm text-black/30">Rendering preview…</p>
+                  <p className="text-sm text-gray-500">Rendering preview…</p>
                 </div>
               )}
 
@@ -1601,7 +1601,7 @@ export default function FloorPlanPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                       d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                  <p className="text-sm text-black/25">PDF preview will appear here</p>
+                  <p className="text-sm text-gray-500">PDF preview will appear here</p>
                 </div>
               )}
             </div>
