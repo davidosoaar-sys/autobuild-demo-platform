@@ -578,6 +578,7 @@ async def floorplan_outlines(
     page = doc.load_page(0)
     try:
         W    = page.rect.width
+        H    = page.rect.height  # read before doc.close() below invalidates page
         dr   = page.get_drawings()
 
         def seglen(a, b):
@@ -616,7 +617,7 @@ async def floorplan_outlines(
             "segments":        kept,
             "count":           len(kept),
             "page_width_pt":   float(W),
-            "page_height_pt":  float(page.rect.height),
+            "page_height_pt":  float(H),
         }
     except Exception as e:
         return {"error": str(e)}
