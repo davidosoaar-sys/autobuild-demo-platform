@@ -2,12 +2,14 @@
 
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import BetaGuard from '@/components/BetaGuard';
 
 export default function SlicerHubPage() {
   const router = useRouter();
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
+      <BetaGuard />
       <button onClick={() => router.push('/')} className="mb-10">
         <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-16 w-auto" />
       </button>

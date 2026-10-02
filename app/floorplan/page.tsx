@@ -6,6 +6,7 @@ import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { BuildingFloor, Opening } from './WallViewer';
+import BetaGuard from '@/components/BetaGuard';
 
 const WallViewer = dynamic(() => import('./WallViewer'), {
   ssr: false,
@@ -1011,6 +1012,7 @@ export default function FloorPlanPage() {
   // ══════════════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
+      <BetaGuard />
 
       <header className="border-b border-gray-100 bg-white sticky top-0 z-20 flex-shrink-0">
         <div className="px-6 py-1 flex items-center justify-between">

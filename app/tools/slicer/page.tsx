@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MATERIALS } from '@/app/pre-print-optimizer/components/ParameterInputs';
 import { StatRow, FactorRow, ScanIssueRow, Factor } from '@/app/pre-print-optimizer/components/ResultComponents';
+import BetaGuard from '@/components/BetaGuard';
 import { supabase } from '@/lib/supabase';
 import dynamic from 'next/dynamic';
 
@@ -508,6 +509,7 @@ export default function SlicerTool() {
 
   return (
     <>
+      <BetaGuard />
       {/* ── Fullscreen results overlay ── */}
       <AnimatePresence>
         {result && showResults && !loading && (
