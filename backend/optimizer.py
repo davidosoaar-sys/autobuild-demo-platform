@@ -125,9 +125,10 @@ def optimize(
     toolpath:     List[Layer]       = []
     layer_params: List[LayerParams] = []
 
-    elapsed_min  = 0.0
-    total_travel = 0.0
-    naive_travel = 0.0
+    elapsed_min       = 0.0
+    naive_elapsed_min = 0.0  # same toolpath, but at a constant base speed -- no weather/pot-life/physics adaptation
+    total_travel      = 0.0
+    naive_travel      = 0.0
 
     nozzle_diam_mm    = float(printer.get("nozzle_diameter_mm",   25.0))
     max_speed_printer = float(printer.get("max_speed_mm_s",       100.0))
@@ -170,6 +171,10 @@ def optimize(
             pot_remaining, elapsed_fraction,
         )
         final_speed = max(min_speed_printer, min(physics_speed, max_speed_printer, adapted_speed))
+        # Same physical ceiling (printer/physics), none of the weather, pot-life,
+        # or print-progress adjustment above -- isolates what adapting to
+        # conditions is actually buying over a flat base speed.
+        naive_speed = max(min_speed_printer, min(physics_speed, max_speed_printer, base_speed_mm_s))
 
         extrusion_mult = 1.0
         if temp_c > 25.0:   extrusion_mult -= (temp_c - 25.0) * 0.01
@@ -225,6 +230,7 @@ def optimize(
         segs_total_mm = _total_print_mm(ordered_segs) if ordered_segs else 0.0
         layer_time_s  = (segs_total_mm / max(final_speed, 1.0)) + interlayer_s
         elapsed_min  += layer_time_s / 60.0
+        naive_elapsed_min += ((segs_total_mm / max(naive_speed, 1.0)) + interlayer_s) / 60.0
 
         layer_params.append(LayerParams(
             layer_idx              = layer_idx,
@@ -258,16 +264,30 @@ def optimize(
     if naive_travel > 0:
         travel_saved_pct = round((naive_travel - total_travel) / naive_travel * 100, 1)
 
+    # Weather/material-adaptive time saved: same toolpath and the same printer
+    # ceiling, the only difference is whether speed reacts to forecast
+    # conditions, remaining pot life, and print progress. Signed on purpose --
+    # cold/humid stretches genuinely slow the adapted plan down relative to a
+    # flat base speed, and that's worth showing as a negative, not hiding.
+    naive_print_s  = naive_elapsed_min * 60.0
+    actual_print_s = elapsed_min * 60.0
+    weather_time_saved_pct = (
+        round((naive_print_s - actual_print_s) / naive_print_s * 100, 1)
+        if naive_print_s > 0 else 0.0
+    )
+
     stats = {
-        "layers_processed":       len(layer_params),
-        "total_segments":         total_segs,
-        "total_travel_mm":        round(total_travel, 1),
-        "naive_travel_mm":        round(naive_travel, 1),
-        "time_saved_pct":         max(0.0, travel_saved_pct),
-        "env_risk_score":         round(avg_risk, 1),
-        "avg_print_speed_mm_s":   round(avg_speed, 1),
-        "estimated_print_time_s": round(est_seconds, 0),
-        "elapsed_compute_s":      round(elapsed_wall, 2),
+        "layers_processed":        len(layer_params),
+        "total_segments":          total_segs,
+        "total_travel_mm":         round(total_travel, 1),
+        "naive_travel_mm":         round(naive_travel, 1),
+        "time_saved_pct":          max(0.0, travel_saved_pct),
+        "naive_print_time_s":      round(naive_print_s, 0),
+        "weather_time_saved_pct":  weather_time_saved_pct,
+        "env_risk_score":          round(avg_risk, 1),
+        "avg_print_speed_mm_s":    round(avg_speed, 1),
+        "estimated_print_time_s":  round(est_seconds, 0),
+        "elapsed_compute_s":       round(elapsed_wall, 2),
     }
 
     return toolpath, layer_params, stats

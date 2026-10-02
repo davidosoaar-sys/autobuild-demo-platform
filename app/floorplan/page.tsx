@@ -756,7 +756,12 @@ export default function FloorPlanPage() {
                     <SRow label="Pot Life"     value={`${sliceResult.material.pot_life_at_worst} min`} />
                     <SRow label="G-code Lines" value={(sliceResult.gcode_lines ?? 0).toLocaleString()} />
                     {sliceResult.optimization?.time_saved_pct != null && (
-                      <SRow label="Travel Saved" value={`${sliceResult.optimization.time_saved_pct}%`} accent="text-emerald-400" />
+                      <SRow label="Path Efficiency" value={`${sliceResult.optimization.time_saved_pct}%`} accent="text-emerald-400" />
+                    )}
+                    {sliceResult.optimization?.weather_time_saved_pct != null && (
+                      <SRow label="Weather-Adjusted Time"
+                        value={`${sliceResult.optimization.weather_time_saved_pct > 0 ? '−' : '+'}${Math.abs(sliceResult.optimization.weather_time_saved_pct)}%`}
+                        accent={sliceResult.optimization.weather_time_saved_pct >= 0 ? 'text-emerald-400' : 'text-amber-400'} />
                     )}
                   </div>
                   {sliceResult.weather && (

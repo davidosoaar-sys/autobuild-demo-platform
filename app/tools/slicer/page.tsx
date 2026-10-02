@@ -50,7 +50,7 @@ interface SlicerResult {
   gcode_full: string;
   gcode_lines: number;
   elapsed_seconds?: number;
-  optimization?: { time_saved_pct: number; env_risk_score: number; total_travel_mm: number; naive_travel_mm: number; total_segments: number };
+  optimization?: { time_saved_pct: number; env_risk_score: number; total_travel_mm: number; naive_travel_mm: number; total_segments: number; weather_time_saved_pct?: number };
   layer_stats?: LayerStat[];
 }
 
@@ -571,7 +571,13 @@ export default function SlicerTool() {
                           <StatRow label="G-code Lines" value={(result.gcode_lines || result.gcode_full?.split('\n').length || 0).toLocaleString()} delay={0.10}/>
                           <StatRow label="Material"     value={isCustom ? 'Custom' : (selectedMat?.name ?? cementId)} delay={0.12}/>
                           {result.optimization && (
-                            <StatRow label="Travel Saved" value={`${result.optimization.time_saved_pct}%`} accent="text-emerald-400" delay={0.14}/>
+                            <StatRow label="Path Efficiency" value={`${result.optimization.time_saved_pct}%`} accent="text-emerald-400" delay={0.14}/>
+                          )}
+                          {result.optimization?.weather_time_saved_pct != null && (
+                            <StatRow label="Weather-Adjusted Time"
+                              value={`${result.optimization.weather_time_saved_pct > 0 ? '−' : '+'}${Math.abs(result.optimization.weather_time_saved_pct)}%`}
+                              accent={result.optimization.weather_time_saved_pct >= 0 ? 'text-emerald-400' : 'text-amber-400'}
+                              delay={0.15}/>
                           )}
                           {result.elapsed_seconds != null && (
                             <StatRow label="Computed In" value={`${result.elapsed_seconds}s`} delay={0.16}/>
