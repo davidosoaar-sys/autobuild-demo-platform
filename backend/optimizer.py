@@ -23,7 +23,6 @@ from sika733 import (
     min_interlayer_time,
     max_print_speed,
     layer_height_for_speed,
-    estimated_print_time_seconds,
     LAYER_HEIGHT_DEF_M,
     LAYER_HEIGHT_MIN_M,
     LAYER_HEIGHT_MAX_M,
@@ -227,10 +226,17 @@ def optimize(
             total_travel += layer_travel
             naive_travel += naive_l
 
+        # Total nozzle travel for the layer is BOTH components: the wall
+        # itself (segs_total_mm) and the non-printing repositioning between
+        # segments (layer_travel) -- a layer with long travel moves between
+        # short wall segments takes real time to traverse even though none
+        # of it is extrusion. Using only one half of this (either one,
+        # alone) understated the layer's true duration.
         segs_total_mm = _total_print_mm(ordered_segs) if ordered_segs else 0.0
-        layer_time_s  = (segs_total_mm / max(final_speed, 1.0)) + interlayer_s
+        move_mm       = segs_total_mm + layer_travel
+        layer_time_s  = (move_mm / max(final_speed, 1.0)) + interlayer_s + pump_lag_s
         elapsed_min  += layer_time_s / 60.0
-        naive_elapsed_min += ((segs_total_mm / max(naive_speed, 1.0)) + interlayer_s) / 60.0
+        naive_elapsed_min += ((move_mm / max(naive_speed, 1.0)) + interlayer_s + pump_lag_s) / 60.0
 
         layer_params.append(LayerParams(
             layer_idx              = layer_idx,
@@ -252,13 +258,12 @@ def optimize(
     avg_speed    = float(np.mean([lp.print_speed_mm_s for lp in layer_params])) if layer_params else base_speed_mm_s
     avg_risk     = float(np.max([lp.risk_score         for lp in layer_params])) if layer_params else 0.0
 
-    est_seconds = estimated_print_time_seconds(
-        total_travel_mm      = total_travel,
-        avg_speed_mm_s       = avg_speed,
-        num_layers           = len(layer_params),
-        layer_height_m       = layer_height_m,
-        pump_lag_s_per_layer = pump_lag_s,
-    )
+    # The authoritative print-time estimate is the sum of each layer's own
+    # real time (wall length + travel, at that layer's actual adapted
+    # speed, plus its interlayer wait and pump lag) -- not a separate
+    # average-speed approximation computed from travel distance alone.
+    # elapsed_min already accumulated exactly that, layer by layer, above.
+    est_seconds = elapsed_min * 60.0
 
     travel_saved_pct = 0.0
     if naive_travel > 0:
