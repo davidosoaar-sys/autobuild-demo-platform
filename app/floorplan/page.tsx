@@ -58,6 +58,8 @@ type View      = 'select' | 'review';
 type MatchMode = 'both' | 'angle';
 
 type FloorDraft = Omit<BuildingFloor, 'id' | 'segments'>;
+interface TimeBlock { id: string; start: string; end: string; }
+const toDecimalHour = (t: string) => { const [h, m] = t.split(':').map(Number); return h + m / 60; };
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -263,6 +265,11 @@ export default function FloorPlanPage() {
   const [flowRate,     setFlowRate]     = useState(8);
   const [acceleration, setAcceleration] = useState(500);
   const [cityInput,    setCityInput]    = useState('');
+  const [temperature,  setTemperature]  = useState(20);
+  const [humidity,     setHumidity]     = useState(65);
+  const [windSpeed,    setWindSpeed]    = useState(8);
+  const [printStartHour, setPrintStartHour] = useState('08:00');
+  const [timeBlocks,   setTimeBlocks]   = useState<TimeBlock[]>([{ id: 'b0', start: '07:00', end: '17:00' }]);
   const [sliceResult,  setSliceResult]  = useState<any>(null);
   const [slicing,      setSlicing]      = useState(false);
   const [showResults,  setShowResults]  = useState(false);
@@ -617,6 +624,11 @@ export default function FloorPlanPage() {
       fd.append('max_mass_flow_l_min',String(flowRate));
       fd.append('acceleration_mm_s2', String(acceleration));
       if (cityInput.trim()) fd.append('city', cityInput.trim());
+      fd.append('temperature',        String(temperature));
+      fd.append('humidity',           String(humidity));
+      fd.append('wind_speed',         String(windSpeed));
+      fd.append('print_start_hour',   String(toDecimalHour(printStartHour)));
+      fd.append('time_blocks',        JSON.stringify(timeBlocks.map(b => ({ start: b.start, end: b.end }))));
       const data = await fetch(`${API}/floorplan/slice`, { method: 'POST', body: fd }).then(r => r.json());
       if (data.detail || data.error) { setStatusMsg(`Slice error: ${data.detail || data.error}`); return; }
       setSliceResult(data);
@@ -915,7 +927,59 @@ export default function FloorPlanPage() {
                 <input type="text" value={cityInput} onChange={e => setCityInput(e.target.value)}
                   placeholder="e.g. Berlin" className={inputCls} />
               </RField>
-              <p className="text-xs text-gray-500">Leave blank to use default conditions</p>
+              <p className="text-xs text-gray-500">Leave blank to use a live forecast fallback to manual conditions below</p>
+              <div className="grid grid-cols-3 gap-3">
+                <RField label="Temp (°C)">
+                  <RNum value={temperature} onChange={setTemperature} min={-10} max={45} />
+                </RField>
+                <RField label="Humidity (%)">
+                  <RNum value={humidity} onChange={setHumidity} min={0} max={100} />
+                </RField>
+                <RField label="Wind (km/h)">
+                  <RNum value={windSpeed} onChange={setWindSpeed} min={0} max={100} />
+                </RField>
+              </div>
+              <p className="text-xs text-gray-500">Manual conditions, used if no city or the forecast is unavailable</p>
+            </div>
+
+            {/* Print schedule */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500">Print Schedule</h2>
+              <RField label="Start time">
+                <input type="time" value={printStartHour} onChange={e => setPrintStartHour(e.target.value)}
+                  className={inputCls} />
+              </RField>
+              <div className="space-y-2">
+                {timeBlocks.map((block, idx) => (
+                  <div key={block.id} className="border border-gray-100 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Block {idx + 1}</span>
+                      {timeBlocks.length > 1 && (
+                        <button onClick={() => setTimeBlocks(prev => prev.filter(b => b.id !== block.id))}
+                          className="text-gray-500 hover:text-black text-lg leading-none">&times;</button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <RField label="Start">
+                        <input type="time" value={block.start}
+                          onChange={e => setTimeBlocks(prev => prev.map(b => b.id === block.id ? { ...b, start: e.target.value } : b))}
+                          className={inputCls} />
+                      </RField>
+                      <RField label="End">
+                        <input type="time" value={block.end}
+                          onChange={e => setTimeBlocks(prev => prev.map(b => b.id === block.id ? { ...b, end: e.target.value } : b))}
+                          className={inputCls} />
+                      </RField>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setTimeBlocks(prev => [...prev, { id: Math.random().toString(36).slice(2), start: '07:00', end: '17:00' }])}
+                className="w-full py-2 text-xs font-medium border border-dashed border-gray-200 rounded-xl text-gray-500 hover:text-black hover:border-black transition-colors">
+                + Add Time Block
+              </button>
+              <p className="text-xs text-gray-500">Work-day windows the print pauses and resumes around</p>
             </div>
 
           </div>

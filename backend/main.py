@@ -647,6 +647,7 @@ async def floorplan_slice(
     wind_speed:         float         = Form(8.0),
     print_start_hour:   float         = Form(8.0),
     structure_type:     str           = Form("wall"),
+    time_blocks:        str           = Form("[]"),
 ):
     PT_TO_M = (0.0254 / 72) * 50  # PDF points → real-world metres at 1:50
 
@@ -845,6 +846,11 @@ async def floorplan_slice(
     except Exception as e:
         raise HTTPException(500, f"Optimisation failed: {e}")
 
+    try:
+        parsed_time_blocks = json.loads(time_blocks) if time_blocks else []
+    except Exception:
+        parsed_time_blocks = []
+
     gcode_str = toolpath_to_gcode(
         toolpath         = toolpath,
         layer_params     = layer_params,
@@ -852,7 +858,7 @@ async def floorplan_slice(
         uses_e_axis      = uses_e_axis,
         nozzle_diam_mm   = nozzle_diameter_mm,
         structure_type   = structure_type,
-        time_blocks      = [],
+        time_blocks      = parsed_time_blocks,
         print_start_hour = print_start_hour,
     )
 
