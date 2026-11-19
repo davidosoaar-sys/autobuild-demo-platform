@@ -1,5 +1,7 @@
 'use client';
 
+import WorkspaceThemeToggle from '@/components/WorkspaceThemeToggle';
+
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
@@ -867,7 +869,7 @@ function BeadEventLog({ entries }: { entries: BeadAnalysis[] }) {
   const severityDot = (s: BeadSeverity) => s === 'high' ? 'bg-red-500' : s === 'medium' ? 'bg-amber-400' : s === 'low' ? 'bg-amber-300' : 'bg-emerald-400';
   const verdictColor: Record<BeadVerdict, string> = { straight: 'text-emerald-700', deviated: 'text-amber-700', defect: 'text-red-700', unclear: 'text-black/40' };
   return (
-    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+    <div className="inspection-panel overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Bead Analysis Log</h3>
         <span className="text-[9px] font-mono text-black/30">{entries.length} reading{entries.length !== 1 ? 's' : ''}</span>
@@ -1160,6 +1162,7 @@ export default function LiveMonitoring() {
               End Print
             </button>
             <Link href="/tools/image-analysis" className="inspection-heading-link">Image Analysis</Link>
+            <WorkspaceThemeToggle />
           </div>
         </div>
       </div>
@@ -1199,7 +1202,7 @@ export default function LiveMonitoring() {
               </div>
 
               <div className="space-y-4">
-                <div className="bg-black rounded-2xl p-5 shadow-sm">
+                <div className="inspection-panel inspection-panel-dark p-5">
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-4">Printer Control</h3>
                   <div className="space-y-5">
                     {[
@@ -1248,7 +1251,7 @@ export default function LiveMonitoring() {
                 </div>
 
                 {/* Alerts panel */}
-                <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+                <div className="inspection-panel overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Alerts</h3>
@@ -1282,7 +1285,7 @@ export default function LiveMonitoring() {
                   </div>
                 </div>
 
-                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                <div className="inspection-panel p-5">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40">Live Sensors</h3>
                     <button onClick={() => setActiveTab('sensors')} className="text-[10px] text-black/30 hover:text-black">View all →</button>
@@ -1321,7 +1324,7 @@ export default function LiveMonitoring() {
                   <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">{group.title}</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                     {group.items.map((s, i) => (
-                      <div key={i} className="bg-black rounded-2xl p-4">
+                      <div key={i} className="inspection-panel inspection-panel-dark p-4">
                         <div className="flex justify-between mb-2">
                           <p className="text-[9px] font-semibold uppercase tracking-wide text-white/40">{s.label}</p>
                           <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${s.status === 'ok' ? 'bg-emerald-400' : s.status === 'warn' ? 'bg-amber-400' : 'bg-red-400'}`} />
@@ -1333,7 +1336,7 @@ export default function LiveMonitoring() {
                         <Sparkline data={s.history} color={s.status === 'ok' ? '#4ade80' : s.status === 'warn' ? '#fbbf24' : '#f87171'} width={80} />
                       </div>
                     ))}
-                    <button className="bg-white border-2 border-dashed border-gray-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 hover:border-black transition-all group min-h-[100px]">
+                    <button className="inspection-panel p-4 flex flex-col items-center justify-center gap-2 hover:border-black transition-all group min-h-[100px]">
                       <span className="text-2xl text-gray-200 group-hover:text-black transition-all">+</span>
                       <span className="text-[10px] text-black/25 group-hover:text-black transition-all text-center">Connect Sensor</span>
                     </button>

@@ -15,21 +15,21 @@ colors:
   signal-ok: "#10b981"
 typography:
   body:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif"
+    fontFamily: "Geist Sans, system-ui, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif"
+    fontFamily: "Geist Sans, system-ui, sans-serif"
     fontSize: "11px"
     fontWeight: 400
     lineHeight: 1.4
   caption:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif"
+    fontFamily: "Geist Sans, system-ui, sans-serif"
     fontSize: "10px"
     fontWeight: 400
   title:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif"
+    fontFamily: "Geist Sans, system-ui, sans-serif"
     fontSize: "20px"
     fontWeight: 400
   marketing:
@@ -124,11 +124,11 @@ A restrained neutral palette with three status signals; there is no brand hue.
 
 ## Typography
 
-**Display Font:** Inter (with system sans fallback)
-**Body Font:** Inter
+**Display Font:** Geist Sans (with system sans fallback)
+**Body Font:** Geist Sans
 **Label/Mono Font:** JetBrains Mono, marketing pages only
 
-**Character:** Neutral and even. `globals.css` forces Inter at weight 400 across the whole app, so hierarchy comes from size, color and spacing rather than weight. Marketing surfaces (`.mkt`) switch to Space Grotesk with JetBrains Mono for figures.
+**Character:** Neutral and even. Use the self-hosted Geist Sans variable face for product UI and allow semantic weights instead of forcing all text to 400. Marketing surfaces (`.mkt`) switch to Space Grotesk with JetBrains Mono for figures.
 
 ### Hierarchy
 - **Title** (400, 20px): Section and page headings.
@@ -175,9 +175,13 @@ Soft and rounded. Cards use 16px (`rounded-2xl`) and buttons and tiles use 12px 
 - **Step pills:** 11px text with a numbered or checked circle. Active is ink with white text; done is gray-100 with gray-700 text and hover gray-200; locked is gray-50 with gray-300 text and a not-allowed cursor. Steps are separated by a small "›".
 - **Help:** A 24px circular "?" button to the right.
 
+### Dashboard
+
+Use a true-black canvas by default, with a white light mode and compact navigation. Group real tools in a single shallow row on desktop, two columns on phones, and show saved-slice metadata in an open table with a pale header. Use neutral glass with no blue cast. Do not add charts or headline metrics without a real data source.
+
 ### Inspection workspace
 
-Use monochrome glass on navigation, controls, and the outer shells of inspection cards. Keep media and result content on opaque inset surfaces, with the frame wider than the results at tablet widths and stacked above them on phones. Use paired evidence and operator-review labels to explain the workflow. Primary controls have a 44px minimum hit height. Glass surfaces fall back to solid fills without backdrop-filter support or when the operator asks for more contrast. Keep highlights at the edges and avoid animating them over evidence.
+Keep the inspection canvas and header black in dark mode and white in light mode. Use neutral frost, a restrained edge reflection, and soft depth on cards. Retain black glass on review and selected monitoring panels in light mode. Use the cropped AutoBuild wordmark at its intrinsic aspect ratio. Stack cards on phones and give the evidence surface more space at tablet widths. Cards lift on fine-pointer hover only when reduced motion is off. Keep media and results on opaque inset surfaces, keep primary targets at least 44px tall, and use solid card fills when backdrop blur is unsupported or increased contrast is requested.
 
 ### Status chips
 - Pill or dot with a red, amber or emerald fill on a tinted background (red-50, amber-50), used for bead, defect and camera states.

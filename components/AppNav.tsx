@@ -22,8 +22,8 @@ export default function AppNav({ currentStep }: AppNavProps) {
   const currentIdx = STEPS.findIndex(s => s.key === currentStep);
 
   return (
-    <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-10 overflow-visible">
-      <div className="max-w-7xl mx-auto px-6 py-1 flex items-center justify-between">
+    <header className="border-b border-gray-200 bg-white sticky top-0 z-10 overflow-visible">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         {/* Left — logo + breadcrumb */}
         <div className="flex items-center space-x-4">
           <button
@@ -36,18 +36,18 @@ export default function AppNav({ currentStep }: AppNavProps) {
             <span>Home</span>
           </button>
           <div className="h-6 w-px bg-gray-200" />
-          <button onClick={() => router.push('/')} className="-my-5">
-            <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-36 w-auto" />
+          <button onClick={() => router.push('/')} className="inspection-brand" aria-label="AutoBuild home">
+            <Image src="/autobuild-wordmark.png" alt="AutoBuild" width={422} height={120} />
           </button>
           {activeProject && (
-            <span className="text-sm font-medium text-gray-900 max-w-[200px] truncate">
+            <span className="text-sm font-medium text-gray-900 max-w-[100px] sm:max-w-[200px] truncate">
               {activeProject.name}
             </span>
           )}
         </div>
 
         {/* Right — step indicator + tools */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3 min-w-0 max-w-full py-1">
           <button
             onClick={() => router.push('/help')}
             title="How AutoBuild AI works"
@@ -55,7 +55,7 @@ export default function AppNav({ currentStep }: AppNavProps) {
           >
             ?
           </button>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {STEPS.map((s, i) => {
               const isActive = s.key === currentStep;
               const isDone   = i < currentIdx;
@@ -65,7 +65,7 @@ export default function AppNav({ currentStep }: AppNavProps) {
                   <button
                     onClick={() => !isLocked && router.push(s.route)}
                     disabled={isLocked}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors ${
                       isActive  ? 'bg-gray-900 text-white' :
                       isDone    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' :
                       'bg-gray-50 text-gray-300 cursor-not-allowed'
@@ -81,7 +81,7 @@ export default function AppNav({ currentStep }: AppNavProps) {
                     {s.label}
                   </button>
                   {i < STEPS.length - 1 && (
-                    <span className="text-gray-200 text-xs">›</span>
+                    <span className="hidden sm:inline text-gray-200 text-xs" aria-hidden="true">›</span>
                   )}
                 </div>
               );

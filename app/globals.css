@@ -4,17 +4,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Inter Regular Font Override */
-* {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-  font-weight: 400 !important;
+body {
+  font-family: var(--font-geist), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-  font-weight: 400 !important;
 }
 
 /* ── Marketing page font overrides (higher specificity beats * !important) ── */

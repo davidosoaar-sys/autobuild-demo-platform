@@ -1,10 +1,12 @@
 'use client';
 
+import WorkspaceThemeToggle from '@/components/WorkspaceThemeToggle';
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowUpRight, ChevronRight, CircleHelp, FileBox, FolderOpen, Layers3, ScanLine, Settings, Video } from 'lucide-react';
+import { ChevronRight, CircleHelp, FileBox, FolderOpen, Layers3, ScanLine, Settings, Video } from 'lucide-react';
 import './dashboard.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
@@ -31,13 +33,6 @@ function fmtDate(iso: string) {
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-}
-
-function ConstructionContours() {
-  return <svg className="dashboard-contours" viewBox="0 0 300 200" fill="none" aria-hidden="true">
-    {Array.from({ length: 12 }, (_, layer) => <path key={layer} transform={`translate(0 ${layer * 9})`}
-      d="M12 103 125 40Q146 28 167 40L281 99M68 132 178 70Q194 62 210 70L290 111" />)}
-  </svg>;
 }
 
 export default function Home() {
@@ -96,11 +91,11 @@ export default function Home() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
             <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
-              <div className="bg-black px-6 pt-6 pb-5">
-                <Image src="/Autobuildwhite.png" alt="AutoBuild AI" width={400} height={400} className="h-20 w-auto mb-4"/>
-                <p className="text-white font-bold text-lg leading-snug">Welcome to AutoBuild AI</p>
-                <p className="text-white/40 text-xs mt-1">3DCP monitoring and path optimisation platform</p>
+              className="dashboard-glass dashboard-dialog max-w-sm w-full overflow-hidden">
+              <div className="bg-white border-b border-slate-200 px-6 pt-6 pb-5">
+                <Image src="/autobuild-wordmark.png" alt="AutoBuild" width={422} height={120} className="w-32 h-auto mb-5" />
+                <p className="text-slate-950 font-bold text-lg leading-snug">Welcome to AutoBuild AI</p>
+                <p className="text-slate-600 text-xs mt-1">3DCP monitoring and path optimisation platform</p>
               </div>
               <div className="px-6 py-5 space-y-4">
                 <div>
@@ -164,10 +159,10 @@ export default function Home() {
             onClick={() => setShowSlicerPicker(false)}>
             <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-              <div className="bg-black px-6 py-5">
-                <p className="text-white font-bold text-lg">Choose Slicer Mode</p>
-                <p className="text-white/40 text-xs mt-1">How would you like to generate your print path?</p>
+              className="dashboard-glass dashboard-dialog w-full max-w-sm overflow-hidden">
+              <div className="bg-white border-b border-slate-200 px-6 py-5">
+                <p className="text-slate-950 font-bold text-lg">Choose Slicer Mode</p>
+                <p className="text-slate-600 text-xs mt-1">How would you like to generate your print path?</p>
               </div>
               <div className="p-4 space-y-3">
                 <button
@@ -213,9 +208,15 @@ export default function Home() {
       <header className="inspection-glass inspection-topbar">
         <div className="inspection-header-inner dashboard-width">
           <Link href="/" className="inspection-brand" aria-label="AutoBuild home">
-            <Image src="/Autobuildblack.png" alt="AutoBuild" width={400} height={400} priority />
+            <Image src="/autobuild-wordmark.png" alt="AutoBuild" width={422} height={120} priority />
           </Link>
+          <nav className="dashboard-nav" aria-label="Primary navigation">
+            <Link href="/" aria-current="page">Workspace</Link>
+            <Link href="/projects">Projects</Link>
+            <Link href="/tools/monitor">Live Monitor</Link>
+          </nav>
           <nav className="dashboard-utilities" aria-label="Workspace utilities">
+            <WorkspaceThemeToggle />
             <Link href="/help"><CircleHelp size={18} aria-hidden="true" /> Help</Link>
             <Link href="/settings" aria-label="Settings"><Settings size={18} aria-hidden="true" /></Link>
           </nav>
@@ -228,36 +229,24 @@ export default function Home() {
           <p>{userName ? `${greeting(userName)} ` : ''}Plan a print, monitor it on site, or review a layer photo.</p>
         </div>
 
-        <div className="dashboard-primary">
-          <Link className="dashboard-glass dashboard-project" href="/projects">
-            <ConstructionContours />
-            <span className="dashboard-primary-copy">
-              <FolderOpen size={25} strokeWidth={1.6} aria-hidden="true" />
-              <span className="dashboard-card-title">Projects</span>
-              <span className="dashboard-description">Set up print jobs and track them from planning through monitoring.</span>
-              <span className="dashboard-cta">Open projects <ArrowUpRight size={16} aria-hidden="true" /></span>
-            </span>
-          </Link>
-          <button type="button" className="dashboard-glass dashboard-slicer" onClick={() => setShowSlicerPicker(true)}>
-            <Layers3 size={25} strokeWidth={1.6} aria-hidden="true" />
-            <span className="dashboard-card-title">Slicer</span>
-            <span className="dashboard-description">Turn a 3D model or floor plan into a concrete print path.</span>
-            <span className="dashboard-cta">Choose slicer mode <ArrowUpRight size={16} aria-hidden="true" /></span>
-          </button>
-        </div>
-
-        <section aria-labelledby="dashboard-inspection">
-          <h2 id="dashboard-inspection" className="dashboard-section-title">Print inspection</h2>
-          <div className="dashboard-glass dashboard-inspection">
-            <Link href="/tools/monitor">
-              <Video size={22} strokeWidth={1.6} aria-hidden="true" />
-              <span><strong>Live Monitor</strong><small>Watch camera views and track layers during a print.</small></span>
-              <ChevronRight size={18} aria-hidden="true" />
+        <section className="dashboard-tools" aria-labelledby="dashboard-tools-title">
+          <h2 id="dashboard-tools-title" className="dashboard-section-title">Print tools</h2>
+          <div className="dashboard-shortcuts">
+            <Link className="dashboard-glass dashboard-shortcut" href="/projects">
+              <span className="dashboard-tool-icon"><FolderOpen size={20} aria-hidden="true" /></span>
+              <strong>Projects</strong><small>Set up and track print jobs.</small>
             </Link>
-            <Link href="/tools/image-analysis">
-              <ScanLine size={22} strokeWidth={1.6} aria-hidden="true" />
-              <span><strong>Image Analysis</strong><small>Review observations from a layer photo.</small></span>
-              <ChevronRight size={18} aria-hidden="true" />
+            <button type="button" className="dashboard-glass dashboard-shortcut" onClick={() => setShowSlicerPicker(true)}>
+              <span className="dashboard-tool-icon"><Layers3 size={20} aria-hidden="true" /></span>
+              <strong>Slicer</strong><small>Generate a concrete print path.</small>
+            </button>
+            <Link className="dashboard-glass dashboard-shortcut" href="/tools/monitor">
+              <span className="dashboard-tool-icon"><Video size={20} aria-hidden="true" /></span>
+              <strong>Live Monitor</strong><small>Watch camera views during a print.</small>
+            </Link>
+            <Link className="dashboard-glass dashboard-shortcut" href="/tools/image-analysis">
+              <span className="dashboard-tool-icon"><ScanLine size={20} aria-hidden="true" /></span>
+              <strong>Image Analysis</strong><small>Review a layer photo.</small>
             </Link>
           </div>
         </section>
@@ -267,21 +256,22 @@ export default function Home() {
             <h2 id="dashboard-history-title" className="dashboard-section-title">Recent slices</h2>
             <Link href="/tools/slices">My Slices <ChevronRight size={16} aria-hidden="true" /></Link>
           </div>
-          {sliceState === 'loading' ? <p role="status">Loading saved slices…</p>
-            : sliceState === 'error' ? <p role="status">Couldn’t load recent slices. Open My Slices to try again.</p>
-            : recentSlices.length === 0 ? <p>No saved slices yet. Saved toolpaths will appear here.</p>
-            : <ul className="dashboard-history-list">
-              {recentSlices.map(slice => <li key={slice.id}>
-                <Link href="/tools/slices">
-                  <FileBox size={19} aria-hidden="true" />
-                  <span><strong>{slice.file_name}</strong><small>
-                    {[fmtDate(slice.created_at), slice.print_time, slice.layers === null ? null : `${slice.layers.toLocaleString()} layers`,
-                      slice.source ? (slice.source === 'pre-print' ? 'Pre-Print' : 'Slicer') : null].filter(Boolean).join(' · ')}
-                  </small></span>
-                  <ChevronRight size={16} aria-hidden="true" />
-                </Link>
-              </li>)}
-            </ul>}
+          <table className="dashboard-history-table" aria-labelledby="dashboard-history-title">
+            <thead><tr><th scope="col">File</th><th scope="col">Source</th><th scope="col">Layers</th><th scope="col">Print time</th><th scope="col">Saved</th></tr></thead>
+            <tbody>
+              {sliceState === 'loading' ? <tr><td colSpan={5}><span role="status">Loading saved slices…</span></td></tr>
+                : sliceState === 'error' ? <tr><td colSpan={5}><span role="status">Couldn’t load recent slices. Open My Slices to try again.</span></td></tr>
+                : recentSlices.length === 0 ? <tr><td colSpan={5}>No saved slices yet. Saved toolpaths will appear here.</td></tr>
+                : recentSlices.map(slice => <tr key={slice.id}>
+                    <td><div className="dashboard-file"><FileBox size={17} aria-hidden="true" />
+                      <div><strong>{slice.file_name}</strong><small>{[slice.layers === null ? null : `${slice.layers.toLocaleString()} layers`, slice.print_time].filter(Boolean).join(' · ')}</small></div>
+                    </div></td>
+                    <td>{slice.source === 'pre-print' ? 'Pre-Print' : slice.source === 'slicer' ? 'Slicer' : slice.source || '–'}</td>
+                    <td>{slice.layers?.toLocaleString() ?? '–'}</td><td>{slice.print_time || '–'}</td>
+                    <td><time dateTime={slice.created_at}>{fmtDate(slice.created_at)}</time></td>
+                  </tr>)}
+            </tbody>
+          </table>
         </section>
       </main>
     </div>

@@ -1,5 +1,7 @@
 'use client';
 
+import WorkspaceThemeToggle from '@/components/WorkspaceThemeToggle';
+
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -58,7 +60,7 @@ function TempWidget() {
   const iCls = 'w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-black transition-colors text-black placeholder:text-black/25 bg-white pr-8';
 
   return (
-    <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+    <div className="inspection-panel p-4">
       <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">Site Temperature</h3>
       <div className="relative">
         <input value={query} onChange={e => handleInput(e.target.value)}
@@ -179,13 +181,13 @@ export default function StandaloneMonitor() {
       <header className="inspection-glass inspection-topbar inspection-monitor-bar">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-1 flex flex-wrap items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/')} className="-my-4 sm:-my-6">
-              <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto" />
+            <button onClick={() => router.push('/')} className="inspection-brand" aria-label="AutoBuild home">
+              <Image src="/autobuild-wordmark.png" alt="AutoBuild" width={422} height={120} />
             </button>
             <span className="w-px h-5 bg-gray-200" />
             <span className="text-sm font-medium text-black/40">Live Monitor</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1">
               {(['monitor', 'defects'] as ActiveTab[]).map(t => (
                 <button key={t} onClick={() => setActiveTab(t)}
@@ -194,6 +196,7 @@ export default function StandaloneMonitor() {
                 </button>
               ))}
             </div>
+            <WorkspaceThemeToggle />
             <span className="text-2xl font-bold font-mono text-black tracking-tight">{fmtElapsed()}</span>
             <button onClick={handleEndSession}
               className="px-4 py-1.5 border border-gray-300 bg-white text-gray-900 text-xs rounded-xl hover:bg-gray-100 transition-colors">
@@ -245,7 +248,7 @@ export default function StandaloneMonitor() {
               {beadLog.length > 0 && <BeadEventLog entries={beadLog} />}
 
               {/* System log */}
-              <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+              <div className="inspection-panel p-4">
                 <h3 className="text-[10px] font-semibold uppercase tracking-widest text-black/40 mb-3">System Log</h3>
                 <div className="space-y-1 max-h-28 overflow-y-auto">
                   {alertLog.length === 0 && <p className="text-xs text-black/25 text-center py-3">No events</p>}
