@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useProjects, ProjectReport, ReportAlert } from '@/lib/project-store';
 import { supabase, uploadTrainingImage } from '@/lib/supabase';
 import AppNav from '@/components/AppNav';
+import Link from 'next/link';
+import { ImagePlus, ScanLine } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -426,7 +428,7 @@ function CameraView({ camera, onAngleChange, onRename, onRemove, onBeadAlert, on
   const showBeadPanel = showBead && (beadResult !== null || analysing);
 
   return (
-    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+    <div className="inspection-viewer bg-white border border-gray-200 rounded-2xl overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 flex-wrap gap-1">
         <div className="flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${streaming ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`} />
@@ -520,6 +522,8 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
   const [corrVerdict,    setCorrVerdict]    = useState<BeadVerdict>('straight');
   const [corrDefectType, setCorrDefectType] = useState<BeadDefectType>('none');
   const [corrSeverity,   setCorrSeverity]   = useState<BeadSeverity>('none');
+
+  const imageInput = useRef<HTMLInputElement>(null);
 
   function startCorrection() {
     if (!analysis) return;
@@ -634,42 +638,38 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
   };
 
   const verdictLabel: Record<BeadVerdict, string> = {
-    straight: 'Print quality good',
+    straight: 'No visible issue in this view',
     deviated: 'Bead deviation detected',
     defect:   'Defect detected',
     unclear:  'Unable to assess',
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="inspection-grid">
       {/* Left — image upload */}
-      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+      <section className="inspection-image-card" aria-label="Layer image">
+        <div className="inspection-card-head">
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-black/40">Layer Image</h3>
-            <p className="text-[10px] text-black/25 mt-0.5">Upload a photo of your printed layer</p>
+            <span className="inspection-card-step"><span>01</span> Evidence</span>
+            <h2>Layer image</h2>
           </div>
-          <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 bg-black text-white text-[11px] font-semibold rounded-xl hover:bg-black/80 transition-all">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            Upload
-            <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
-          </label>
+          {image && <button type="button" className="inspection-upload" disabled={running || savingFeedback} onClick={() => imageInput.current?.click()}>
+            <ImagePlus size={17} aria-hidden="true" /> Replace photo
+          </button>}
+          <input ref={imageInput} type="file" accept="image/*" className="hidden" onChange={handleUpload} />
         </div>
-        <div className="min-h-[320px] bg-gray-50 flex items-center justify-center relative">
+        <div className={`inspection-image-stage${image ? ' has-photo' : ''}`}>
           {image
             ? <img src={image} alt="layer" className="w-full h-full object-contain"
                 onLoad={e => setImgAspect(e.currentTarget.naturalHeight / (e.currentTarget.naturalWidth || 1))} />
             : (
-              <div className="text-center px-6">
-                <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <p className="text-xs font-medium text-black/30 mb-1">Upload a concrete layer photo</p>
-                <p className="text-[10px] text-black/20">AI will assess bead quality, angle deviation, and defects</p>
+              <div className="inspection-image-empty">
+                <ScanLine size={30} strokeWidth={1.4} aria-hidden="true" />
+                <p>Start with a layer photo</p>
+                <p>Choose a frame where the bead edges are visible.</p>
+                <button type="button" className="inspection-upload" onClick={() => imageInput.current?.click()}>
+                  <ImagePlus size={17} aria-hidden="true" /> Upload photo
+                </button>
               </div>
             )
           }
@@ -686,7 +686,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
           {!running && image && analysis?.structure_axis && (() => {
             const { base, top } = analysis.structure_axis;
             const dev = analysis.angle_deviation;
-            const color = Math.abs(dev) < 2 ? '#22c55e' : Math.abs(dev) <= 10 ? '#f59e0b' : '#ef4444';
+            const color = '#e5e7eb';
             const bx = base.x, by = base.y * imgAspect;
             const tx = top.x,  ty = top.y * imgAspect;
             const label = `${dev >= 0 ? '+' : ''}${dev.toFixed(1)}°`;
@@ -725,18 +725,18 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
             );
           })()}
         </div>
-      </div>
+      </section>
 
-      {/* Right — Claude Vision results */}
-      <div className="bg-black rounded-2xl overflow-hidden shadow-sm">
-        <div className="px-5 py-4 border-b border-white/8">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-white/40">Analysis Results</h3>
-          <p className="text-[10px] text-white/20 mt-0.5">3DCP quality assessment</p>
+      <section className="inspection-result-card" aria-label="Inspection results">
+        <div className="inspection-card-head">
+          <div><span className="inspection-card-step"><span>02</span> Operator review</span><h2>Inspection results</h2></div>
         </div>
-        <div className="p-5">
+        <div className="inspection-review-body">
           {!analysis && !running && !error && (
-            <div className="text-center py-12 text-white/20 text-xs">
-              Upload a layer image to see results
+            <div className="inspection-result-empty">
+              <span className="inspection-status">Awaiting image</span>
+              <p>Nothing to review yet</p>
+              <p>Once the photo is analyzed, you can confirm or correct the observations here.</p>
             </div>
           )}
 
@@ -753,7 +753,7 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
               <div>
                 <p className="text-[10px] text-white/30 uppercase tracking-widest mb-1">Verdict</p>
                 <p className="text-xl font-bold text-white capitalize">
-                  {analysis.verdict === 'straight' ? 'Print quality good' :
+                  {analysis.verdict === 'straight' ? 'No visible issue in this view' :
                    analysis.verdict === 'deviated' ? 'Bead deviation detected' :
                    analysis.verdict === 'defect'   ? 'Defect detected' : 'Unable to assess'}
                 </p>
@@ -777,11 +777,11 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
 
               {/* Angle deviation */}
               <div>
-                <p className="text-[10px] text-white/30 uppercase tracking-widest mb-2">Lean From Plumb</p>
+                <p className="text-[10px] text-white/30 uppercase tracking-widest mb-2">Apparent angle in image</p>
                 <p className="text-sm font-semibold text-white font-mono">
-                  {analysis.angle_deviation !== 0
+                  {analysis.structure_axis
                     ? `${analysis.angle_deviation > 0 ? '+' : ''}${analysis.angle_deviation.toFixed(1)}°`
-                    : 'Plumb (0°)'}
+                    : 'Not measured'}
                 </p>
                 {!analysis.structure_axis && (
                   <p className="text-[10px] text-white/25 mt-1">No vertical structure visible to assess</p>
@@ -796,9 +796,9 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
                 <p className="text-xs font-semibold text-white leading-relaxed">
                   {analysis.recommendation || (
                     analysis.verdict === 'straight' && analysis.defect_type === 'none'
-                      ? 'Print can continue'
+                      ? 'No operator action suggested from this view'
                       : analysis.severity === 'high'
-                        ? 'Stop print — inspect immediately'
+                        ? 'Inspect this area before deciding whether to pause'
                         : 'Monitor closely before next layer'
                   )}
                 </p>
@@ -854,17 +854,10 @@ function DefectDetectionPanel({ onAlert }: { onAlert: (msg: string, level: 'info
                 )}
               </div>
 
-              {/* Re-upload */}
-              <label className="cursor-pointer w-full block">
-                <div className="w-full py-2 text-xs font-medium text-center border border-white/10 rounded-xl text-white/30 hover:text-white hover:border-white/30 transition-all">
-                  Upload different image
-                </div>
-                <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
-              </label>
             </motion.div>
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -1096,7 +1089,7 @@ export default function LiveMonitoring() {
   const keySensors = sensors.slice(0, 4);
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-6">
+    <div className="inspection-workspace inspection-live pb-6">
       <AppNav currentStep="monitor" />
       <style>{`footer{display:none!important}`}</style>
 
@@ -1104,7 +1097,7 @@ export default function LiveMonitoring() {
         {activeAlert && <AlertBanner analysis={activeAlert} onDismiss={() => setActiveAlert(null)} />}
       </AnimatePresence>
 
-      <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sticky top-14 z-20">
+      <div className="inspection-glass inspection-monitor-bar px-4 sm:px-6 py-3">
         <div className="flex flex-wrap items-center gap-3 justify-between">
 
           {/* Left — status + elapsed + meta */}
@@ -1113,7 +1106,8 @@ export default function LiveMonitoring() {
             <div className="flex items-center gap-2">
               <motion.div className="w-2 h-2 rounded-full bg-emerald-500"
                 animate={{ opacity: controls.paused ? 1 : [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }} />
-              <span className="text-xs font-medium text-black/50">{controls.paused ? 'Paused' : 'Printing'}</span>
+              <h1 className="text-sm text-gray-900">Live Monitoring</h1>
+              <span className="text-xs text-gray-600">{controls.paused ? 'Session paused' : 'Session open'}</span>
             </div>
 
             {/* Elapsed + clock + weather — all same size */}
@@ -1165,12 +1159,13 @@ export default function LiveMonitoring() {
               className="px-2.5 py-1.5 text-xs font-semibold bg-black text-white rounded-xl hover:bg-black/80 transition-all">
               End Print
             </button>
+            <Link href="/tools/image-analysis" className="inspection-heading-link">Image Analysis</Link>
           </div>
         </div>
       </div>
 
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 pt-6">
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" initial={false}>
 
           {activeTab === 'monitor' && (
             <motion.div key="monitor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -1194,11 +1189,9 @@ export default function LiveMonitoring() {
                     </div>
                   ))}
                   <button onClick={addCamera}
-                    className="aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition-all group min-h-[160px]">
-                    <div className="w-10 h-10 rounded-full border-2 border-gray-200 group-hover:border-black flex items-center justify-center transition-all">
-                      <span className="text-gray-300 group-hover:text-black text-xl">+</span>
-                    </div>
-                    <span className="text-xs text-black/30 group-hover:text-black transition-all">Add Camera</span>
+                    className="inspection-camera-add aspect-video">
+                    <span aria-hidden="true">+</span>
+                    <span className="text-sm font-semibold">Add Camera</span>
                   </button>
                 </div>
 

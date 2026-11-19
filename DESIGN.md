@@ -175,6 +175,10 @@ Soft and rounded. Cards use 16px (`rounded-2xl`) and buttons and tiles use 12px 
 - **Step pills:** 11px text with a numbered or checked circle. Active is ink with white text; done is gray-100 with gray-700 text and hover gray-200; locked is gray-50 with gray-300 text and a not-allowed cursor. Steps are separated by a small "›".
 - **Help:** A 24px circular "?" button to the right.
 
+### Inspection workspace
+
+Use monochrome glass on navigation, controls, and the outer shells of inspection cards. Keep media and result content on opaque inset surfaces, with the frame wider than the results at tablet widths and stacked above them on phones. Use paired evidence and operator-review labels to explain the workflow. Primary controls have a 44px minimum hit height. Glass surfaces fall back to solid fills without backdrop-filter support or when the operator asks for more contrast. Keep highlights at the edges and avoid animating them over evidence.
+
 ### Status chips
 - Pill or dot with a red, amber or emerald fill on a tinted background (red-50, amber-50), used for bead, defect and camera states.
 

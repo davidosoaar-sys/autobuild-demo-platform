@@ -173,11 +173,11 @@ export default function StandaloneMonitor() {
   const renameCamera = (id: string, label: string) => setCameras(prev => prev.map(c => c.id === id ? { ...c, label } : c));
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-6">
+    <div className="inspection-workspace pb-6">
 
       {/* Header */}
-      <header className="border-b border-gray-100 bg-white sticky top-0 z-10 overflow-visible">
-        <div className="max-w-7xl mx-auto px-6 py-1 flex items-center justify-between">
+      <header className="inspection-glass inspection-topbar inspection-monitor-bar">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-1 flex flex-wrap items-center justify-between">
           <div className="flex items-center gap-3">
             <button onClick={() => router.push('/')} className="-my-4 sm:-my-6">
               <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-24 sm:h-36 w-auto" />
@@ -196,7 +196,7 @@ export default function StandaloneMonitor() {
             </div>
             <span className="text-2xl font-bold font-mono text-black tracking-tight">{fmtElapsed()}</span>
             <button onClick={handleEndSession}
-              className="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-xl hover:bg-black/80 transition-colors">
+              className="px-4 py-1.5 border border-gray-300 bg-white text-gray-900 text-xs rounded-xl hover:bg-gray-100 transition-colors">
               End Session
             </button>
           </div>
@@ -209,7 +209,7 @@ export default function StandaloneMonitor() {
 
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 pt-6 space-y-4">
 
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" initial={false}>
 
           {activeTab === 'monitor' && (
             <motion.div key="monitor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -235,11 +235,9 @@ export default function StandaloneMonitor() {
                   </div>
                 ))}
                 <button onClick={addCamera}
-                  className="aspect-video rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition-all group min-h-[160px]">
-                  <div className="w-10 h-10 rounded-full border-2 border-gray-200 group-hover:border-black flex items-center justify-center transition-all">
-                    <span className="text-gray-300 group-hover:text-black text-xl">+</span>
-                  </div>
-                  <span className="text-xs text-black/30 group-hover:text-black transition-all">Add Camera</span>
+                  className="inspection-camera-add aspect-video">
+                  <span aria-hidden="true">+</span>
+                  <span className="text-sm font-semibold">Add Camera</span>
                 </button>
               </div>
 
