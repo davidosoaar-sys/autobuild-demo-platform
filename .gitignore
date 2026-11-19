@@ -17,6 +17,7 @@ backend/tb_logs/
 
 # ── General ──────────────────────────────────────────────────────────────────
 .DS_Store
+tmp/cad-deps/
 *.log
 .vercel
 .env*.local
