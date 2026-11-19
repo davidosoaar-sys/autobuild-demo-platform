@@ -2,4 +2,6 @@
 
 ## Unreleased
 
+- Open the full workspace when running Next.js in development on localhost. Non-local and production requests still follow the slicer beta gate.
+
 - Apply monochrome glass to the Print workspace dashboard, Image Analysis and both monitoring views. Group inspection shortcuts, distinguish saved-slice loading and error states, and make image upload and camera setup easier to find. This design change does not alter routing or the bead-analysis API.

@@ -8,7 +8,13 @@ const ALLOWED_PREFIXES = ['/slicer', '/tools/slicer', '/floorplan'];
 const ALLOWED_EXACT = ['/favicon.ico', '/Autobuildblack.png'];
 
 export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, hostname } = req.nextUrl;
+
+  // Allow the full workspace only in local Next.js development.
+  if (process.env.NODE_ENV === 'development' &&
+      ['localhost', '127.0.0.1', '[::1]'].includes(hostname)) {
+    return NextResponse.next();
+  }
 
   if (pathname.startsWith('/_next/')) return NextResponse.next();
   if (ALLOWED_EXACT.includes(pathname)) return NextResponse.next();
