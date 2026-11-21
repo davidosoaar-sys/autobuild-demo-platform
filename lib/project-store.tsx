@@ -144,7 +144,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  useEffect(() => { refreshProjects(); }, [refreshProjects]);
+  useEffect(() => {
+    // The development fixture uses only browser-local records, not project data.
+    if (process.env.NODE_ENV === 'development' && window.location.pathname === '/v1-preview') return;
+    refreshProjects();
+  }, [refreshProjects]);
 
   const createProject = useCallback(async (
     data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>,
@@ -181,7 +185,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (updates.report        !== undefined) dbUpdates.report         = updates.report;
 
     if (Object.keys(dbUpdates).length > 0) {
-      await supabase.from('projects').update(dbUpdates).eq('id', id);
+      const { data, error } = await supabase.from('projects').update(dbUpdates).eq('id', id).select('id').single();
+      if (error || data?.id !== id) throw new Error('Project update was not saved.');
     }
 
     if (updates.printer) {

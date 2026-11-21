@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { DefectDetectionPanel } from '@/app/live-monitoring/page';
+import { DefectDetectionPanel } from '@/app/live-monitoring/LiveMonitoring';
 
 export default function ImageAnalysisPage() {
   const router = useRouter();

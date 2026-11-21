@@ -1,0 +1,14 @@
+export type Field = 'nozzleDiameter' | 'maxVelocity' | 'beadCompression' | 'maxFlowRate' | 'openTimeMin' | 'strengthMpa' | 'initialSetTimeMin' | 'waterLPerKg';
+export type Finding = {field: Field; value: number; source: string};
+export type ResearchProfile = {printer: string; mix: string; findings: Finding[]; reviewedAt: number; foundAt?: number};
+export type SharedProfile = ResearchProfile & {revision: string; foundAt: number; availableFindings: Finding[]};
+export const fields: Readonly<Record<Field, {label: string; unit: string; min: number; max: number}>>;
+export const storageKey: string;
+export function cleanName(value: unknown): string;
+export function profileKey(printer: string, mix: string): string;
+export function safeSource(value: unknown): string | null;
+export function validateFindings(value: unknown): Finding[];
+export function savedProfile(raw: string | null, printer: string, mix: string): ResearchProfile | null;
+export function storeProfile(raw: string | null, profile: ResearchProfile): string;
+export function resolveProfileInputs<T extends {nozzleMm: number; beadComp: number; maxSpd: number; minSpd: number; flowRate: number; printSpeed: number}>(baseline: T, profile: ResearchProfile | null): T;
+export function exportContent(result: {gcode_full?: string} | null): string | null;

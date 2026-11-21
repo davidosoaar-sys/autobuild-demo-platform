@@ -404,7 +404,7 @@ export default function PrinterSetupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-16">
+    <div className="print-workspace min-h-screen pb-16">
       <AppNav currentStep="printer"/>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <AnimatePresence mode="wait">

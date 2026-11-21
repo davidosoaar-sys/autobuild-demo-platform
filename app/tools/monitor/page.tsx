@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   CameraView, BeadEventLog, AlertBanner, DefectDetectionPanel,
   type Camera, type BeadAnalysis,
-} from '@/app/live-monitoring/page';
+} from '@/app/live-monitoring/LiveMonitoring';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 

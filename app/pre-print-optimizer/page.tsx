@@ -7,6 +7,8 @@ import { useProjects, ManualPrinterConfig } from '@/lib/project-store';
 import { supabase } from '@/lib/supabase';
 import AppNav from '@/components/AppNav';
 import ParameterInputs from './components/ParameterInputs';
+import ResearchSettings from './components/ResearchSettings';
+import { exportContent, fields, resolveProfileInputs, type ResearchProfile } from '@/lib/pre-print-profile.mjs';
 import FileUpload, { SiteDimensions } from './components/FileUpload';
 import LayerVisualization from './components/LayerVisualization';
 import { ScanResult } from './components/ScanBanner';
@@ -44,6 +46,7 @@ interface OptimizeResult {
   layer_stats?: LayerStat[];
   estimated_print_time?: string;
   estimated_print_time_s?: number;
+  reviewed_profile?: ResearchProfile;
 }
 
 interface WeatherBlock { id: string; start_hour: number; end_hour: number; temperature: number; humidity: number; wind_speed: number; ground_slope: number; notes: string; }
@@ -141,6 +144,8 @@ export default function PrePrintOptimizer() {
   const [weatherBlocks, setWeatherBlocks] = useState<WeatherBlock[]>([]);
   const [weatherStart,  setWeatherStart]  = useState(8.0);
   const [city,          setCity]          = useState('');
+  const [batchAge, setBatchAge] = useState('');
+  const [mixOpenTime, setMixOpenTime] = useState('');
   const [phase,         setPhase]         = useState<Phase>('idle');
   const [scanResult,    setScanResult]    = useState<ScanResult | null>(null);
   const [result,        setResult]        = useState<OptimizeResult | null>(null);
@@ -150,28 +155,59 @@ export default function PrePrintOptimizer() {
   const [printSpeed,    setPrintSpeed]    = useState(activeProject?.printSpeed  || 60);
   const [showConfirm,   setShowConfirm]   = useState(false);
   const [slicingMode,   setSlicingMode]   = useState<'geometry' | 'shell'>('geometry');
+  const [appliedProfile, setAppliedProfile] = useState<ResearchProfile | null>(null);
+  const optimizeRequest = useRef<AbortController | null>(null);
+  const profileContext = JSON.stringify([activeProject?.id, activeProject?.printer?.name, parameters.cementMix]);
+  const [scope, setScope] = useState('');
+  const profile = scope === profileContext ? appliedProfile : null;
+  const mc = activeProject?.printer?.manualConfig as ManualPrinterConfig | undefined;
+  const baselineInputs = {
+    nozzleMm: mc?.nozzleDiameter ?? (parseFloat(activeProject?.printer?.nozzle ?? '25') || 25),
+    beadComp: mc?.beadCompression ?? 0.6,
+    maxSpd: mc?.maxVelocity ?? (parseFloat(activeProject?.printer?.maxSpeed ?? '100') || 100),
+    // The setup's minFlowRate is L/min, not a movement speed.
+    minSpd: 15,
+    flowRate: mc?.maxFlowRate ?? 8,
+    printSpeed,
+  };
+  function applyResearch(next: ResearchProfile | null) {
+    resolveProfileInputs(baselineInputs, next);
+    setScope(profileContext);
+    setAppliedProfile(next);
+    invalidateResult();
+  }
+  function invalidateResult() {
+    optimizeRequest.current?.abort();
+    optimizeRequest.current = null;
+    setResult(null);
+    setScanResult(null);
+    setSliceSaved(false);
+    setShowConfirm(false);
+    setActiveTab('setup');
+    setPhase('idle');
+  }
 
   useEffect(() => {
-    setScanResult(null);
-    if (phase === 'error') setPhase('idle');
-  }, [file]);
+    invalidateResult();
+  }, [file, printScale, slicingMode, city, weatherStart, weatherBlocks, parameters, profileContext, mc, batchAge, mixOpenTime]);
+  useEffect(() => () => optimizeRequest.current?.abort(), []);
 
   const handleParamsChange = (p: Parameters) => setParameters(p);
 
   const handleOptimize = async () => {
-    if (!file) return;
+    if (!file || optimizeRequest.current) return;
+    invalidateResult();
+    const controller = new AbortController();
+    optimizeRequest.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 20 * 60 * 1000);
     setPhase('optimizing'); setErrorMsg('');
     try {
-      const mc        = activeProject?.printer?.manualConfig as ManualPrinterConfig | undefined;
-      const nozzleMm  = (mc?.nozzleDiameter   != null ? mc.nozzleDiameter   : parseFloat(activeProject?.printer?.nozzle    ?? '25')  || 25)  as number;
-      const beadComp  = (mc?.beadCompression  != null ? mc.beadCompression  : 0.6) as number;
-      const maxSpd    = (mc?.maxVelocity      != null ? mc.maxVelocity      : parseFloat(activeProject?.printer?.maxSpeed  ?? '100') || 100) as number;
-      const minSpd    = (mc?.minFlowRate      != null ? mc.minFlowRate      : 15)  as number;
-      const flowRate  = (mc?.maxFlowRate      != null ? mc.maxFlowRate      : 8)   as number;
+      const { nozzleMm, beadComp, maxSpd, minSpd, flowRate, printSpeed: approvedSpeed } = resolveProfileInputs(baselineInputs, profile);
       const hoseLen   = (mc?.hoseLength       != null ? mc.hoseLength       : 15)  as number;
       const hoseDiam  = (mc?.hoseInternalDiam != null ? mc.hoseInternalDiam : 50)  as number;
       const accel     = (mc?.acceleration     != null ? mc.acceleration     : 500) as number;
-      const layerH    = (nozzleMm * beadComp) / 1000;
+      const layerH    = Math.max(0.006, Math.min(0.020, (nozzleMm * beadComp) / 1000));
+      let scan: ScanResult | null = null;
 
       // Silent scan
       try {
@@ -179,18 +215,20 @@ export default function PrePrintOptimizer() {
         sf.append('file', file);
         sf.append('nozzle_diameter_mm', String(nozzleMm));
         sf.append('layer_height_m',     String(layerH));
-        const sr = await fetch(`${API}/scan`, { method:'POST', body:sf });
+        const sr = await fetch(`${API}/scan`, { method:'POST', body:sf, signal:controller.signal });
         if (sr.ok) {
           const sd: ScanResult = await sr.json();
-          setScanResult(sd);
-          if (sd.info?.layer_count) setTotalLayers(sd.info.layer_count);
+          scan = sd;
         }
       } catch { /* silent */ }
+      controller.signal.throwIfAborted();
+      setScanResult(scan);
+      if (scan?.info?.layer_count) setTotalLayers(scan.info.layer_count);
 
       // Optimize
       const form = new FormData();
       form.append('file',                  file);
-      form.append('printer_name',          activeProject?.printer?.name || 'Custom Printer');
+      form.append('printer_name',          profile?.printer || activeProject?.printer?.name || 'Custom Printer');
       form.append('nozzle_diameter_mm',    String(nozzleMm));
       form.append('bead_compression',      String(beadComp));
       form.append('max_speed_mm_s',        String(maxSpd));
@@ -200,28 +238,32 @@ export default function PrePrintOptimizer() {
       form.append('hose_internal_diam_mm', String(hoseDiam));
       form.append('acceleration_mm_s2',    String(accel));
       form.append('cement_mix_name',       parameters.cementMix);
+      if (batchAge !== '') form.append('batch_age_minutes', batchAge);
+      if (mixOpenTime !== '') form.append('mix_open_minutes', mixOpenTime);
       form.append('temperature',           String(parameters.temperature));
       form.append('humidity',              String(parameters.humidity));
       form.append('wind_speed',            String(parameters.windSpeed));
       form.append('ground_slope',          '0');
-      form.append('print_speed',           String(printSpeed));
+      form.append('base_speed_mm_s',       String(approvedSpeed));
       form.append('print_start_hour',      String(weatherStart));
       form.append('print_scale',           String(printScale));
       if (city) form.append('city', city);
       if (weatherBlocks.length > 0) form.append('weather_blocks', JSON.stringify(weatherBlocks));
       form.append('slicing_mode', slicingMode);
 
-      const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), 20 * 60 * 1000);
       const res = await fetch(`${API}/optimize`, { method:'POST', body:form, signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (!res.ok) { const e = await res.json().catch(()=>({detail:'Unknown'})); throw new Error(e.detail); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(typeof e.detail === 'string' ? e.detail : 'Check the inputs and try again.');
+      }
       const data: OptimizeResult = await res.json();
+      controller.signal.throwIfAborted();
+      if (profile) data.reviewed_profile = profile;
       setResult(data);
       if (data.geometry.num_layers > 0) setTotalLayers(data.geometry.num_layers);
       setPhase('done');
       setActiveTab('results');
-      setSidebarPanel(scanResult && scanResult.counts.total > 0 ? 'scan' : 'results');
+      setSidebarPanel(scan && scan.counts.total > 0 ? 'scan' : 'results');
       // Auto-save
       try {
         const { error } = await supabase.from('saved_slices').insert({
@@ -240,17 +282,22 @@ export default function PrePrintOptimizer() {
           result_json:      data,
         });
         if (error) console.error('Slice save error:', error);
-        else setSliceSaved(true);
+        else if (optimizeRequest.current === controller) setSliceSaved(true);
       } catch (e) { console.error('Slice save exception:', e); }
     } catch (e: any) {
-      setErrorMsg(e.message || 'Optimisation failed');
-      setPhase('error');
+      if (optimizeRequest.current === controller) {
+        setErrorMsg(controller.signal.aborted ? 'Optimization timed out. Try again.' : e.message || 'Optimisation failed');
+        setPhase('error');
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      if (optimizeRequest.current === controller) optimizeRequest.current = null;
     }
   };
 
   const downloadGCode = (ext: 'gcode' | 'txt') => {
-    if (!result) return;
-    const content = result.gcode_full ?? result.gcode_preview ?? '';
+    const content = exportContent(result);
+    if (!result || !content) return;
     const blob = new Blob([content], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -328,7 +375,6 @@ export default function PrePrintOptimizer() {
             },
             events: [
               { time: new Date().toISOString(), label: 'Print started',          type: 'info' },
-              { time: new Date().toISOString(), label: 'G-code sent to printer', type: 'info' },
             ],
           },
         });
@@ -356,12 +402,12 @@ export default function PrePrintOptimizer() {
     : null;
 
   return (
-    <div className={isResults ? 'fixed inset-0 overflow-hidden' : 'min-h-screen bg-gray-50 pb-24'}>
+    <div className={isResults ? 'print-workspace fixed inset-0 overflow-hidden' : 'print-workspace min-h-screen pb-24'}>
       {isResults && <style>{`footer{display:none!important}`}</style>}
 
       <AnimatePresence>
         {phase==='optimizing' && (
-          <LoadingOverlay fileName={file?.name??''} onCancel={()=>setPhase('idle')}/>
+          <LoadingOverlay fileName={file?.name??''} onCancel={invalidateResult}/>
         )}
       </AnimatePresence>
 
@@ -376,7 +422,6 @@ export default function PrePrintOptimizer() {
             externalMode={viewMode} onModeChange={setViewMode}
             modelScale={modelScale} sitePlan={sitePlanData}
             onBack={()=>setActiveTab('setup')}
-            structureType={activeProject?.structureType}
             modelDimensions={result.geometry.bounds_x && result.geometry.bounds_z ? {
               x: result.geometry.bounds_x[1] - result.geometry.bounds_x[0],
               y: result.geometry.bounds_y[1] - result.geometry.bounds_y[0],
@@ -692,21 +737,11 @@ export default function PrePrintOptimizer() {
                     </>
                   )}
                 </button>
-                <div className="relative group">
-                  <button className="w-full py-2.5 text-xs font-medium rounded-xl border border-white/10 text-white/40 hover:text-white hover:border-white/25 transition-all">
-                    Download G-code ↓
-                  </button>
-                  <div className="absolute bottom-full left-0 right-0 mb-1 hidden group-hover:flex flex-col gap-1 z-50">
-                    <button onClick={()=>downloadGCode('gcode')}
-                      className="w-full py-2 text-xs font-medium rounded-xl border border-white/15 text-white bg-black/90 hover:bg-white/10 transition-all backdrop-blur-md">
-                      Download .gcode
-                    </button>
-                    <button onClick={()=>downloadGCode('txt')}
-                      className="w-full py-2 text-xs font-medium rounded-xl border border-white/15 text-white bg-black/90 hover:bg-white/10 transition-all backdrop-blur-md">
-                      Download .txt
-                    </button>
-                  </div>
-                </div>
+                {exportContent(result) ? <div className="grid grid-cols-2 gap-2">
+                  <button onClick={()=>downloadGCode('gcode')} className="min-h-11 text-xs rounded-xl border border-white/25 text-white hover:bg-white/10">Download G-code</button>
+                  <button onClick={()=>downloadGCode('txt')} className="min-h-11 text-xs rounded-xl border border-white/25 text-white hover:bg-white/10">Download .txt</button>
+                </div> : <p role="status" className="text-xs text-white/80">Full G-code unavailable. Run optimization again; the preview cannot be exported.</p>}
+                {result.reviewed_profile && <p className="break-words text-xs text-white/80">Reviewed for {result.reviewed_profile.printer} / {result.reviewed_profile.mix}. Material reference values were not used by the slicer.</p>}
                 {showConfirm ? (
                   <div className="flex gap-2">
                     <button onClick={beginPrint} className="flex-1 py-2.5 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-colors">Confirm</button>
@@ -731,7 +766,7 @@ export default function PrePrintOptimizer() {
       {!isResults && (
         <motion.div initial={{opacity:0}} animate={{opacity:1}}>
           <AppNav currentStep="pre-print"/>
-          <div className="bg-white border-b border-gray-100 sticky top-14 z-10">
+          <div className="print-chrome border-b border-gray-100 z-10">
             <div className="max-w-7xl mx-auto px-6">
               <div className="flex items-center gap-1 py-2">
                 <button className="px-4 py-2 text-sm font-medium rounded-xl bg-black text-white">Setup</button>
@@ -742,8 +777,8 @@ export default function PrePrintOptimizer() {
                 </button>
                 <div className="flex-1"/>
                 <button onClick={handleOptimize} disabled={!file||phase==='optimizing'}
-                  className="px-5 py-2 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                  Optimise Print Path
+                  className="print-primary min-h-11 px-4 py-2 bg-black text-white text-sm font-semibold rounded-xl hover:bg-black/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                  Generate Print Path
                 </button>
               </div>
             </div>
@@ -763,8 +798,12 @@ export default function PrePrintOptimizer() {
               <div className="space-y-4">
                 <FileUpload
                   file={file} onFileChange={setFile}
-                  onScaleChange={setPrintScale}
+                  onScaleChange={setPrintScale} printScale={printScale}
                 />
+                <ResearchSettings key={profileContext} printerName={activeProject?.printer?.name ?? ''}
+                  mixName={parameters.cementMix === 'standard' ? '' : parameters.cementMix}
+                  applied={profile} disabled={phase === 'optimizing'} onApply={applyResearch}
+                  onValidate={next => { resolveProfileInputs(baselineInputs,next); }} />
                 <ParameterInputs parameters={parameters} onChange={handleParamsChange}
                   onWeatherChange={(b,h)=>{setWeatherBlocks(b);setWeatherStart(h);}}
                   onCementChange={(c:string)=>setParameters(p=>({...p,cementMix:c}))}
@@ -773,11 +812,20 @@ export default function PrePrintOptimizer() {
                   slicingMode={slicingMode}
                   onSlicingModeChange={setSlicingMode}
                 />
+                <fieldset className="print-glass grid gap-3 rounded-2xl border border-gray-200 p-4 sm:grid-cols-2">
+                  <legend className="px-1 text-sm font-semibold">Batch timing</legend>
+                  <p className="text-xs text-black/60 sm:col-span-2">Enter both values to check that the print fits one batch. Use the mix open time for the planned site conditions.</p>
+                  <label className="text-xs font-medium">Batch age at print start (min)
+                    <input type="number" min="0" step="any" value={batchAge} onChange={e => setBatchAge(e.target.value)} className="mt-1 block min-h-11 w-full rounded-xl border border-gray-300 px-3 text-sm" />
+                  </label>
+                  <label className="text-xs font-medium">Mix open time (min)
+                    <input type="number" min="0" step="any" value={mixOpenTime} onChange={e => setMixOpenTime(e.target.value)} className="mt-1 block min-h-11 w-full rounded-xl border border-gray-300 px-3 text-sm" />
+                  </label>
+                </fieldset>
               </div>
               <div>
                 <LayerVisualization file={file} toolpath={[]} numLayers={0}
-                  layerHeight={0.04} site={resolvedSite} modelScale={modelScale} sitePlan={sitePlanData}
-                  structureType={activeProject?.structureType}/>
+                  layerHeight={0.04} site={resolvedSite} modelScale={modelScale} sitePlan={sitePlanData}/>
               </div>
             </div>
           </div>

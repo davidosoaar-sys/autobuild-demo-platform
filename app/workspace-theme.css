@@ -1,0 +1,64 @@
+.workspace-theme-toggle {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--glass-ink);
+}
+.workspace-theme-toggle:hover { background: #eeeeee; }
+.inspection-workspace .inspection-glass { background-color: #fff; transition: none; }
+
+[data-workspace-theme='dark'] .inspection-workspace {
+  --glass-ink: #f5f5f5;
+  --glass-muted: #b8b8b8;
+  --glass-focus: #f5f5f5;
+  --glass-border: #363636;
+  color-scheme: dark;
+  background: #000;
+}
+[data-workspace-theme='dark'] .inspection-workspace :is(.inspection-glass, .inspection-live > header) {
+  background: #000;
+  border-color: #292929;
+}
+[data-workspace-theme='dark'] .inspection-workspace :is(.inspection-brand, .dashboard-dialog) img { filter: grayscale(1) invert(1); }
+[data-workspace-theme='dark'] .inspection-workspace :is(.inspection-switch, .inspection-heading-link) { background: #141414; border-color: #383838; }
+[data-workspace-theme='dark'] .inspection-workspace .inspection-switch a[aria-current=page] { background: #303030; }
+[data-workspace-theme='dark'] .inspection-workspace :is(.dashboard-glass, .inspection-panel, .inspection-image-card, .inspection-result-card, .inspection-viewer, .inspection-layer-progress, .inspection-camera-add) {
+  --glass-fill: #161616;
+  --glass-translucent: #161616ee;
+  --glass-light: #ffffff08;
+  --glass-reflection: #ffffff12;
+  --glass-rim: #ffffff16;
+  --glass-border: #363636;
+  --glass-shadow: 0 8px 24px #0008;
+}
+[data-workspace-theme='dark'] .inspection-workspace :is(.inspection-result-card, .inspection-panel-dark) { --glass-fill: #101010; --glass-translucent: #101010ee; }
+[data-workspace-theme='dark'] .inspection-workspace :is(.dashboard-tool-icon, .inspection-camera-add > span:first-child, .dashboard-history-table th, .workspace-theme-toggle:hover) { background: #252525; color: var(--glass-ink); }
+[data-workspace-theme='dark'] .inspection-workspace :is(.dashboard-nav, .dashboard-utilities, .dashboard-history-head) a:is(:hover,[aria-current='page']) { background: #252525; color: var(--glass-ink); }
+[data-workspace-theme='dark'] .inspection-workspace .dashboard-history-table td { border-color: #292929; }
+[data-workspace-theme='dark'] .inspection-workspace .inspection-image-stage:not(.has-photo) { background: #222; border-color: #3b3b3b; }
+[data-workspace-theme='dark'] .inspection-workspace .inspection-upload { background: #ededed; border-color: #ededed; color: #161616; }
+[data-workspace-theme='dark'] .inspection-workspace .inspection-upload:hover:not(:disabled) { background: #fff; }
+[data-workspace-theme='dark'] .inspection-workspace :is(.dashboard-dialog, .dashboard-dialog > div:first-child) { background: #191919; border-color: #414141; }
+[data-workspace-theme='dark'] .inspection-workspace .dashboard-dialog :is([class*='text-black'], [class*='text-slate']) { color: #e5e5e5; }
+[data-workspace-theme='dark'] .inspection-workspace .dashboard-dialog input:not([type='checkbox']) { color: #fff; background: #232323; border-color: #626262; }
+[data-workspace-theme='dark'] .inspection-workspace .dashboard-dialog input::placeholder { color: #b8b8b8; }
+[data-workspace-theme='dark'] .inspection-workspace .dashboard-dialog button.bg-gray-50 { background: #252525; }
+[data-workspace-theme='dark'] .inspection-workspace :is(.inspection-glass, .inspection-live > header, .inspection-panel, .inspection-viewer) :is(.text-black,.text-gray-900,[class*='text-black/'],.text-gray-500,.text-gray-600,.text-gray-700) { color: var(--glass-muted); }
+[data-workspace-theme='dark'] .inspection-workspace :is(.inspection-glass, .inspection-live > header, .inspection-panel, .inspection-viewer) :is(button,select,input).bg-white { background: #222; border-color: #454545; color: var(--glass-ink); }
+[data-workspace-theme='dark'] .inspection-live > header button:is(.bg-gray-50,.bg-gray-100,.bg-gray-900) { background: #202020; color: #f5f5f5; }
+[data-workspace-theme='dark'] .inspection-live > header button:disabled { color: #a0a0a0; }
+[data-workspace-theme='dark'] .inspection-workspace .dashboard :focus-visible,
+[data-workspace-theme='dark'] .dashboard :is(a,button):focus-visible,
+[data-workspace-theme='dark'] .inspection-workspace :is(.inspection-upload,.inspection-image-card .inspection-upload):focus-visible { outline-color: #f5f5f5; }
+@media (max-width: 380px) {
+  .inspection-header-inner:has(.inspection-switch) { flex-wrap: wrap; padding-block: 6px; }
+  .inspection-header-inner .inspection-switch { order: 3; }
+}
+@media (prefers-contrast: more) {
+  [data-workspace-theme='dark'] .inspection-workspace :is(.dashboard-glass, .inspection-panel, .inspection-image-card, .inspection-result-card, .inspection-viewer, .inspection-layer-progress, .inspection-camera-add) {
+    background: #111; border-color: #aaa; backdrop-filter: none;
+  }
+}

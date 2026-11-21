@@ -2,15 +2,18 @@
 
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link';
 import BetaGuard from '@/components/BetaGuard';
+import WorkspaceThemeToggle from '@/components/WorkspaceThemeToggle';
 
 export default function SlicerHubPage() {
   const router = useRouter();
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
+    <div className="print-workspace min-h-screen flex flex-col items-center justify-center p-6">
       <BetaGuard />
-      <button onClick={() => router.push('/')} className="mb-10">
+      <div className="absolute right-4 top-4"><WorkspaceThemeToggle /></div>
+      <button onClick={() => router.push('/')} className="print-brand mb-10">
         <Image src="/Autobuildblack.png" alt="AutoBuild AI" width={400} height={400} className="h-16 w-auto" />
       </button>
 
@@ -52,6 +55,11 @@ export default function SlicerHubPage() {
           </div>
         </button>
       </div>
+      {process.env.NODE_ENV === 'development' && (
+        <Link href="/live-monitoring" className="mt-6 inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-medium text-gray-900 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+          Open Live Monitor
+        </Link>
+      )}
     </div>
   );
 }

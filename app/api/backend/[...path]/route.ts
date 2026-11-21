@@ -36,9 +36,9 @@ async function proxy(req: NextRequest, path: string[]) {
   return new NextResponse(body, { status: res.status, headers: resHeaders });
 }
 
-export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
-  return proxy(req, params.path);
+export async function GET(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  return proxy(req, (await params).path);
 }
-export async function POST(req: NextRequest, { params }: { params: { path: string[] } }) {
-  return proxy(req, params.path);
+export async function POST(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  return proxy(req, (await params).path);
 }

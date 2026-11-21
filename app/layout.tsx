@@ -1,12 +1,16 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
-import './globals.css'
+import localFont from 'next/font/local'
+import './globals.css';
+import './inspection.css';
+import './workspace-theme.css';
+import './print-workspace.css';
 import { ProjectProvider } from '@/lib/project-store'
 
-const inter = Inter({ 
-  subsets: ['latin'],
-  weight: ['400'],
+const geist = localFont({
+  src: './fonts/Geist-Variable.woff2',
+  weight: '100 900',
   display: 'swap',
+  variable: '--font-geist',
 })
 
 export const metadata: Metadata = {
@@ -17,11 +21,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" data-workspace-theme="dark" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: "try{if(localStorage.getItem('autobuild_workspace_theme')==='light')document.documentElement.dataset.workspaceTheme='light'}catch{}" }} />
         <link rel="icon" href="/favicon.ico" sizes="any"/>
       </head>
-      <body className={`${inter.className} flex flex-col min-h-screen`}>
+      <body className={`${geist.variable} flex flex-col min-h-screen`}>
         <ProjectProvider>
           <div className="flex-1">
             {children}

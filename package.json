@@ -1,6 +1,6 @@
 {
   "name": "autobuild-demo-platform",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,33 +10,37 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
-    "@react-three/drei": "^9.93.0",
-    "@react-three/fiber": "^8.15.0",
-    "@react-three/postprocessing": "^2.16.0",
+    "@react-three/drei": "^10",
+    "@react-three/fiber": "^9",
+    "@react-three/postprocessing": "^3",
     "@supabase/supabase-js": "^2.102.1",
     "@types/node": "^20.0.0",
-    "@types/react": "^18.0.0",
-    "@types/react-dom": "^18.0.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "autoprefixer": "^10.4.16",
     "clsx": "^2.1.0",
-    "framer-motion": "^10.18.0",
+    "framer-motion": "^12",
     "heic-convert": "^2.1.0",
     "lucide-react": "^0.577.0",
-    "next": "14.2.35",
+    "next": "15.5.29",
     "onnxruntime-web": "^1.24.3",
-    "postcss": "^8.4.32",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "postcss": "8.5.33",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
     "react-dropzone": "^14.2.3",
     "tailwind-merge": "^2.2.0",
     "tailwindcss": "^3.4.0",
-    "three": "^0.160.0",
+    "three": "0.180.0",
     "typescript": "^5.0.0"
   },
   "devDependencies": {
+    "@types/three": "0.180.0",
     "eslint": "^8.0.0",
-    "eslint-config-next": "14.2.35",
+    "eslint-config-next": "15.5.29",
     "ignore-loader": "^0.1.2",
     "node-loader": "^2.1.0"
+  },
+  "overrides": {
+    "postcss": "$postcss"
   }
 }

@@ -1115,6 +1115,8 @@ async def optimize_endpoint(
     # Deprecated — kept for backwards compat
     cement_mix_name:       Optional[str]  = Form(None),
     print_speed:           Optional[float] = Form(None),
+    batch_age_minutes:     Optional[float] = Form(None),
+    mix_open_minutes:      Optional[float] = Form(None),
     # Scale factor
     print_scale:           float          = Form(1.0),
     # Slicing mode
@@ -1129,6 +1131,12 @@ async def optimize_endpoint(
         raise HTTPException(400, f"Unsupported file type. Supported: {', '.join(allowed_exts)}")
     if not os.path.exists(MODEL_PATH):
         raise HTTPException(503, "RL model not found — run python train.py first")
+
+    from batch_window import batch_remaining_seconds
+    try:
+        batch_remaining_s = batch_remaining_seconds(batch_age_minutes, mix_open_minutes)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
     # Compat: print_speed form field → base_speed_mm_s
     if print_speed is not None and base_speed_mm_s == 60.0:
@@ -1228,6 +1236,10 @@ async def optimize_endpoint(
     except Exception as e:
         raise HTTPException(500, f"Optimisation failed: {e}")
 
+    est_s = stats.get("estimated_print_time_s", 0)
+    if batch_remaining_s is not None and (not est_s or est_s >= batch_remaining_s):
+        raise HTTPException(422, "This path does not fit the remaining time for one batch. Review the batch timing or plan a smaller print.")
+
     # ── Parse time blocks ─────────────────────────────────────────────────────
     try:
         parsed_time_blocks = json.loads(time_blocks) if time_blocks else []
@@ -1273,7 +1285,6 @@ async def optimize_endpoint(
             "layer_params": [lp.to_dict() for lp in layer_params],
         }, f)
 
-    est_s   = stats.get("estimated_print_time_s", 0)
     est_str = format_print_time(est_s)
 
     speed_profile = [
@@ -1287,6 +1298,8 @@ async def optimize_endpoint(
         "geometry":               {**geo_meta, "file_name": fname},
         "material": {
             "name":              PRODUCT_NAME,
+            "selected_mix":      cement_mix_name,
+            "batch_remaining_s": batch_remaining_s,
             "pot_life_20c":      60,
             "pot_life_at_worst": round(pot_life_at_temp(worst_cond["temperature"]), 1),
         },

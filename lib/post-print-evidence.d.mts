@@ -1,0 +1,25 @@
+export type Suggestion = { verdict: 'straight' | 'deviated' | 'defect' | 'unclear'; defectType: string; description: string; confidence: string | null };
+export type Review = { id: string; recordedAt: string; image: string; layer: number | null; defectType: string; disposition: 'confirmed' | 'corrected' | 'missed'; note: string; suggestion: Suggestion | null };
+export type Toolpath = { source: 'planned-gcode'; filename: string; recordedAt: string; layerNumberSource: 'comments' | 'inferred-order'; lengthMm: number; layers: { layerNumber: number; zMm: number; lengthMm: number; segmentCount: number }[]; preview?: number[][] };
+export type RecordedAlert = { recordedTime: string | null; layer: number | null; message: string };
+export type LayerReview = { plan: Toolpath['layers'][number]; reviews: Review[]; alerts: RecordedAlert[]; status: 'finding' | 'alert' | 'reviewed' | 'no-data' };
+export function summarizeLayers(evidence: Evidence | null, alerts: RecordedAlert[]): { layers: LayerReview[]; unplacedReviews: Review[]; unplacedAlerts: RecordedAlert[] };
+export type RunFeedback = { rating: number; helpful: boolean; notes: string; recordedAt: string };
+export type Evidence = { schemaVersion: 1; projectId: string; startedAt: string; toolpath: Toolpath | null; reviews: Review[]; feedback?: RunFeedback };
+export function setRunFeedback(evidence: Evidence, input: RunFeedback): Evidence;
+export const DEFECT_TYPES: string[];
+export const MAX_REVIEWS: number;
+export const MAX_IMAGE_LENGTH: number;
+export const MAX_TOOLPATH_BYTES: number;
+export function createEvidence(projectId: string, report: Record<string, unknown> | undefined): Evidence;
+export function evidenceKey(evidence: Evidence): string;
+export function attachToolpath(evidence: Evidence, input: { text: string; filename: string; recordedAt: string }): Evidence;
+export function normalizeSuggestion(value: unknown): Suggestion;
+export function addPhotoReview(evidence: Evidence, input: Review): Evidence;
+export function loadEvidence(storage: Pick<Storage, 'getItem'>, baseline: Evidence): Evidence;
+export function saveEvidence(storage: Pick<Storage, 'getItem' | 'setItem'>, baseline: Evidence, transform: (e: Evidence) => Evidence): Evidence;
+export function buildPostPrintExport(project: { id: string; name: string; report?: Record<string, unknown> }, evidence: Evidence | null, exportedAt: string): {
+  schemaVersion: 1; exportedAt: string; project: { id: string; name: string };
+  run: { startedAt: string | null; finishedAt: string | null; reportRecordedAt: string | null; plannedLayers: number | null; gcodeReference: string | null; alerts: { recordedTime: string | null; layer: number | null; message: string }[]; events: { recordedTime: string | null; label: string; type: string | null }[]; material: { name: string | null; batchNumber: string | null }; videoInputs: { startedAt: string; cameraLabel: string }[]; videoObservations: { observedAt: string; cameraLabel: string; verdict: string; defectType: string; description: string }[] };
+  evidence: { storage: 'browser-local'; toolpath: Toolpath | null; reviews: Review[]; feedback: RunFeedback | null; ccuReadings: null; calibratedMeasurements: null };
+};
