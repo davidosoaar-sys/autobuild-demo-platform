@@ -182,10 +182,13 @@ export default function Home() {
           </Link>
           <nav className="dashboard-nav" aria-label="Primary navigation">
             <Link href="/" aria-current="page">Workspace</Link>
+            <Link href="/projects">Projects</Link>
 
           </nav>
           <nav className="dashboard-utilities" aria-label="Workspace utilities">
             <WorkspaceThemeToggle />
+            <Link href="/help">Help</Link>
+            <Link href="/settings">Settings</Link>
 
           </nav>
         </div>
@@ -205,10 +208,10 @@ export default function Home() {
               <span className="dashboard-tool-icon"><Layers3 size={20} aria-hidden="true" /></span>
               <strong>Slicer</strong><small>Generate a concrete print path.</small>
             </button>
-            <div className="dashboard-glass dashboard-shortcut dashboard-restricted">
+            <Link className="dashboard-glass dashboard-shortcut" href="/projects">
               <span className="dashboard-tool-icon"><FolderOpen size={20} aria-hidden="true" /></span>
-              <strong>Projects</strong><small>Not available in the public beta.</small>
-            </div>
+              <strong>Projects</strong><small>Create projects and save printer settings in this browser.</small>
+            </Link>
             <div className="dashboard-glass dashboard-shortcut dashboard-restricted">
               <span className="dashboard-tool-icon"><Video size={20} aria-hidden="true" /></span>
               <strong>Live Monitor</strong><small>Not available in the public beta.</small>

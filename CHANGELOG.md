@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.1.2 (2026-11-22)
+
+- Enable Projects and manual Printer Setup with browser-local records, and restore dashboard links to Settings and Help. Cloud project access, hardware discovery, and paid APIs are not opened. Automated storage and route tests cover the change.
+
 ## 1.1.1 (2026-11-22)
 
 - Make the dashboard the public homepage. The slicer remains available from its dashboard card; the public dashboard does not load saved slice history or open gated tools and APIs. Verified the homepage, slicer picker, and anonymous route checks against a local production build.

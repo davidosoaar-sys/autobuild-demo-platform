@@ -12,12 +12,12 @@ const { middleware } = exports;
 
 test('the dashboard and its legal pages are public without opening workspace routes', async () => {
   const request = path => middleware(new NextRequest(`https://workspace.example${path}`));
-  for (const path of ['/', '/tos', '/privacy', '/slicer']) {
+  for (const path of ['/', '/tos', '/privacy', '/slicer', '/projects', '/printer-setup', '/settings', '/help', '/definitions']) {
     const response = await request(path);
     assert.equal(response.status, 200, path);
     assert.equal(response.headers.get('location'), null);
   }
-  for (const path of ['/projects', '/tools/monitor', '/tools/image-analysis', '/tools/slices', '/api/backend/optimize']) {
+  for (const path of ['/projects/extra', '/tools/monitor', '/tools/image-analysis', '/tools/slices', '/api/backend/optimize']) {
     assert.equal((await request(path)).status, 307, path);
   }
 });

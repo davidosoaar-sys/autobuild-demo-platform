@@ -2,7 +2,7 @@
 import {
   createContext, useContext, useEffect, useState, useCallback, ReactNode,
 } from 'react';
-import { supabase, DBProject } from './supabase';
+import { readProjects, changeProjects, PROJECTS_KEY } from './local-projects.mjs';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,7 @@ interface ProjectContextValue {
   projects:         Project[];
   activeProject:    Project | null;
   loading:          boolean;
+  error:            string;
   createProject:    (data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>) => Promise<Project>;
   updateProject:    (id: string, updates: Partial<Project>) => Promise<void>;
   setActive:        (id: string) => void;
@@ -83,145 +84,59 @@ interface ProjectContextValue {
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
-// ── Map DB row → Project ──────────────────────────────────────────────────────
-
-function dbToProject(row: DBProject, printer?: any): Project {
-  return {
-    id:            row.id,
-    name:          row.name,
-    description:   row.description ?? '',
-    createdAt:     row.created_at,
-    status:        row.status,
-    address:       row.address ?? '',
-    structureType: row.structure_type,
-    totalLayers:   row.total_layers,
-    printSpeed:    row.print_speed,
-    printer:       printer ?? { name: '', type: '', nozzle: '', maxSpeed: '' },
-    report:        row.report ?? undefined,
-  };
-}
-
-// ── Provider ──────────────────────────────────────────────────────────────────
+const ACTIVE_KEY = 'autobuild.projects.active.v1';
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [loading,  setLoading]  = useState(true);
-
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const refreshProjects = useCallback(async () => {
-    setLoading(true);
     try {
-      const { data: rows, error } = await supabase
-        .from('projects')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-
-      const { data: printers } = await supabase
-        .from('printer_configs')
-        .select('*');
-
-      const printerMap: Record<string, any> = {};
-      (printers ?? []).forEach(p => { printerMap[p.project_id] = p; });
-
-      const mapped: Project[] = (rows ?? []).map(row => {
-        const pc = printerMap[row.id];
-        const printer = pc ? {
-          name:            pc.printer_name,
-          type:            pc.printer_type ?? '',
-          nozzle:          pc.nozzle ?? '',
-          maxSpeed:        pc.max_speed ?? '',
-          layerHeight:     pc.layer_height ?? undefined,
-          beadCompression: pc.bead_compression ?? undefined,
-          manualConfig:    pc.manual_config ?? undefined,
-        } : { name: '', type: '', nozzle: '', maxSpeed: '' };
-        return dbToProject(row, printer);
-      });
-
-      setProjects(mapped);
-    } finally {
-      setLoading(false);
-    }
+      setProjects(readProjects(window.localStorage));
+      setError('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Projects could not be loaded.');
+    } finally { setLoading(false); }
   }, []);
-
   useEffect(() => {
-    // The development fixture uses only browser-local records, not project data.
-    if (process.env.NODE_ENV === 'development' && window.location.pathname === '/v1-preview') return;
-    refreshProjects();
+    try { setActiveId(sessionStorage.getItem(ACTIVE_KEY)); } catch { /* selection can remain in memory */ }
+    void refreshProjects();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === PROJECTS_KEY || event.key === null) void refreshProjects();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [refreshProjects]);
-
-  const createProject = useCallback(async (
-    data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>,
-  ): Promise<Project> => {
-    const { data: row, error } = await supabase
-      .from('projects')
-      .insert({
-        name:           data.name,
-        description:    data.description,
-        address:        data.address,
-        structure_type: data.structureType,
-        status:         'setup',
-        total_layers:   data.totalLayers ?? 100,
-        print_speed:    data.printSpeed  ?? 60,
-      })
-      .select()
-      .single();
-    if (error) throw error;
-
-    const project = dbToProject(row);
-    setProjects(prev => [project, ...prev]);
-    setActiveId(project.id);
+  const select = useCallback((id: string) => {
+    try { sessionStorage.setItem(ACTIVE_KEY, id); } catch { /* selection can remain in memory */ }
+    setActiveId(id);
+  }, []);
+  const createProject = useCallback(async (data: Omit<Project, 'id' | 'createdAt' | 'printer' | 'status'>) => {
+    const name = data.name.trim();
+    if (!name) throw new Error('Enter a project name.');
+    const project: Project = {...data, name, id: crypto.randomUUID(), createdAt: new Date().toISOString(), status: 'setup', printer: {name: '', nozzle: '', maxSpeed: ''}};
+    setProjects(changeProjects(window.localStorage, 'create', project));
+    select(project.id);
     return project;
-  }, []);
-
+  }, [select]);
   const updateProject = useCallback(async (id: string, updates: Partial<Project>) => {
-    const dbUpdates: Partial<DBProject> = {};
-    if (updates.status        !== undefined) dbUpdates.status         = updates.status;
-    if (updates.totalLayers   !== undefined) dbUpdates.total_layers   = updates.totalLayers;
-    if (updates.printSpeed    !== undefined) dbUpdates.print_speed    = updates.printSpeed;
-    if (updates.structureType !== undefined) dbUpdates.structure_type = updates.structureType;
-    if (updates.name          !== undefined) dbUpdates.name           = updates.name;
-    if (updates.description   !== undefined) dbUpdates.description    = updates.description;
-    if (updates.report        !== undefined) dbUpdates.report         = updates.report;
-
-    if (Object.keys(dbUpdates).length > 0) {
-      const { data, error } = await supabase.from('projects').update(dbUpdates).eq('id', id).select('id').single();
-      if (error || data?.id !== id) throw new Error('Project update was not saved.');
-    }
-
-    if (updates.printer) {
-      const p = updates.printer;
-      await supabase.from('printer_configs').upsert({
-        project_id:       id,
-        printer_name:     p.name,
-        printer_type:     p.type,
-        nozzle:           p.nozzle,
-        max_speed:        p.maxSpeed,
-        layer_height:     p.layerHeight     ?? null,
-        bead_compression: p.beadCompression ?? null,
-        manual_config:    p.manualConfig    ?? null,
-      }, { onConflict: 'project_id' });
-    }
-
-    setProjects(prev => prev.map(p =>
-      p.id === id ? { ...p, ...updates } : p
-    ));
+    setProjects(changeProjects(window.localStorage, 'update', id, updates));
   }, []);
-
   const deleteProject = useCallback(async (id: string) => {
-    await supabase.from('projects').delete().eq('id', id);
-    setProjects(prev => prev.filter(p => p.id !== id));
-    if (activeId === id) setActiveId(null);
+    setProjects(changeProjects(window.localStorage, 'delete', id));
+    if (activeId === id) {
+      try { sessionStorage.removeItem(ACTIVE_KEY); } catch { /* no persisted selection */ }
+      setActiveId(null);
+    }
   }, [activeId]);
-
-  const setActive = useCallback((id: string) => setActiveId(id), []);
   const activeProject = projects.find(p => p.id === activeId) ?? null;
 
   return (
     <ProjectContext.Provider value={{
-      projects, activeProject, loading,
-      createProject, updateProject, setActive,
-      setActiveProject: setActiveId,
+      projects, activeProject, loading, error,
+      createProject, updateProject, setActive: select,
+      setActiveProject: select,
       deleteProject, refreshProjects,
     }}>
       {children}

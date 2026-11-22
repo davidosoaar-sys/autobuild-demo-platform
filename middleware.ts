@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// The guest dashboard, legal pages and existing slicer tools are public.
+// Public pages are informational or use data local to this browser.
 // Other routes keep the beta gate or their existing scoped pilot challenge.
 const ALLOWED_PREFIXES = ['/slicer', '/tools/slicer', '/floorplan'];
-const ALLOWED_EXACT = ['/', '/tos', '/privacy', '/favicon.ico', '/Autobuildblack.png', '/autobuild-wordmark.png'];
+const ALLOWED_EXACT = ['/', '/projects', '/printer-setup', '/settings', '/help', '/definitions', '/tos', '/privacy', '/favicon.ico', '/Autobuildblack.png', '/autobuild-wordmark.png'];
 const RESEARCH = '/api/pre-print-research';
 const PILOT_PAGES = new Set(['/pre-print-optimizer', '/live-monitoring', '/post-processing', '/report', RESEARCH]);
 const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow' };

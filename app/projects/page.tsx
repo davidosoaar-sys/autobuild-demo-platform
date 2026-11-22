@@ -27,7 +27,8 @@ const STATUS: Record<Project['status'], { label: string; dotClass: string }> = {
 
 const STRUCTURES = ['Standard Home','Load-bearing wall','Foundation slab','Column','Partition wall','Retaining wall','Custom'];
 
-function CreateModal({ onClose, onCreate }: {
+function CreateModal({ onClose, onCreate, error }: {
+  error: string;
   onClose: () => void;
   onCreate: (name: string, desc: string, structure: string, address: string) => void;
 }) {
@@ -77,6 +78,7 @@ function CreateModal({ onClose, onCreate }: {
           </div>
         </div>
 
+        {error && <p role="alert" className="px-5 pb-2 text-sm text-red-700">{error}</p>}
         <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
           <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">Cancel</button>
           <button onClick={()=>canSubmit&&onCreate(name,desc,structure,address)} disabled={!canSubmit}
@@ -189,7 +191,8 @@ function ProjectCard({ project, onOpen, onDelete, listView }: { project: Project
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { projects, setActiveProject, createProject, deleteProject } = useProjects();
+  const { projects, setActiveProject, createProject, deleteProject, loading, error } = useProjects();
+  const [actionError, setActionError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [listView,   setListView]   = useState(false);
   const [userName,   setUserName]   = useState('');
@@ -208,21 +211,22 @@ export default function ProjectsPage() {
   };
 
   const handleCreate = async (name: string, desc: string, structure: string, address: string) => {
-    const p = await createProject({
-      name, description: desc, structureType: structure,
-      printer: { name:'', nozzle:'', maxSpeed:'' },
-      totalLayers: 0, printSpeed: 60,
-      ...(address ? { address } : {}),
-    } as any);
-    setActiveProject(p.id);
-    setShowCreate(false);
-    router.push('/printer-setup');
+    setActionError('');
+    try {
+      await createProject({ name, description: desc, structureType: structure, address, totalLayers: 0, printSpeed: 60 });
+      setShowCreate(false);
+      router.push('/printer-setup');
+    } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Could not create the project.'); }
+  };
+
+  const handleDelete = async (id: string) => {
+    setActionError('');
+    try { await deleteProject(id); } catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Could not delete the project.'); }
   };
 
   const handleOpen = (project: Project) => {
     setActiveProject(project.id);
-    if (project.status==='setup')                  router.push('/printer-setup');
-    else if (project.status==='pre-print')         router.push('/pre-print-optimizer');
+    if (project.status==='setup' || project.status==='pre-print') router.push('/printer-setup');
     else if (project.status==='printing')          router.push('/live-monitoring');
     else if (project.status==='post-processing')   router.push('/post-processing');
     else                                           router.push('/report');
@@ -292,8 +296,11 @@ export default function ProjectsPage() {
           </div>
         )}
 
+        <p className="text-sm text-gray-600 mb-4">Projects here are saved only in this browser and are not synced. Use test data on shared devices.</p>
+        {error && <p role="alert" className="mb-4 text-red-700">{error}</p>}
+        {actionError && !showCreate && <p role="alert" className="mb-4 text-red-700">{actionError}</p>}
         {/* Projects */}
-        {projects.length === 0 ? (
+        {loading ? <p role="status">Loading projects…</p> : error ? null : projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 sm:py-24 bg-white rounded-2xl border border-gray-100">
             <p className="text-sm font-medium text-black mb-1">No projects yet</p>
             <p className="text-xs text-black/40 mb-4">Create your first print job to get started</p>
@@ -305,19 +312,19 @@ export default function ProjectsPage() {
         ) : listView ? (
           <div className="space-y-2">
             {projects.map(p=>(
-              <ProjectCard key={p.id} project={p} onOpen={()=>handleOpen(p)} onDelete={()=>deleteProject(p.id)} listView={true}/>
+              <ProjectCard key={p.id} project={p} onOpen={()=>handleOpen(p)} onDelete={()=>void handleDelete(p.id)} listView={true}/>
             ))}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {projects.map(p=>(
-              <ProjectCard key={p.id} project={p} onOpen={()=>handleOpen(p)} onDelete={()=>deleteProject(p.id)} listView={false}/>
+              <ProjectCard key={p.id} project={p} onOpen={()=>handleOpen(p)} onDelete={()=>void handleDelete(p.id)} listView={false}/>
             ))}
           </div>
         )}
       </div>
 
-      {showCreate && <CreateModal onClose={()=>setShowCreate(false)} onCreate={handleCreate}/>}
+      {showCreate && <CreateModal error={actionError} onClose={()=>{setActionError('');setShowCreate(false);}} onCreate={handleCreate}/>}
     </div>
   );
 }

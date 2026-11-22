@@ -288,8 +288,11 @@ function ConnectFlow({onConnected,onBack}:{onConnected:(printer:typeof PRINTERS[
   );
 }
 
-function ManualConfigForm({onSave,onBack}:{onSave:(cfg:ManualConfig)=>void;onBack:()=>void}) {
-  const [cfg,setCfg]=useState<ManualConfig>(DEFAULT_CONFIG);
+function ManualConfigForm({onSave,onBack,initial}:{onSave:(cfg:ManualConfig)=>void;onBack:()=>void;initial?: import('@/lib/project-store').ManualPrinterConfig}) {
+  const [cfg,setCfg]=useState<ManualConfig>(()=>{
+    const shape = initial?.nozzleShape;
+    return {...DEFAULT_CONFIG,...initial,nozzleShape:shape === 'square' || shape === 'rectangular' || shape === 'teeth' ? shape : 'round'};
+  });
   const [focusKey,setFocusKey]=useState<string|null>(null);
   const set=(key:keyof ManualConfig)=>(val:any)=>setCfg(c=>({...c,[key]:val}));
   const hydraulicVolume=(Math.PI*(cfg.hoseInternalDiam/2/1000)**2*cfg.hoseLength*1000).toFixed(2);
@@ -371,7 +374,7 @@ function ManualConfigForm({onSave,onBack}:{onSave:(cfg:ManualConfig)=>void;onBac
 
         <div className="flex gap-3">
           <button onClick={onBack} className="px-5 py-3 text-sm border border-gray-200 rounded-xl text-black hover:bg-gray-50 transition-colors">Back</button>
-          <button onClick={()=>onSave(cfg)} className="flex-1 py-3 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/90 transition-colors">Save & Continue</button>
+          <button onClick={()=>onSave(cfg)} className="flex-1 py-3 text-sm font-semibold bg-black text-white rounded-xl hover:bg-black/90 transition-colors">Save printer settings</button>
         </div>
       </div>
 
@@ -398,34 +401,41 @@ export default function PrinterSetupPage() {
     router.push('/pre-print-optimizer');
   };
 
-  const handleManualSave=(cfg:ManualConfig)=>{
-    if(activeProject)updateProject(activeProject.id,{status:'pre-print',printer:{name:cfg.printerName,type:'Custom',nozzle:`${cfg.nozzleDiameter} mm`,maxSpeed:`${cfg.maxVelocity} mm/s`,layerHeight:cfg.nozzleDiameter*cfg.beadCompression,manualConfig:cfg}});
-    router.push('/pre-print-optimizer');
+  const [saveError, setSaveError] = useState('');
+  const handleManualSave=async (cfg:ManualConfig)=>{
+    setSaveError('');
+    if (!activeProject) { setSaveError('Open a project before saving printer settings.'); return; }
+    if (!cfg.printerName.trim() || !(cfg.nozzleDiameter > 0) || !(cfg.maxVelocity > 0)) { setSaveError('Enter a printer name, positive nozzle diameter and positive maximum speed.'); return; }
+    try {
+      await updateProject(activeProject.id,{status:'pre-print',printer:{name:cfg.printerName.trim(),type:'Custom',nozzle:`${cfg.nozzleDiameter} mm`,maxSpeed:`${cfg.maxVelocity} mm/s`,layerHeight:cfg.nozzleDiameter*cfg.beadCompression,manualConfig:cfg}});
+      router.push('/projects');
+    } catch (cause) { setSaveError(cause instanceof Error ? cause.message : 'Printer settings could not be saved.'); }
   };
 
   return (
     <div className="print-workspace min-h-screen pb-16">
       <AppNav currentStep="printer"/>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {saveError && <p role="alert" className="mb-4 text-red-700">{saveError}</p>}
         <AnimatePresence mode="wait">
 
           {mode==='choose'&&(
             <motion.div key="choose" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0}}>
               <div className="mb-6 sm:mb-8">
                 <h1 className="text-xl sm:text-2xl font-bold text-black">Printer Setup</h1>
-                <p className="text-black/50 text-sm mt-1">How would you like to configure your printer?</p>
+                <p className="text-black/50 text-sm mt-1">Configure a printer for this browser-local project. Pre-Print is available separately with pilot access.</p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 max-w-2xl">
-                <button onClick={()=>setMode('pi')} className="group text-left bg-white border-2 border-gray-100 rounded-2xl p-5 sm:p-6 hover:border-black transition-all">
+                <button disabled className="group text-left bg-white border-2 border-gray-100 rounded-2xl p-5 sm:p-6 hover:border-black transition-all">
                   <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-4">
                     <svg className="w-5 h-5 text-black/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"/>
                     </svg>
                   </div>
-                  <p className="text-black/50 text-xs font-bold mb-1">Recommended</p>
+                  <p className="text-black/50 text-xs font-bold mb-1">Not connected</p>
                   <p className="text-black text-base font-semibold mb-2">Wireless Connection</p>
-                  <p className="text-black/40 text-xs leading-relaxed">Plug the AutoBuild Pi into your printer. Auto-discovers all specs over Wi-Fi.</p>
-                  <div className="mt-4 text-black/30 text-xs font-medium group-hover:text-black transition-colors">Auto-configure →</div>
+                  <p className="text-black/40 text-xs leading-relaxed">Wireless discovery needs a hardware connection. Enter the printer specs manually for now.</p>
+                  <div className="mt-4 text-black/30 text-xs font-medium group-hover:text-black transition-colors">Unavailable</div>
                 </button>
                 <button onClick={()=>setMode('manual')} className="group text-left bg-white border-2 border-gray-100 rounded-2xl p-5 sm:p-6 hover:border-black transition-all">
                   <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-4">
@@ -469,7 +479,7 @@ export default function PrinterSetupPage() {
                   <p className="text-black/40 text-sm">Configure your printer's physical properties</p>
                 </div>
               </div>
-              <ManualConfigForm onSave={handleManualSave} onBack={()=>setMode('choose')}/>
+              <ManualConfigForm initial={activeProject?.printer.manualConfig} onSave={handleManualSave} onBack={()=>setMode('choose')}/>
             </motion.div>
           )}
 
