@@ -10,6 +10,18 @@ const { outputText } = ts.transpileModule(source, { compilerOptions: { module: t
 new Function('require', 'exports', outputText)(createRequire(import.meta.url), exports);
 const { middleware } = exports;
 
+test('the dashboard and its legal pages are public without opening workspace routes', async () => {
+  const request = path => middleware(new NextRequest(`https://workspace.example${path}`));
+  for (const path of ['/', '/tos', '/privacy', '/slicer']) {
+    const response = await request(path);
+    assert.equal(response.status, 200, path);
+    assert.equal(response.headers.get('location'), null);
+  }
+  for (const path of ['/projects', '/tools/monitor', '/tools/image-analysis', '/tools/slices', '/api/backend/optimize']) {
+    assert.equal((await request(path)).status, 307, path);
+  }
+});
+
 test('configured private pilot challenges for scoped workspace pages, never for Pod or legacy API routes', async () => {
   const keys = ['NODE_ENV', 'AUTOBUILD_V1_PILOT_SHA256'];
   const prior = keys.map(key => process.env[key]);

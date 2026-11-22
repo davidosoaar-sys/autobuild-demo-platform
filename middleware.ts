@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Beta gate: only the slicer picker and the two slicer tools are reachable.
-// Everything else in the app (home, projects, settings, live-monitoring,
-// pre-print-optimizer, post-processing, report, printer-setup, help, etc.)
-// redirects to the slicer picker instead of resolving.
+// The guest dashboard, legal pages and existing slicer tools are public.
+// Other routes keep the beta gate or their existing scoped pilot challenge.
 const ALLOWED_PREFIXES = ['/slicer', '/tools/slicer', '/floorplan'];
-const ALLOWED_EXACT = ['/favicon.ico', '/Autobuildblack.png', '/autobuild-wordmark.png'];
+const ALLOWED_EXACT = ['/', '/tos', '/privacy', '/favicon.ico', '/Autobuildblack.png', '/autobuild-wordmark.png'];
 const RESEARCH = '/api/pre-print-research';
 const PILOT_PAGES = new Set(['/pre-print-optimizer', '/live-monitoring', '/post-processing', '/report', RESEARCH]);
 const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow' };

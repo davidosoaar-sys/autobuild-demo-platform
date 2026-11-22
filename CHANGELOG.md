@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.1.1 (2026-11-22)
+
+- Make the dashboard the public homepage. The slicer remains available from its dashboard card; the public dashboard does not load saved slice history or open gated tools and APIs. Verified the homepage, slicer picker, and anonymous route checks against a local production build.
+
 ## 1.1.0 (2026-11-21)
 
 - Bring the monochrome glass theme, self-hosted Geist, and persistent light/dark controls to the dashboard and core print workflow.

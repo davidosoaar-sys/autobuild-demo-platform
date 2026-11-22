@@ -6,33 +6,14 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronRight, CircleHelp, FileBox, FolderOpen, Layers3, ScanLine, Settings, Video } from 'lucide-react';
+import { FolderOpen, Layers3, ScanLine, Video } from 'lucide-react';
 import './dashboard.css';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
-
-interface RecentSlice {
-  id: string;
-  file_name: string;
-  print_time: string | null;
-  layers: number | null;
-  source: string | null;
-  created_at: string;
-}
 
 function greeting(name: string) {
   const h = new Date().getHours();
   const g = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   return `${g}, ${name}.`;
-}
-
-function fmtDate(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 export default function Home() {
@@ -44,8 +25,7 @@ export default function Home() {
   const [tosChecked,    setTosChecked]    = useState(false);
   const [privChecked,   setPrivChecked]   = useState(false);
   const [dataChecked,   setDataChecked]   = useState(false);
-  const [recentSlices,      setRecentSlices]      = useState<RecentSlice[]>([]);
-  const [sliceState, setSliceState] = useState<'loading' | 'ready' | 'error'>('loading');
+
   const [showSlicerPicker, setShowSlicerPicker] = useState(false);
 
   useEffect(() => {
@@ -58,16 +38,6 @@ export default function Home() {
       setUserName(name);
     }
     setReady(true);
-
-    supabase
-      .from('saved_slices')
-      .select('id, file_name, print_time, layers, source, created_at')
-      .order('created_at', { ascending: false })
-      .limit(3)
-      .then(({ data, error }) => {
-        if (data) setRecentSlices(data);
-        setSliceState(error ? 'error' : 'ready');
-      });
   }, []);
 
   const handleOnboard = () => {
@@ -212,13 +182,11 @@ export default function Home() {
           </Link>
           <nav className="dashboard-nav" aria-label="Primary navigation">
             <Link href="/" aria-current="page">Workspace</Link>
-            <Link href="/projects">Projects</Link>
-            <Link href="/tools/monitor">Live Monitor</Link>
+
           </nav>
           <nav className="dashboard-utilities" aria-label="Workspace utilities">
             <WorkspaceThemeToggle />
-            <Link href="/help"><CircleHelp size={18} aria-hidden="true" /> Help</Link>
-            <Link href="/settings" aria-label="Settings"><Settings size={18} aria-hidden="true" /></Link>
+
           </nav>
         </div>
       </header>
@@ -226,52 +194,38 @@ export default function Home() {
       <main className="dashboard-width dashboard-main">
         <div className="dashboard-intro">
           <h1>Print workspace</h1>
-          <p>{userName ? `${greeting(userName)} ` : ''}Plan a print, monitor it on site, or review a layer photo.</p>
+          <p>{userName ? `${greeting(userName)} ` : ''}Start a print plan with the slicer.</p>
         </div>
 
         <section className="dashboard-tools" aria-labelledby="dashboard-tools-title">
           <h2 id="dashboard-tools-title" className="dashboard-section-title">Print tools</h2>
           <div className="dashboard-shortcuts">
-            <Link className="dashboard-glass dashboard-shortcut" href="/projects">
-              <span className="dashboard-tool-icon"><FolderOpen size={20} aria-hidden="true" /></span>
-              <strong>Projects</strong><small>Set up and track print jobs.</small>
-            </Link>
+
             <button type="button" className="dashboard-glass dashboard-shortcut" onClick={() => setShowSlicerPicker(true)}>
               <span className="dashboard-tool-icon"><Layers3 size={20} aria-hidden="true" /></span>
               <strong>Slicer</strong><small>Generate a concrete print path.</small>
             </button>
-            <Link className="dashboard-glass dashboard-shortcut" href="/tools/monitor">
+            <div className="dashboard-glass dashboard-shortcut dashboard-restricted">
+              <span className="dashboard-tool-icon"><FolderOpen size={20} aria-hidden="true" /></span>
+              <strong>Projects</strong><small>Not available in the public beta.</small>
+            </div>
+            <div className="dashboard-glass dashboard-shortcut dashboard-restricted">
               <span className="dashboard-tool-icon"><Video size={20} aria-hidden="true" /></span>
-              <strong>Live Monitor</strong><small>Watch camera views during a print.</small>
-            </Link>
-            <Link className="dashboard-glass dashboard-shortcut" href="/tools/image-analysis">
+              <strong>Live Monitor</strong><small>Not available in the public beta.</small>
+            </div>
+            <div className="dashboard-glass dashboard-shortcut dashboard-restricted">
               <span className="dashboard-tool-icon"><ScanLine size={20} aria-hidden="true" /></span>
-              <strong>Image Analysis</strong><small>Review a layer photo.</small>
-            </Link>
+              <strong>Image Analysis</strong><small>Not available in the public beta.</small>
+            </div>
           </div>
         </section>
 
         <section className="dashboard-history" aria-labelledby="dashboard-history-title">
           <div className="dashboard-history-head">
             <h2 id="dashboard-history-title" className="dashboard-section-title">Recent slices</h2>
-            <Link href="/tools/slices">My Slices <ChevronRight size={16} aria-hidden="true" /></Link>
+
           </div>
-          <table className="dashboard-history-table" aria-labelledby="dashboard-history-title">
-            <thead><tr><th scope="col">File</th><th scope="col">Source</th><th scope="col">Layers</th><th scope="col">Print time</th><th scope="col">Saved</th></tr></thead>
-            <tbody>
-              {sliceState === 'loading' ? <tr><td colSpan={5}><span role="status">Loading saved slices…</span></td></tr>
-                : sliceState === 'error' ? <tr><td colSpan={5}><span role="status">Couldn’t load recent slices. Open My Slices to try again.</span></td></tr>
-                : recentSlices.length === 0 ? <tr><td colSpan={5}>No saved slices yet. Saved toolpaths will appear here.</td></tr>
-                : recentSlices.map(slice => <tr key={slice.id}>
-                    <td><div className="dashboard-file"><FileBox size={17} aria-hidden="true" />
-                      <div><strong>{slice.file_name}</strong><small>{[slice.layers === null ? null : `${slice.layers.toLocaleString()} layers`, slice.print_time].filter(Boolean).join(' · ')}</small></div>
-                    </div></td>
-                    <td>{slice.source === 'pre-print' ? 'Pre-Print' : slice.source === 'slicer' ? 'Slicer' : slice.source || '–'}</td>
-                    <td>{slice.layers?.toLocaleString() ?? '–'}</td><td>{slice.print_time || '–'}</td>
-                    <td><time dateTime={slice.created_at}>{fmtDate(slice.created_at)}</time></td>
-                  </tr>)}
-            </tbody>
-          </table>
+          <p className="dashboard-history-table p-4">Saved slices are not shown on the public dashboard.</p>
         </section>
       </main>
     </div>
